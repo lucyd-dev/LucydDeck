@@ -1,0 +1,20 @@
+{
+	"pageId": 1,
+	"buttons": {
+		"0": {
+			"imageName": "mute",
+			"click": [{ "action": "HID_KEY", "keycodes": ["SHIFT", "KP_ASTERISK"] }],
+			"longPress": [{ "action": "HID_KEY", "keycodes": ["SHIFT", "KP_MINUS"] }]
+		},
+        "1": {
+            "imageName": "welcome",
+            "click": [{ "action": "CONTROL_KEY", "keycode": "PLAY_PAUSE" }],
+            "longPress": [{ "action": "CONTROL_KEY", "keycode": "NEXT" }]
+        },
+		"2": {
+			"imageName": "test",
+			"click": [{ "action": "CMD", "command": "discord_mute" }],
+			"longPress": [{ "action": "CMD", "command": "spotify_skip" }]
+		}
+	}
+}

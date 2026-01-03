@@ -1,0 +1,36 @@
+{
+	"$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+	"appId": "lucyd.lucyddeck",
+	"asar": true,
+	"productName": "LucydDeck",
+	"directories": {
+		"output": "release/${version}"
+	},
+	"files": ["dist", "dist-electron"],
+	"win": {
+		"target": ["nsis"],
+		"icon": "public/icon.ico",
+		"artifactName": "${productName}-Windows-${version}-Setup.${ext}"
+	},
+	"nsis": {
+		"installerIcon": "public/favicon.ico",
+		"uninstallerIcon": "public/favicon.ico",
+		"oneClick": false,
+		"perMachine": false,
+		"allowToChangeInstallationDirectory": true,
+		"deleteAppDataOnUninstall": false
+	},
+	"linux": {
+		"target": ["AppImage", "deb"],
+		"icon": "public/icon.png",
+		"category": "Utility",
+		"artifactName": "${productName}-Linux-${version}.${ext}"
+	},
+	"publish": [
+		{
+			"provider": "github",
+			"owner": "lucyd-dev",
+			"repo": "LucydDeck"
+		}
+	]
+}

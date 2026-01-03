@@ -1,0 +1,37 @@
+name: Build and Release Electron App (Vite, TS, Win & Linux)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Install Wine for Windows build
+        run: sudo apt-get update && sudo apt-get install -y wine64
+
+      - name: Build Vite app
+        working-directory: ./app
+        run: npm run build
+
+      - name: Publish Electron app (Win + Linux)
+        working-directory: ./app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder --win --linux --x64 --publish always
