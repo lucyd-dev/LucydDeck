@@ -56,8 +56,8 @@ async function createWindow() {
 	// await usb.uploadFile(Command.ImageUpload, 'test123', img);
 
 	// Send config
-	// const config = fs.readFileSync(path.join(process.env.APP_ROOT, 'public', 'page-0.json'));
-	// await usb.uploadFile(Command.ConfigUpload, 'page-0', config);
+	const config = fs.readFileSync(path.join(process.env.APP_ROOT, 'public', 'page-0.json'));
+	await usb.uploadFile(Command.ConfigUpload, 'page-0', config);
 
 	// Load page
 	await usb.sendPage(0);

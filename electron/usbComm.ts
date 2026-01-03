@@ -39,7 +39,7 @@ export class USBComm {
 	}
 
 	private onData(data: Buffer) {
-		const len = data[0];
+		// const len = data[0];
 		const cmd = data[1];
 		// console.log('Received data', data.toString('hex'), len);
 

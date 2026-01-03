@@ -3,7 +3,7 @@
   "author": "Lucyd",
   "description": "An open-source, low-cost alternative to commercial stream decks.",
   "private": true,
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
