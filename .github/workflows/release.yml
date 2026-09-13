@@ -1,86 +1,86 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
+    push:
+        branches:
+            - main
 
 permissions:
-  contents: write
-  pull-requests: write
+    contents: write
+    pull-requests: write
 
 jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - name: Run release-please
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+    release-please:
+        name: Release Please
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        outputs:
+            tag_name: ${{ steps.release.outputs.tag_name }}
+        steps:
+            - name: Run release-please
+              id: release
+              uses: googleapis/release-please-action@v4
+              with:
+                  config-file: release-please-config.json
+                  manifest-file: .release-please-manifest.json
 
-  build-artifacts:
-    name: Build & Upload (${{ matrix.name }})
-    needs: release-please
-    if: ${{ needs.release-please.outputs.tag_name != '' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux
-            os: ubuntu-latest
-            args: --linux
-          - name: windows
-            os: windows-latest
-            args: --win
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    build-artifacts:
+        name: Build & Upload (${{ matrix.name }})
+        needs: release-please
+        if: ${{ needs.release-please.outputs.tag_name != '' }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: linux
+                      os: ubuntu-latest
+                      args: --linux
+                    - name: windows
+                      os: windows-latest
+                      args: --win
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 60
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.node-version'
-          cache: npm
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: ".node-version"
+                  cache: npm
 
-      - name: Cache electron-builder
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron-builder
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
+            - name: Cache electron-builder
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/electron-builder
+                      ~/AppData/Local/electron-builder/Cache
+                  key: ${{ runner.os }}-electron-builder-${{ hashFiles('package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-electron-builder-
 
-      - name: Install dependencies
-        run: npm ci
+            - name: Install dependencies
+              run: npm ci
 
-      - name: Build
-        run: npm run build
+            - name: Build
+              run: npm run build
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
+            - name: Install Linux packaging tools
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
 
-      - name: Package
-        run: npx electron-builder ${{ matrix.args }}
+            - name: Package
+              run: npx electron-builder ${{ matrix.args }}
 
-      - name: Upload release artifacts
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ needs.release-please.outputs.tag_name }}"
-          if [ -z "$TAG" ]; then
-            echo "Error: got no tag name from release-please."
-            exit 1
-          fi
-          gh release upload "$TAG" release/*/*.{AppImage,deb,exe} --clobber
+            - name: Upload release artifacts
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  TAG="${{ needs.release-please.outputs.tag_name }}"
+                  if [ -z "$TAG" ]; then
+                    echo "Error: got no tag name from release-please."
+                    exit 1
+                  fi
+                  gh release upload "$TAG" release/*/*.{AppImage,deb,exe} --clobber

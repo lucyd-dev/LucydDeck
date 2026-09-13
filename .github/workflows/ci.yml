@@ -1,95 +1,98 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  lint-typecheck:
-    name: Lint & Typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    lint-typecheck:
+        name: Lint & Typecheck
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.node-version'
-          cache: npm
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: ".node-version"
+                  cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+            - name: Install dependencies
+              run: npm ci
 
-      - name: Lint
-        run: npm run lint
+            - name: Lint
+              run: npm run lint
 
-      - name: Typecheck
-        run: npm run typecheck
+            - name: Format check
+              run: npm run format:check
 
-  build:
-    name: Build & Package (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+            - name: Typecheck
+              run: npm run typecheck
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.node-version'
-          cache: npm
+    build:
+        name: Build & Package (${{ matrix.os }})
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 60
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Cache electron-builder
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron-builder
-            ~/Library/Caches/electron-builder
-            ~/AppData/Local/electron-builder/Cache
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: ".node-version"
+                  cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+            - name: Cache electron-builder
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/electron-builder
+                      ~/Library/Caches/electron-builder
+                      ~/AppData/Local/electron-builder/Cache
+                  key: ${{ runner.os }}-electron-builder-${{ hashFiles('package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-electron-builder-
 
-      - name: Build
-        run: npm run build
+            - name: Install dependencies
+              run: npm ci
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
+            - name: Build
+              run: npm run build
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: npx electron-builder --win
+            - name: Install Linux packaging tools
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
 
-      - name: Package (Linux)
-        if: runner.os == 'Linux'
-        run: npx electron-builder --linux
+            - name: Package (Windows)
+              if: runner.os == 'Windows'
+              run: npx electron-builder --win
 
-      - name: Package (macOS)
-        if: runner.os == 'macOS'
-        run: npx electron-builder --mac
+            - name: Package (Linux)
+              if: runner.os == 'Linux'
+              run: npx electron-builder --linux
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ runner.os }}
-          path: release/**
-          if-no-files-found: warn
+            - name: Package (macOS)
+              if: runner.os == 'macOS'
+              run: npx electron-builder --mac
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: release-${{ runner.os }}
+                  path: release/**
+                  if-no-files-found: warn
