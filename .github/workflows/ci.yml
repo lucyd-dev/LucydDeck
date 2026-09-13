@@ -57,24 +57,23 @@ jobs:
                   node-version-file: ".node-version"
                   cache: npm
 
-            - name: Cache electron-builder
+            - name: Cache Electron & electron-builder
               uses: actions/cache@v4
               with:
                   path: |
+                      ~/.cache/electron
                       ~/.cache/electron-builder
+                      ~/Library/Caches/electron
                       ~/Library/Caches/electron-builder
+                      ~/AppData/Local/electron/Cache
                       ~/AppData/Local/electron-builder/Cache
-                  key: ${{ runner.os }}-electron-builder-${{ hashFiles('package-lock.json') }}
+                  key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
                   restore-keys: |
-                      ${{ runner.os }}-electron-builder-
+                      ${{ runner.os }}-electron-
 
-            - name: Install native build toolchain (Windows)
-              if: runner.os == 'Windows'
-              run: choco install -y visualstudio2022-workloadtools
-
-            - name: Install native build dependencies (Linux)
+            - name: Install Linux build dependencies
               if: runner.os == 'Linux'
-              run: sudo apt-get update && sudo apt-get install -y build-essential python3 libarchive-tools rpm
+              run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev build-essential python3 libarchive-tools rpm
 
             - name: Install dependencies
               run: npm ci
@@ -84,11 +83,11 @@ jobs:
 
             - name: Package (Windows)
               if: runner.os == 'Windows'
-              run: npx electron-builder --config config/electron-builder.json --win
+              run: npx electron-builder --config config/electron-builder.json --win --publish never
 
             - name: Package (Linux)
               if: runner.os == 'Linux'
-              run: npx electron-builder --config config/electron-builder.json --linux
+              run: npx electron-builder --config config/electron-builder.json --linux --publish never
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v4
