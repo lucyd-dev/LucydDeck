@@ -52,19 +52,6 @@ version bumps but do not appear as changelog sections.
 - A `!` after the type/scope (`feat!:`) forces a major bump — **do not use it**.
   This project is pre-1.0 and never introduces a major version.
 
-## `electron/boot_app0.bin` provenance
-
-`electron/boot_app0.bin` is the ESP32-S3 second-stage bootloader emitted by
-Espressif's build system. It is **tracked intentionally**: it is a fixed
-per-flash payload written by the firmware updater (`esptool write_flash`) at
-offset `0x0` and must remain byte-for-byte stable. Treat it as a binary asset,
-not a log or cache artifact:
-
-- Do **not** add it to `.gitignore` or delete it.
-- Do not regenerate it casually; if it must be updated, note the exact Espressif
-  toolchain/build that produced it in the pull request.
-- It is unrelated to the `public/` renderer assets.
-
 ## Development
 
 ```bash
