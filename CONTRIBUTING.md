@@ -41,7 +41,7 @@ docs: document the ESP32-S3 bootloader provenance
 
 Release notes are generated automatically from these commit messages by
 [release-please][release-please]. Types marked as hidden in
-`release-please-config.json` (e.g. `docs`, `ci`, `chore`) still count toward
+`config/release-please-config.json` (e.g. `docs`, `ci`, `chore`) still count toward
 version bumps but do not appear as changelog sections.
 
 ### Rules

@@ -7,7 +7,7 @@ A low-cost DIY alternative to commercial stream decks powered by the ESP32-S3.
 > [!IMPORTANT]
 > **Work in Progress:** This project is currently in early development and is intended as a hobby project. Features, APIs, and documentation are subject to change as the v1.0.0 release approaches.
 
-![Image of the LucydDeck Device](image.jpg)
+![Image of the LucydDeck Device](docs/images/image.jpg)
 
 **Why, u may ask?**
 
@@ -103,8 +103,6 @@ LucydDeck is built upon these incredible open-source libraries and frameworks:
 - rewrite for better performance, maybe in espressif/esp-idf
 
 ## 🔗 Quick Links
-
-[Documentation](/docs/Readme.md)
 
 [Desktop App Repository](https://github.com/lucyd-dev/LucydDeck)
 

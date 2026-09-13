@@ -14,9 +14,9 @@
         "typecheck": "vue-tsc --noEmit",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "dist": "electron-builder --win --linux --x64",
-        "dist:win": "electron-builder --win --x64",
-        "dist:linux": "electron-builder --linux --x64"
+        "dist": "electron-builder --config config/electron-builder.json --win --linux --x64",
+        "dist:win": "electron-builder --config config/electron-builder.json --win --x64",
+        "dist:linux": "electron-builder --config config/electron-builder.json --linux --x64"
     },
     "dependencies": {
         "crc": "^4.3.2",
