@@ -67,9 +67,9 @@ npm run dist         # package for all platforms
 
 1. Branch off `main` (e.g. `feature/my-change`).
 2. Make small, focused commits following Conventional Commits.
-3. Open a pull request to `main`. CI runs lint, typecheck, and a build/package
-   matrix on Ubuntu, Windows, and macOS, and commitlint validates your commit
-   messages.
+3. Open a pull request to `main`. CI runs lint, format checking, typecheck, and
+   a build/package matrix on Ubuntu and Windows, and commitlint validates your
+   commit messages.
 
 [cc]: https://www.conventionalcommits.org/en/v1.0.0/
 [release-please]: https://github.com/googleapis/release-please
