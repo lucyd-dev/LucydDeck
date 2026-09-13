@@ -16,19 +16,19 @@ Commit messages must be formatted as:
 
 Allowed types:
 
-| Type       | Purpose                                                        |
-| ---------- | -------------------------------------------------------------- |
-| `feat:`    | A new feature. Triggers a minor bump (pre-1.0: `0.2.0`, etc.). |
-| `fix:`     | A bug fix. Triggers a patch bump (`0.1.1`, etc.).              |
-| `perf:`    | A performance improvement.                                     |
-| `revert:`  | Reverts a previous commit.                                     |
-| `docs:`    | Documentation only.                                            |
-| `refactor:`| Code change that neither fixes a bug nor adds a feature.        |
-| `ci:`      | Changes to CI configuration and scripts.                       |
-| `build:`   | Changes that affect the build system or dependencies.          |
-| `test:`    | Adding or correcting tests.                                    |
-| `style:`   | Formatting, whitespace, missing semicolons (no behavior change).|
-| `chore:`   | Other changes that do not modify source or test files.         |
+| Type        | Purpose                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `feat:`     | A new feature. Triggers a minor bump (pre-1.0: `0.2.0`, etc.).   |
+| `fix:`      | A bug fix. Triggers a patch bump (`0.1.1`, etc.).                |
+| `perf:`     | A performance improvement.                                       |
+| `revert:`   | Reverts a previous commit.                                       |
+| `docs:`     | Documentation only.                                              |
+| `refactor:` | Code change that neither fixes a bug nor adds a feature.         |
+| `ci:`       | Changes to CI configuration and scripts.                         |
+| `build:`    | Changes that affect the build system or dependencies.            |
+| `test:`     | Adding or correcting tests.                                      |
+| `style:`    | Formatting, whitespace, missing semicolons (no behavior change). |
+| `chore:`    | Other changes that do not modify source or test files.           |
 
 Examples:
 
