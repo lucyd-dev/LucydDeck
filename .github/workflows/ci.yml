@@ -2,11 +2,9 @@ name: CI
 
 on:
     push:
-        branches:
-            - main
+        branches: [main]
     pull_request:
-        branches:
-            - main
+        branches: [main]
 
 concurrency:
     group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -39,12 +37,18 @@ jobs:
             - name: Typecheck
               run: npm run typecheck
 
-    build:
-        name: Build & Package (${{ matrix.os }})
+    build-artifacts:
+        name: Build & Upload (${{ matrix.name }})
         strategy:
             fail-fast: false
             matrix:
-                os: [ubuntu-latest, windows-latest]
+                include:
+                    - name: linux
+                      os: ubuntu-latest
+                      args: --linux
+                    - name: windows
+                      os: windows-latest
+                      args: --win
         runs-on: ${{ matrix.os }}
         timeout-minutes: 60
         steps:
@@ -57,16 +61,12 @@ jobs:
                   node-version-file: ".node-version"
                   cache: npm
 
-            - name: Cache Electron & electron-builder
+            - name: Cache Electron binary
               uses: actions/cache@v4
               with:
                   path: |
                       ~/.cache/electron
-                      ~/.cache/electron-builder
-                      ~/Library/Caches/electron
-                      ~/Library/Caches/electron-builder
-                      ~/AppData/Local/electron/Cache
-                      ~/AppData/Local/electron-builder/Cache
+                      ~/AppData/Local/electron
                   key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
                   restore-keys: |
                       ${{ runner.os }}-electron-
@@ -81,13 +81,8 @@ jobs:
             - name: Build
               run: npm run build
 
-            - name: Package (Windows)
-              if: runner.os == 'Windows'
-              run: npx electron-builder --config config/electron-builder.json --win --publish never
-
-            - name: Package (Linux)
-              if: runner.os == 'Linux'
-              run: npx electron-builder --config config/electron-builder.json --linux --publish never
+            - name: Package
+              run: npx electron-builder --config config/electron-builder.json ${{ matrix.args }} --publish never
 
             - name: Upload artifacts
               uses: actions/upload-artifact@v4

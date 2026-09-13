@@ -2,8 +2,7 @@ name: Release
 
 on:
     push:
-        branches:
-            - main
+        branches: [main]
 
 permissions:
     contents: write
@@ -50,14 +49,12 @@ jobs:
                   node-version-file: ".node-version"
                   cache: npm
 
-            - name: Cache Electron & electron-builder
+            - name: Cache Electron binary
               uses: actions/cache@v4
               with:
                   path: |
                       ~/.cache/electron
-                      ~/.cache/electron-builder
-                      ~/AppData/Local/electron/Cache
-                      ~/AppData/Local/electron-builder/Cache
+                      ~/AppData/Local/electron
                   key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
                   restore-keys: |
                       ${{ runner.os }}-electron-
