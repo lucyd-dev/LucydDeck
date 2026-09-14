@@ -25,7 +25,6 @@
         "dist:linux": "electron-builder --config config/electron-builder.json --linux --x64"
     },
     "dependencies": {
-        "crc": "^4.3.2",
         "node-hid": "^3.4.0",
         "serialport": "^13.0.0",
         "vue": "^3.5.42"
