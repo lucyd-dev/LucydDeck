@@ -82,4 +82,4 @@ jobs:
                     echo "Error: got no tag name from release-please."
                     exit 1
                   fi
-                  gh release upload "$TAG" release/*/*.{AppImage,deb,exe} --clobber
+                  gh release upload "$TAG" release/*/*.{AppImage,exe} --clobber
