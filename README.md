@@ -1,11 +1,13 @@
 # LucydDeck
 
+[![CI](https://github.com/lucyd-dev/LucydDeck/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lucyd-dev/LucydDeck/actions/workflows/ci.yml)
+
 A low-cost DIY alternative to commercial stream decks powered by the ESP32-S3.
 
 > [!IMPORTANT]
 > **Work in Progress:** This project is currently in early development and is intended as a hobby project. Features, APIs, and documentation are subject to change as the v1.0.0 release approaches.
 
-![Image of the LucydDeck Device](image.jpg)
+![Image of the LucydDeck Device](docs/images/image.jpg)
 
 **Why, u may ask?**
 
@@ -102,15 +104,14 @@ LucydDeck is built upon these incredible open-source libraries and frameworks:
 
 ## 🔗 Quick Links
 
-[Documentation](/docs/Readme.md)
-
 [Desktop App Repository](https://github.com/lucyd-dev/LucydDeck)
 
 [Firmware Repository](https://github.com/lucyd-dev/LucydDeck-firmware)
 
 ## 🤝 Contributing
 
-If you find this project interesting or useful, contributions are highly welcome! Please feel free to leave a star ⭐ on the repo or submit a Pull Request.
+Contributions are highly welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+for commit conventions and development setup, then open a Pull Request.
 
 ## 📄 License
 
