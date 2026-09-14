@@ -2,13 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
     "productName": "LucydDeck",
     "appId": "com.lucyd.lucyddeck",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/lucyd-dev/LucydDeck.git"
-    },
-    "license": "MIT",
-    "asar": true,
-    "asarUnpack": "**\\*.{node,dll}",
+    "asar": { "unpack": ["**/*.{node,dll}"] },
     "directories": {
         "output": "release/${version}"
     },

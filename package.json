@@ -4,6 +4,11 @@
     "description": "An open-source, low-cost alternative to commercial stream decks.",
     "private": true,
     "version": "0.1.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/lucyd-dev/LucydDeck.git"
+    },
+    "license": "MIT",
     "type": "module",
     "scripts": {
         "dev": "vite",

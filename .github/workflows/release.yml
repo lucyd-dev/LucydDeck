@@ -35,7 +35,7 @@ jobs:
                       os: ubuntu-latest
                       args: --linux
                     - name: windows
-                      os: windows-latest
+                      os: windows-2022
                       args: --win
         runs-on: ${{ matrix.os }}
         timeout-minutes: 60
@@ -58,9 +58,6 @@ jobs:
                   key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
                   restore-keys: |
                       ${{ runner.os }}-electron-
-            - name: Set up MSVC (Windows)
-              if: runner.os == 'Windows'
-              uses: ilammy/msvc-dev-cmd@v1
 
             - name: Install Linux build dependencies
               if: runner.os == 'Linux'
