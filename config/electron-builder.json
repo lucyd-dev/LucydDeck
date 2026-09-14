@@ -1,8 +1,9 @@
 {
-    "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+    "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/refs/tags/v24.13.3/packages/app-builder-lib/scheme.json",
     "productName": "LucydDeck",
     "appId": "com.lucyd.lucyddeck",
-    "asar": { "unpack": ["**/*.{node,dll}"] },
+    "asar":  true,
+    "asarUnpack": ["**/*.{node,dll}"],
     "directories": {
         "output": "release/${version}"
     },
