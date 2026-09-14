@@ -1,0 +1,247 @@
+@use "variables" as v;
+
+// App shell master-detail layout: topbar / content / inspector / toasts.
+.app-shell {
+    display: grid;
+    grid-template-columns: 1fr v.$inspector-width;
+    grid-template-rows: v.$topbar-height 1fr;
+    height: 100%;
+    width: 100%;
+}
+
+// --- TopBar ---------------------------------------------------------------
+
+.app-shell__topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: v.$space-md;
+    padding: 0 v.$space-lg;
+    height: v.$topbar-height;
+    background-color: v.$color-bg-elevated;
+    border-bottom: 1px solid v.$color-border;
+    user-select: none;
+}
+
+.topbar__brand {
+    display: flex;
+    align-items: center;
+    gap: v.$space-sm;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.topbar__logo {
+    color: v.$color-text;
+}
+
+.topbar__profile {
+    display: flex;
+    flex-direction: column;
+    gap: v.$space-2xs;
+    min-width: 0;
+}
+
+.topbar__profile-label {
+    font-size: 0.72rem;
+    color: v.$color-text-faint;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.topbar__profile-select {
+    max-width: 220px;
+    padding: v.$space-2xs v.$space-sm;
+    border-radius: v.$radius-sm;
+}
+
+.topbar__status {
+    display: inline-flex;
+    align-items: center;
+    gap: v.$space-xs;
+    padding: v.$space-2xs v.$space-sm;
+    border: 1px solid v.$color-border;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: v.$color-text-dim;
+}
+
+.topbar__status--connected {
+    color: v.$color-success;
+}
+
+.topbar__status--connecting {
+    color: v.$color-warning;
+}
+
+.topbar__status--error {
+    color: v.$color-error;
+}
+
+.topbar__status--disconnected {
+    color: v.$color-text-dim;
+}
+
+.topbar__status-label {
+    white-space: nowrap;
+}
+
+.topbar__save {
+    display: inline-flex;
+    align-items: center;
+    gap: v.$space-xs;
+    padding: v.$space-2xs v.$space-md;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+    font-weight: 600;
+
+    &[disabled] {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+}
+
+.topbar__nav {
+    display: flex;
+    align-items: center;
+    gap: v.$space-xs;
+    margin-left: auto;
+}
+
+.topbar__nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: v.$space-2xs;
+    padding: v.$space-2xs v.$space-sm;
+    border: 1px solid transparent;
+    border-radius: v.$radius-sm;
+    color: v.$color-text-dim;
+    text-decoration: none;
+
+    &:hover {
+        background-color: v.$color-bg-hover;
+        color: v.$color-text;
+    }
+
+    &.router-link-active {
+        background-color: rgba(v.$color-accent, 0.14);
+        color: v.$color-accent;
+    }
+}
+
+// --- Content / inspector --------------------------------------------------
+
+.app-shell__content {
+    grid-row: 2;
+    grid-column: 1;
+    overflow: auto;
+    padding: v.$space-xl;
+    background-color: v.$color-bg;
+}
+
+.app-shell__inspector {
+    grid-row: 2;
+    grid-column: 2;
+    overflow: auto;
+    padding: v.$space-lg;
+    background-color: v.$color-bg-elevated;
+    border-left: 1px solid v.$color-border;
+}
+
+.inspector__header {
+    padding-bottom: v.$space-sm;
+    border-bottom: 1px solid v.$color-border;
+}
+
+.inspector__title {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: v.$color-text-dim;
+}
+
+.inspector__placeholder {
+    color: v.$color-text-faint;
+    font-size: 0.85rem;
+}
+
+// --- Generic views --------------------------------------------------------
+
+.view {
+    max-width: 960px;
+}
+
+.view__title {
+    margin: 0 0 v.$space-md;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.view__hint,
+.view__context {
+    color: v.$color-text-faint;
+    font-size: 0.9rem;
+}
+
+// --- Toasts ---------------------------------------------------------------
+
+.app-shell__toasts {
+    position: fixed;
+    right: v.$space-lg;
+    bottom: v.$space-lg;
+    display: flex;
+    flex-direction: column;
+    gap: v.$space-sm;
+    z-index: v.$z-toasts;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: v.$space-sm;
+    max-width: 420px;
+    padding: v.$space-sm v.$space-md;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-md;
+    background-color: v.$color-surface;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.toast__message {
+    flex: 1;
+    color: v.$color-text;
+}
+
+.toast__dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: v.$space-2xs;
+    border: none;
+    background: transparent;
+    color: v.$color-text-dim;
+
+    &:hover {
+        color: v.$color-text;
+    }
+}
+
+.toast--info {
+    border-color: v.$color-border;
+}
+
+.toast--success {
+    border-color: v.$color-success;
+}
+
+.toast--warning {
+    border-color: v.$color-warning;
+}
+
+.toast--error {
+    border-color: v.$color-error;
+}

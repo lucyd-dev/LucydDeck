@@ -37,6 +37,9 @@ jobs:
             - name: Typecheck
               run: npm run typecheck
 
+            - name: Test
+              run: npm run test
+
     build-artifacts:
         name: Build & Upload (${{ matrix.name }})
         strategy:
@@ -47,7 +50,7 @@ jobs:
                       os: ubuntu-latest
                       args: --linux
                     - name: windows
-                      os: windows-2022
+                      os: windows-latest
                       args: --win
         runs-on: ${{ matrix.os }}
         timeout-minutes: 60

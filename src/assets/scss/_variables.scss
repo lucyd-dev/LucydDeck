@@ -1,0 +1,50 @@
+// Design tokens for the LucydDeck shell (dark theme).
+
+// Palette
+$color-bg: #14171d;
+$color-bg-elevated: #1c2129;
+$color-bg-hover: #232933;
+$color-surface: #262b35;
+$color-border: #343c49;
+$color-text: #e6e9ef;
+$color-text-dim: #9aa3b2;
+$color-text-faint: #6b7280;
+$color-accent: #7c6cf0;
+$color-accent-contrast: #ffffff;
+$color-success: #3fbf7f;
+$color-warning: #e6a23c;
+$color-error: #e5475b;
+$color-disabled: #4b5462;
+
+// Typography
+$font-sans:
+    "Inter",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+$font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+$font-size-root: 14px;
+
+// Spacing
+$space-2xs: 2px;
+$space-xs: 4px;
+$space-sm: 8px;
+$space-md: 12px;
+$space-lg: 16px;
+$space-xl: 24px;
+
+// Radii
+$radius-sm: 4px;
+$radius-md: 6px;
+$radius-lg: 10px;
+
+// Z-index
+$z-toasts: 1000;
+
+// Layout
+$topbar-height: 48px;
+$inspector-width: 280px;

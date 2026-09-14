@@ -1,38 +1,49 @@
 import { defineConfig } from "vite";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import electron from "vite-plugin-electron/simple";
 import vue from "@vitejs/plugin-vue";
 
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const alias = {
+    "@": path.resolve(dirname, "src"),
+    "@shared": path.resolve(dirname, "shared"),
+};
+
 // https://vitejs.dev/config/
 export default defineConfig({
+    resolve: {
+        alias,
+    },
     plugins: [
         vue(),
         electron({
             main: {
                 // Shortcut of `build.lib.entry`.
                 entry: "electron/main.ts",
-                // Add Vite options for the main process build
+                // Add Vite options for the main process build.
                 vite: {
+                    resolve: {
+                        alias,
+                    },
                     build: {
-                        rollupOptions: {
+                        rolldownOptions: {
                             external: ["node-hid", "serialport"],
                         },
                     },
                 },
             },
             preload: {
-                // Shortcut of `build.rollupOptions.input`.
-                // Preload scripts may contain Web assets, so use the `build.rollupOptions.input` instead `build.lib.entry`.
-                input: path.join(__dirname, "electron/preload.ts"),
+                // Shortcut of `build.rolldownOptions.input`.
+                // Preload scripts may contain Web assets, so use the build input option instead of `build.lib.entry`.
+                input: path.join(dirname, "electron/preload.ts"),
+                vite: {
+                    resolve: {
+                        alias,
+                    },
+                },
             },
-            // Ployfill the Electron and Node.js API for Renderer process.
-            // If you want use Node.js in Renderer process, the `nodeIntegration` needs to be enabled in the Main process.
-            // See 👉 https://github.com/electron-vite/vite-plugin-electron-renderer
-            renderer:
-                process.env.NODE_ENV === "test"
-                    ? // https://github.com/electron-vite/vite-plugin-electron-renderer/issues/78#issuecomment-2053600808
-                      undefined
-                    : {},
         }),
     ],
 });
