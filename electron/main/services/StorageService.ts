@@ -61,12 +61,22 @@ export function resolveDataDir(options: ResolveDataDirOptions = {}): string {
 /**
  * Mirror of the firmware `Storage::validateName` contract: non-empty, not
  * `.`/`..`, no `/` or `\` path separators, no control characters.
+ *
+ * Additionally rejects names that are hostile on Windows: trailing dots or
+ * spaces (trimmed by the FS, causing collisions) and reserved device names
+ * (`CON`, `NUL`, `AUX`, `COM1..9`, `LPT1..9`) whose creation raises raw OS
+ * errors. Kept in sync with the renderer-side username checks.
  */
+const WINDOWS_RESERVED_NAME_PATTERN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
 export function validateName(name: string): boolean {
     if (typeof name !== "string" || name.length === 0) {
         return false;
     }
     if (name === "." || name === "..") {
+        return false;
+    }
+    if (/[. ]$/.test(name) || WINDOWS_RESERVED_NAME_PATTERN.test(name)) {
         return false;
     }
     for (let i = 0; i < name.length; i++) {
@@ -86,6 +96,8 @@ export class StorageError extends Error {}
 export interface StorageDialogs {
     /** Returns the destination directory the user picked, or null if cancelled. */
     pickExportDirectory: (defaultName: string) => Promise<string | null>;
+    /** Returns the source directory the user picked, or null if cancelled. */
+    pickImportDirectory: () => Promise<string | null>;
 }
 
 export interface StorageServiceOptions {
@@ -214,7 +226,6 @@ export class StorageService {
         if (!isPageConfig(page)) {
             throw new StorageError("Page config has an invalid shape");
         }
-        fs.mkdirSync(this.profileDir(profile), { recursive: true });
         fs.writeFileSync(this.pageFile(profile, id), JSON.stringify(page, null, 2) + "\n");
         log.info(`[storage] page saved: ${profile}/${id}`);
     }
@@ -240,10 +251,28 @@ export class StorageService {
     }
 
     /**
-     * Import a profile directory. Validates the source name and copies it into
-     * `profiles/`. Returns the imported profile meta.
+     * Import a profile directory chosen by the user. Shows a native
+     * directory picker on the main process (never trusts a renderer-supplied
+     * path) and copies the selection into `profiles/`. Returns `null` when
+     * the user cancels.
      */
-    importProfile(srcDir: string): ProfileMeta {
+    async importProfile(): Promise<ProfileMeta | null> {
+        if (!this.dialogs) {
+            throw new StorageError("No dialog provider configured");
+        }
+        const srcDir = await this.dialogs.pickImportDirectory();
+        if (srcDir === null) {
+            return null;
+        }
+        return this.importProfileFrom(srcDir);
+    }
+
+    /**
+     * Validate a source directory and copy it into `profiles/` as a new
+     * profile. The source is expected to already be a user-chosen directory
+     * (see `importProfile`); this method only guards the copy.
+     */
+    importProfileFrom(srcDir: string): ProfileMeta {
         if (!srcDir || srcDir.trim() === "") {
             throw new StorageError("No source directory selected");
         }

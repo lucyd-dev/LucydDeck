@@ -25,7 +25,7 @@ export const storageClient = {
     savePage: (profile: string, id: string, page: PageConfig) =>
         invoke(channels.storage.savePage, { profile, id, page }),
     exportProfile: (name: string) => invoke(channels.storage.exportProfile, { name }),
-    importProfile: (srcDir: string) => invoke(channels.storage.importProfile, { srcDir }),
+    importProfile: () => invoke(channels.storage.importProfile, undefined),
 };
 
 export const usbClient = {

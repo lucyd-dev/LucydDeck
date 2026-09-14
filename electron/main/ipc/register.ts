@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import log from "electron-log/main";
-import { channels } from "@shared/ipc";
+import { channels, eventChannels } from "@shared/ipc";
 import type {
     EventChannel,
     EventPayloadFor,
@@ -27,16 +27,24 @@ type Handler<C extends IpcChannel> = (
 
 /**
  * Register every ipcMain.handle for the channels owned by `shared/ipc.ts`.
- * Handlers never throw across the bridge: failures become `{ ok: false, error }`.
+ * Handlers never throw across the bridge: failures become `{ ok: false, error }`
+ * and (for storage channels) surface through the `app:toast` event.
  */
 export function registerIpcHandlers(storage: StorageService, usb: UsbService): void {
-    const register = <C extends IpcChannel>(channel: C, handler: Handler<C>): void => {
+    const register = <C extends IpcChannel>(
+        channel: C,
+        handler: Handler<C>,
+        toastOnError = false,
+    ): void => {
         ipcMain.handle(channel, async (_event, rawPayload: unknown) => {
             try {
                 return await handler(rawPayload as RequestFor<C>);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 log.error(`[ipc] "${channel}" failed: ${message}`);
+                if (toastOnError) {
+                    broadcastEvent(eventChannels.toast, { level: "error", message });
+                }
                 return { ok: false, error: message };
             }
         });
@@ -47,47 +55,83 @@ export function registerIpcHandlers(storage: StorageService, usb: UsbService): v
     };
 
     // --- storage (real) ------------------------------------------------
-    register(channels.storage.listProfiles, () => ({ ok: true, data: storage.listProfiles() }));
+    register(
+        channels.storage.listProfiles,
+        () => ({ ok: true, data: storage.listProfiles() }),
+        true,
+    );
 
-    register(channels.storage.createProfile, ({ name }) => ({
-        ok: true,
-        data: storage.createProfile(name),
-    }));
+    register(
+        channels.storage.createProfile,
+        ({ name }) => ({
+            ok: true,
+            data: storage.createProfile(name),
+        }),
+        true,
+    );
 
-    register(channels.storage.renameProfile, ({ oldName, newName }) => ({
-        ok: true,
-        data: storage.renameProfile(oldName, newName),
-    }));
+    register(
+        channels.storage.renameProfile,
+        ({ oldName, newName }) => ({
+            ok: true,
+            data: storage.renameProfile(oldName, newName),
+        }),
+        true,
+    );
 
-    register(channels.storage.deleteProfile, ({ name }) => {
-        storage.deleteProfile(name);
-        return { ok: true, data: undefined };
-    });
+    register(
+        channels.storage.deleteProfile,
+        ({ name }) => {
+            storage.deleteProfile(name);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
 
-    register(channels.storage.listPages, ({ name }) => ({
-        ok: true,
-        data: storage.listPages(name),
-    }));
+    register(
+        channels.storage.listPages,
+        ({ name }) => ({
+            ok: true,
+            data: storage.listPages(name),
+        }),
+        true,
+    );
 
-    register(channels.storage.loadPage, ({ profile, id }) => ({
-        ok: true,
-        data: storage.loadPage(profile, id),
-    }));
+    register(
+        channels.storage.loadPage,
+        ({ profile, id }) => ({
+            ok: true,
+            data: storage.loadPage(profile, id),
+        }),
+        true,
+    );
 
-    register(channels.storage.savePage, ({ profile, id, page }) => {
-        storage.savePage(profile, id, page);
-        return { ok: true, data: undefined };
-    });
+    register(
+        channels.storage.savePage,
+        ({ profile, id, page }) => {
+            storage.savePage(profile, id, page);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
 
-    register(channels.storage.exportProfile, async ({ name }) => ({
-        ok: true,
-        data: await storage.exportProfile(name),
-    }));
+    register(
+        channels.storage.exportProfile,
+        async ({ name }) => ({
+            ok: true,
+            data: await storage.exportProfile(name),
+        }),
+        true,
+    );
 
-    register(channels.storage.importProfile, async ({ srcDir }) => ({
-        ok: true,
-        data: storage.importProfile(srcDir),
-    }));
+    register(
+        channels.storage.importProfile,
+        async () => ({
+            ok: true,
+            data: await storage.importProfile(),
+        }),
+        true,
+    );
 
     // --- usb (placeholder) ---------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));

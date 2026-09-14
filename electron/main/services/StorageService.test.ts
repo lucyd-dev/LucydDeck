@@ -108,6 +108,26 @@ describe("validateName", () => {
         expect(validateName("a\u007fb")).toBe(false);
     });
 
+    it("rejects Windows-reserved device names and trailing dots/spaces", () => {
+        expect(validateName("CON")).toBe(false);
+        expect(validateName("con")).toBe(false);
+        expect(validateName("NUL")).toBe(false);
+        expect(validateName("AUX")).toBe(false);
+        expect(validateName("COM1")).toBe(false);
+        expect(validateName("COM9")).toBe(false);
+        expect(validateName("LPT1")).toBe(false);
+        expect(validateName("main.")).toBe(false);
+        expect(validateName("main ")).toBe(false);
+        expect(validateName("main .")).toBe(false);
+    });
+
+    it("accepts a normal name that merely starts like a reserved one", () => {
+        // Only COM1..COM9 are reserved; COM10 is an ordinary name.
+        // Reserved names remain reserved when followed by an extension/dot.
+        expect(validateName("COM10")).toBe(true);
+        expect(validateName("con.fig")).toBe(false);
+    });
+
     it("accepts normal names", () => {
         expect(validateName("main")).toBe(true);
         expect(validateName("Space Cadet")).toBe(true);
@@ -224,6 +244,9 @@ describe("StorageService export/import", () => {
                 async pickExportDirectory() {
                     return path.join(dataDir, "exported");
                 },
+                async pickImportDirectory() {
+                    return path.join(dataDir, "incoming");
+                },
             },
         });
     });
@@ -249,6 +272,9 @@ describe("StorageService export/import", () => {
                 async pickExportDirectory() {
                     return null;
                 },
+                async pickImportDirectory() {
+                    return null;
+                },
             },
         });
         storage.createProfile("main");
@@ -256,13 +282,42 @@ describe("StorageService export/import", () => {
         expect(await storage.exportProfile("main")).toBeNull();
     });
 
-    it("imports a directory as a profile", async () => {
+    it("imports the directory picked by the dialog", async () => {
         storage.ensureLayout();
         const src = path.join(dataDir, "incoming");
         fs.mkdirSync(src, { recursive: true });
         fs.writeFileSync(path.join(src, "0.json"), JSON.stringify({ buttons: {} }));
 
-        const meta = await storage.importProfile(src);
+        const meta = await storage.importProfile();
+        expect(meta).not.toBeNull();
+        expect(meta!.name).toBe("incoming");
+        expect(fs.existsSync(path.join(dataDir, "profiles", "incoming", "0.json"))).toBe(true);
+    });
+
+    it("returns null when the import dialog is cancelled", async () => {
+        storage = new StorageService({
+            dataDir,
+            dialogs: {
+                async pickExportDirectory() {
+                    return null;
+                },
+                async pickImportDirectory() {
+                    return null;
+                },
+            },
+        });
+        storage.ensureLayout();
+
+        expect(await storage.importProfile()).toBeNull();
+    });
+
+    it("imports a directory as a profile via the low-level copy", async () => {
+        storage.ensureLayout();
+        const src = path.join(dataDir, "incoming");
+        fs.mkdirSync(src, { recursive: true });
+        fs.writeFileSync(path.join(src, "0.json"), JSON.stringify({ buttons: {} }));
+
+        const meta = storage.importProfileFrom(src);
         expect(meta.name).toBe("incoming");
         expect(fs.existsSync(path.join(dataDir, "profiles", "incoming", "0.json"))).toBe(true);
     });
@@ -273,8 +328,8 @@ describe("StorageService export/import", () => {
         fs.mkdirSync(src, { recursive: true });
         fs.writeFileSync(path.join(src, "0.json"), JSON.stringify({ buttons: {} }));
 
-        expect(() => storage.importProfile(src)).toThrow(/already exists/);
-        expect(() => storage.importProfile(path.join(dataDir, "missing"))).toThrow();
+        expect(() => storage.importProfileFrom(src)).toThrow(/already exists/);
+        expect(() => storage.importProfileFrom(path.join(dataDir, "missing"))).toThrow();
     });
 });
 

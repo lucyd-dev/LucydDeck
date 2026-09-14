@@ -16,5 +16,12 @@ export function createStorageDialogs(): StorageDialogs {
             });
             return result.canceled || result.filePath === "" ? null : result.filePath;
         },
+        async pickImportDirectory() {
+            const result = await dialog.showOpenDialog({
+                title: "Import profile",
+                properties: ["openDirectory"],
+            });
+            return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+        },
     };
 }

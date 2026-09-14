@@ -1,3 +1,4 @@
+import { ref } from "vue";
 import { defineStore } from "pinia";
 import { DeviceState } from "@shared/ipc";
 import type { DeviceStatus, ToastPayload } from "@shared/ipc";
@@ -14,24 +15,26 @@ let nextToastId = 1;
 
 /** Global app UI state: toasts + device status chip. */
 export const useAppStore = defineStore("app", () => {
-    const toasts: Toast[] = [];
-    const deviceStatus: DeviceStatus = { state: DeviceState.Disconnected, label: "Disconnected" };
+    const toasts = ref<Toast[]>([]);
+    const deviceStatus = ref<DeviceStatus>({
+        state: DeviceState.Disconnected,
+        label: "Disconnected",
+    });
 
     function pushToast(level: ToastPayload["level"], message: string): void {
         const toast: Toast = { id: nextToastId++, level, message };
-        toasts.push(toast);
+        toasts.value.push(toast);
     }
 
     function dismissToast(id: number): void {
-        const index = toasts.findIndex((toast) => toast.id === id);
+        const index = toasts.value.findIndex((toast) => toast.id === id);
         if (index >= 0) {
-            toasts.splice(index, 1);
+            toasts.value.splice(index, 1);
         }
     }
 
     function setDeviceStatus(status: DeviceStatus): void {
-        deviceStatus.state = status.state;
-        deviceStatus.label = status.label;
+        deviceStatus.value = { ...status };
     }
 
     // Main-process push events.

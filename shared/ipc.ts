@@ -101,10 +101,6 @@ export interface ExportProfileRequest {
     name: string;
 }
 
-export interface ImportProfileRequest {
-    srcDir: string;
-}
-
 export interface IconRemoveRequest {
     name: string;
 }
@@ -132,7 +128,7 @@ export interface RequestMap {
     [channels.storage.loadPage]: PageRefRequest;
     [channels.storage.savePage]: SavePageRequest;
     [channels.storage.exportProfile]: ExportProfileRequest;
-    [channels.storage.importProfile]: ImportProfileRequest;
+    [channels.storage.importProfile]: undefined;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
@@ -169,7 +165,7 @@ export interface ResponseMap {
     [channels.storage.loadPage]: IpcResponse<PageConfig>;
     [channels.storage.savePage]: IpcResponse<void>;
     [channels.storage.exportProfile]: IpcResponse<{ path: string } | null>;
-    [channels.storage.importProfile]: IpcResponse<ProfileMeta>;
+    [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;

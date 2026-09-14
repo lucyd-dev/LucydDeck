@@ -11,6 +11,7 @@ export const useProfileStore = defineStore("profile", () => {
     const pages = ref<PageMeta[]>([]);
     const selectedKey = ref<string | null>(null);
     const saving = ref(false);
+    let pagesRequestSeq = 0;
 
     async function refreshProfiles(): Promise<void> {
         const result = await storageClient.listProfiles();
@@ -22,11 +23,18 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     async function refreshPages(profile: string | null = activeProfile.value): Promise<void> {
+        const requestSeq = ++pagesRequestSeq;
         if (profile === null || profile === "") {
-            pages.value = [];
+            if (requestSeq === pagesRequestSeq) {
+                pages.value = [];
+            }
             return;
         }
         const result = await storageClient.listPages(profile);
+        // Discard stale responses when the user switched profile meanwhile.
+        if (requestSeq !== pagesRequestSeq) {
+            return;
+        }
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
             return;

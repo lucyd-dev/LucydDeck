@@ -4,9 +4,7 @@ import iconSettings from "lucide-static/icons/settings.svg?raw";
 import iconBlocks from "lucide-static/icons/blocks.svg?raw";
 import iconSave from "lucide-static/icons/save.svg?raw";
 import iconPlug from "lucide-static/icons/plug.svg?raw";
-import iconChevronDown from "lucide-static/icons/chevron-down.svg?raw";
 import iconZap from "lucide-static/icons/zap.svg?raw";
-import iconHardDrive from "lucide-static/icons/hard-drive.svg?raw";
 import iconX from "lucide-static/icons/x.svg?raw";
 
 const icons: Record<string, string> = {
@@ -14,9 +12,7 @@ const icons: Record<string, string> = {
     blocks: iconBlocks,
     save: iconSave,
     plug: iconPlug,
-    "chevron-down": iconChevronDown,
     zap: iconZap,
-    "hard-drive": iconHardDrive,
     x: iconX,
 };
 
