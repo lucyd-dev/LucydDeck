@@ -1,5 +1,5 @@
 {
-    "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/refs/tags/v24.13.3/packages/app-builder-lib/scheme.json",
+    "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/refs/tags/v26.16.1/packages/app-builder-lib/scheme.json",
     "productName": "LucydDeck",
     "appId": "com.lucyd.lucyddeck",
     "asar": true,

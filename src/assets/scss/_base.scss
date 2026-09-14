@@ -1,0 +1,62 @@
+@use "variables" as v;
+
+// Base resets + global element styles (dark theme).
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: v.$font-size-root;
+}
+
+body {
+    margin: 0;
+    background-color: v.$color-bg;
+    color: v.$color-text;
+    font-family: v.$font-sans;
+    line-height: 1.45;
+    overflow: hidden;
+}
+
+#app {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    min-width: 720px;
+    min-height: 480px;
+}
+
+::selection {
+    background-color: rgba(124, 108, 240, 0.3);
+}
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+select,
+input,
+textarea {
+    font-family: inherit;
+    color: v.$color-text;
+    background-color: v.$color-surface;
+    border: 1px solid v.$color-border;
+}
+
+a {
+    color: v.$color-text;
+    text-decoration: none;
+}
+
+code,
+kbd {
+    font-family: v.$font-mono;
+}
+
+:focus-visible {
+    outline: 2px solid v.$color-accent;
+    outline-offset: 1px;
+}

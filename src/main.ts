@@ -1,12 +1,7 @@
 import { createApp } from "vue";
-import "./style.css";
+import { createPinia } from "pinia";
+import router from "./router";
 import App from "./App.vue";
+import "./assets/scss/main.scss";
 
-createApp(App)
-    .mount("#app")
-    .$nextTick(() => {
-        // Use contextBridge
-        window.ipcRenderer.on("main-process-message", (_event, message) => {
-            console.log(message);
-        });
-    });
+createApp(App).use(createPinia()).use(router).mount("#app");
