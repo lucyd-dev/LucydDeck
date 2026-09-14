@@ -2,10 +2,16 @@
 import { onMounted } from "vue";
 import { useAppStore } from "@/stores/appStore";
 import { useProfileStore } from "@/stores/profileStore";
-import LucideIcon from "@/components/ui/LucideIcon.vue";
+import { Settings, Blocks, Save, Plug, Zap, X } from "@lucide/vue";
 
 const app = useAppStore();
 const profile = useProfileStore();
+
+const navItems = [
+    { to: "/", label: "Board", icon: Blocks },
+    { to: "/plugins", label: "Plugins", icon: Plug },
+    { to: "/settings", label: "Settings", icon: Settings },
+];
 
 onMounted(() => {
     void profile.refreshProfiles();
@@ -39,27 +45,23 @@ function changeProfile(event: Event): void {
             </label>
 
             <div class="topbar__status" :class="`topbar__status--${app.deviceStatus.state}`">
-                <LucideIcon name="zap" :size="14" />
+                <Zap :size="14" />
                 <span class="topbar__status-label">{{ app.deviceStatus.label }}</span>
             </div>
 
             <button class="topbar__save" type="button" disabled title="Save (Step 3)">
-                <LucideIcon name="save" :size="14" />
+                <Save :size="14" />
                 <span>Save</span>
             </button>
 
             <nav class="topbar__nav">
                 <router-link
-                    v-for="item in [
-                        { to: '/', label: 'Board', icon: 'blocks' },
-                        { to: '/plugins', label: 'Plugins', icon: 'plug' },
-                        { to: '/settings', label: 'Settings', icon: 'settings' },
-                    ]"
+                    v-for="item in navItems"
                     :key="item.to"
                     :to="item.to"
                     class="topbar__nav-link"
                 >
-                    <LucideIcon :name="item.icon" :size="14" />
+                    <component :is="item.icon" :size="14" />
                     <span>{{ item.label }}</span>
                 </router-link>
             </nav>
@@ -90,7 +92,7 @@ function changeProfile(event: Event): void {
                     aria-label="Dismiss"
                     @click="app.dismissToast(toast.id)"
                 >
-                    <LucideIcon name="x" :size="12" />
+                    <X :size="12" />
                 </button>
             </div>
         </div>

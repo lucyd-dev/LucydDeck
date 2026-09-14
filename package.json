@@ -32,6 +32,7 @@
     "devDependencies": {
         "@commitlint/config-conventional": "^20.5.3",
         "@eslint/js": "^10.0.1",
+        "@lucide/vue": "^1.46.0",
         "@types/node": "^26.5.1",
         "@vitejs/plugin-vue": "^6.0.9",
         "commitlint": "^20.5.3",
@@ -41,7 +42,6 @@
         "eslint": "^10.10.0",
         "eslint-plugin-vue": "^10.11.0",
         "globals": "^17.12.0",
-        "lucide-static": "^1.46.0",
         "pinia": "^4.0.3",
         "prettier": "^3.9.6",
         "sass": "^1.104.1",
