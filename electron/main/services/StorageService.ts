@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import log from "electron-log/main";
 import type { PageConfig, PageMeta, ProfileMeta } from "@shared/types";
+import { isValidPageId } from "@shared/protocol";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
 export const APP_DIR_NAME = "LucydDeck";
@@ -11,7 +12,6 @@ export const SUB_DIRS = ["profiles", "icons", "plugins", "tools", "logs"] as con
 export const PROFILES_DIR = "profiles";
 
 export const PAGE_FILE_PATTERN = /^(\d+)\.json$/;
-const PAGE_ID_PATTERN = /^\d+$/;
 
 export type PlatformName = string;
 
@@ -126,6 +126,11 @@ export class StorageService {
     }
 
     validateName = validateName;
+
+    /** Absolute path of the `icons/` directory. */
+    iconsDir(): string {
+        return path.join(this.dataDir, "icons");
+    }
 
     // --- Profiles -------------------------------------------------------
 
@@ -317,7 +322,7 @@ export class StorageService {
     }
 
     private assertPageId(id: string): void {
-        if (typeof id !== "string" || !PAGE_ID_PATTERN.test(id)) {
+        if (typeof id !== "string" || !isValidPageId(id)) {
             throw new StorageError(`Invalid page id: "${id}"`);
         }
     }

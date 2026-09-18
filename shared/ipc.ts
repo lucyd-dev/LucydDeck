@@ -1,4 +1,5 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
+import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 
 // ---------------------------------------------------------------------------
 // Result envelope. Every IPC handler resolves to exactly one of these shapes.
@@ -14,6 +15,8 @@ export interface IpcResultOk<T> {
 export interface IpcResultErr {
     ok: false;
     error: string;
+    /** Optional stable machine-readable code (e.g. `USB_TIMEOUT`, `ERR_CRC`). */
+    code?: string;
 }
 
 export type IpcResponse<T> = IpcResultOk<T> | IpcResultErr;
@@ -46,6 +49,15 @@ export const channels = {
         connect: "usb:connect",
         disconnect: "usb:disconnect",
         deviceInfo: "usb:deviceInfo",
+        listImages: "usb:listImages",
+        listProfiles: "usb:listProfiles",
+        createProfile: "usb:createProfile",
+        renameProfile: "usb:renameProfile",
+        deleteProfile: "usb:deleteProfile",
+        setActiveProfile: "usb:setActiveProfile",
+        setActivePage: "usb:setActivePage",
+        uploadPage: "usb:uploadPage",
+        uploadIcon: "usb:uploadIcon",
     },
     plugins: {
         list: "plugins:list",
@@ -109,6 +121,19 @@ export interface IconsImportRequest {
     paths: string[];
 }
 
+export interface UsbSetActivePageRequest {
+    id: string;
+}
+
+export interface UsbUploadPageRequest {
+    profile: string;
+    id: string;
+}
+
+export interface UsbUploadIconRequest {
+    name: string;
+}
+
 export interface PluginSetEnabledRequest {
     id: string;
     enabled: boolean;
@@ -135,11 +160,20 @@ export interface RequestMap {
     [channels.icons.import]: IconsImportRequest;
     [channels.icons.remove]: IconRemoveRequest;
 
-    // usb (stub — Step 2 implements the HID engine)
+    // usb (Step 2 implements the HID engine)
     [channels.usb.status]: undefined;
     [channels.usb.connect]: undefined;
     [channels.usb.disconnect]: undefined;
     [channels.usb.deviceInfo]: undefined;
+    [channels.usb.listImages]: undefined;
+    [channels.usb.listProfiles]: undefined;
+    [channels.usb.createProfile]: ProfileNameRequest;
+    [channels.usb.renameProfile]: RenameProfileRequest;
+    [channels.usb.deleteProfile]: ProfileNameRequest;
+    [channels.usb.setActiveProfile]: ProfileNameRequest;
+    [channels.usb.setActivePage]: UsbSetActivePageRequest;
+    [channels.usb.uploadPage]: UsbUploadPageRequest;
+    [channels.usb.uploadIcon]: UsbUploadIconRequest;
 
     // plugins (stub — Step 4)
     [channels.plugins.list]: undefined;
@@ -177,6 +211,15 @@ export interface ResponseMap {
     [channels.usb.connect]: IpcResponse<void>;
     [channels.usb.disconnect]: IpcResponse<void>;
     [channels.usb.deviceInfo]: IpcResponse<DeviceInfo | null>;
+    [channels.usb.listImages]: IpcResponse<DeviceImageEntry[]>;
+    [channels.usb.listProfiles]: IpcResponse<DeviceProfileEntry[]>;
+    [channels.usb.createProfile]: IpcResponse<void>;
+    [channels.usb.renameProfile]: IpcResponse<void>;
+    [channels.usb.deleteProfile]: IpcResponse<void>;
+    [channels.usb.setActiveProfile]: IpcResponse<void>;
+    [channels.usb.setActivePage]: IpcResponse<void>;
+    [channels.usb.uploadPage]: IpcResponse<void>;
+    [channels.usb.uploadIcon]: IpcResponse<void>;
 
     // plugins
     [channels.plugins.list]: IpcResponse<PluginMeta[]>;
@@ -207,6 +250,29 @@ export interface DeviceStatus {
     state: DeviceState;
     label: string;
 }
+
+/** `usb:event` payloads: connection state, `0xA0` actions, transfer progress. */
+export interface UsbStatusEvent {
+    type: "status";
+    status: DeviceStatus;
+}
+
+export interface ActionTriggeredEvent {
+    type: "action-triggered";
+    action: string;
+}
+
+export interface TransferProgressEvent {
+    type: "transfer-progress";
+    phase: "start" | "chunk" | "end" | "retry" | "cancelled";
+    pathType: number;
+    path: string;
+    sent: number;
+    total: number;
+    percent: number;
+}
+
+export type UsbEventPayload = UsbStatusEvent | ActionTriggeredEvent | TransferProgressEvent;
 
 export interface DeviceInfo {
     firmwareVersion: string;
@@ -263,7 +329,7 @@ export interface FlashProgressPayload {
 }
 
 export interface EventPayloadMap {
-    [eventChannels.usb]: DeviceStatus;
+    [eventChannels.usb]: UsbEventPayload;
     [eventChannels.toast]: ToastPayload;
     [eventChannels.syncProgress]: SyncProgressPayload;
     [eventChannels.plugin]: PluginEventPayload;

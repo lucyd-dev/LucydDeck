@@ -29,7 +29,7 @@ export default defineConfig({
                     },
                     build: {
                         rolldownOptions: {
-                            external: ["node-hid", "serialport"],
+                            external: ["node-hid", "sharp"],
                         },
                     },
                 },
