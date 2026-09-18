@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { StorageService } from "./main/services/StorageService";
 import { UsbService } from "./main/services/UsbService";
+import { FileTransfer } from "./main/services/FileTransfer";
+import { DeviceService } from "./main/services/DeviceService";
+import { ImagePipelineService } from "./main/services/ImagePipelineService";
 import { createStorageDialogs } from "./main/ipc/dialogs";
 import { registerIpcHandlers } from "./main/ipc/register";
 
@@ -70,7 +73,10 @@ app.whenReady().then(() => {
     storage.ensureLayout();
 
     const usb = new UsbService();
-    registerIpcHandlers(storage, usb);
+    const fileTransfer = new FileTransfer(usb);
+    const device = new DeviceService(usb, fileTransfer);
+    const imagePipeline = new ImagePipelineService(storage);
+    registerIpcHandlers({ storage, usb, device, fileTransfer, imagePipeline });
 
     createWindow();
 });

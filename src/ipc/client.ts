@@ -33,6 +33,16 @@ export const usbClient = {
     connect: () => invoke(channels.usb.connect, undefined),
     disconnect: () => invoke(channels.usb.disconnect, undefined),
     deviceInfo: () => invoke(channels.usb.deviceInfo, undefined),
+    listImages: () => invoke(channels.usb.listImages, undefined),
+    listProfiles: () => invoke(channels.usb.listProfiles, undefined),
+    createProfile: (name: string) => invoke(channels.usb.createProfile, { name }),
+    renameProfile: (oldName: string, newName: string) =>
+        invoke(channels.usb.renameProfile, { oldName, newName }),
+    deleteProfile: (name: string) => invoke(channels.usb.deleteProfile, { name }),
+    setActiveProfile: (name: string) => invoke(channels.usb.setActiveProfile, { name }),
+    setActivePage: (id: string) => invoke(channels.usb.setActivePage, { id }),
+    uploadPage: (profile: string, id: string) => invoke(channels.usb.uploadPage, { profile, id }),
+    uploadIcon: (name: string) => invoke(channels.usb.uploadIcon, { name }),
 };
 
 export const iconsClient = {

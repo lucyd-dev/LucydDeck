@@ -39,7 +39,11 @@ export const useAppStore = defineStore("app", () => {
 
     // Main-process push events.
     on(eventChannels.toast, (payload) => pushToast(payload.level, payload.message));
-    on(eventChannels.usb, (payload) => setDeviceStatus(payload));
+    on(eventChannels.usb, (payload) => {
+        if (payload.type === "status") {
+            setDeviceStatus(payload.status);
+        }
+    });
 
     return {
         toasts,

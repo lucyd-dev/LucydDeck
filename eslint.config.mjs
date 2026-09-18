@@ -5,7 +5,7 @@ import pluginVue from "eslint-plugin-vue";
 
 export default tseslint.config(
     {
-        ignores: ["dist/", "dist-electron/", "release/", "node_modules/", "*.bin"],
+        ignores: ["dist/", "dist-electron/", "release/", "node_modules/", "*.bin", ".kilo/"],
     },
     js.configs.recommended,
     ...tseslint.configs.recommended,

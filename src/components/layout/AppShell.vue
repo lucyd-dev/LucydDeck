@@ -2,10 +2,12 @@
 import { onMounted } from "vue";
 import { useAppStore } from "@/stores/appStore";
 import { useProfileStore } from "@/stores/profileStore";
+import { useUsbStore } from "@/stores/usbStore";
 import { Settings, Blocks, Save, Plug, Zap, X } from "@lucide/vue";
 
 const app = useAppStore();
 const profile = useProfileStore();
+const usb = useUsbStore();
 
 const navItems = [
     { to: "/", label: "Board", icon: Blocks },
@@ -15,6 +17,7 @@ const navItems = [
 
 onMounted(() => {
     void profile.refreshProfiles();
+    void usb.refreshStatus();
 });
 
 function changeProfile(event: Event): void {
@@ -44,10 +47,19 @@ function changeProfile(event: Event): void {
                 </select>
             </label>
 
-            <div class="topbar__status" :class="`topbar__status--${app.deviceStatus.state}`">
+            <button
+                class="topbar__status"
+                :class="`topbar__status--${app.deviceStatus.state}`"
+                type="button"
+                :disabled="usb.busy"
+                :title="
+                    app.deviceStatus.state === 'connected' ? 'Disconnect device' : 'Connect device'
+                "
+                @click="usb.toggle()"
+            >
                 <Zap :size="14" />
                 <span class="topbar__status-label">{{ app.deviceStatus.label }}</span>
-            </div>
+            </button>
 
             <button class="topbar__save" type="button" disabled title="Save (Step 3)">
                 <Save :size="14" />

@@ -3,7 +3,7 @@
     "productName": "LucydDeck",
     "appId": "com.lucyd.lucyddeck",
     "asar": true,
-    "asarUnpack": ["**/*.{node,dll}"],
+    "asarUnpack": ["**/*.{node,dll,so}", "**/*.so.*", "**/node_modules/@img/**/*"],
     "directories": {
         "output": "release/${version}"
     },
