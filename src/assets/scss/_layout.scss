@@ -7,13 +7,15 @@
     grid-template-rows: v.$topbar-height 1fr;
     height: 100%;
     width: 100%;
+    overflow: hidden;
 }
 
 // --- TopBar ---------------------------------------------------------------
 
 .app-shell__topbar {
     grid-column: 1 / -1;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: v.$space-md;
     padding: 0 v.$space-lg;
@@ -21,6 +23,24 @@
     background-color: v.$color-bg-elevated;
     border-bottom: 1px solid v.$color-border;
     user-select: none;
+}
+
+.topbar__left,
+.topbar__right {
+    display: flex;
+    align-items: center;
+    gap: v.$space-md;
+    min-width: 0;
+}
+
+.topbar__right {
+    justify-content: flex-end;
+}
+
+.topbar__center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .topbar__brand {
@@ -35,24 +55,34 @@
     color: v.$color-text;
 }
 
-.topbar__profile {
+.topbar__actions {
     display: flex;
-    flex-direction: column;
-    gap: v.$space-2xs;
-    min-width: 0;
+    align-items: center;
+    gap: v.$space-sm;
 }
 
-.topbar__profile-label {
-    font-size: 0.72rem;
-    color: v.$color-text-faint;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+.topbar__divider {
+    width: 1px;
+    height: 22px;
+    background-color: v.$color-border;
 }
 
-.topbar__profile-select {
-    max-width: 220px;
-    padding: v.$space-2xs v.$space-sm;
+.topbar__settings {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid v.$color-border;
     border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+
+    &:hover {
+        color: v.$color-text;
+        border-color: v.$color-text-faint;
+    }
 }
 
 .topbar__status {
@@ -104,31 +134,271 @@
     }
 }
 
-.topbar__nav {
+.topbar__dirty-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: v.$color-warning;
+}
+
+.topbar__sync {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: v.$space-xs;
+    max-width: 200px;
+    overflow: hidden;
+    padding: v.$space-2xs v.$space-md;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+    font-weight: 600;
+
+    &[disabled] {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+}
+
+.topbar__sync-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topbar__sync-bar {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background-color: v.$color-accent;
+    transition: width 120ms linear;
+}
+
+.is-spinning {
+    animation: lucyd-spin 900ms linear infinite;
+}
+
+@keyframes lucyd-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+// --- Profile menu ---------------------------------------------------------
+
+.profile-menu {
+    position: relative;
+}
+
+.profile-menu__trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: v.$space-sm;
+    max-width: 240px;
+    padding: v.$space-2xs v.$space-sm;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text;
+
+    &:hover {
+        border-color: v.$color-text-faint;
+    }
+}
+
+.profile-menu__label {
+    font-size: 0.72rem;
+    color: v.$color-text-faint;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.profile-menu__value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.profile-menu__popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
+    width: 260px;
+    padding: v.$space-sm;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-md;
+    background-color: v.$color-surface;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.profile-menu__edit {
+    display: flex;
+    align-items: center;
+    gap: v.$space-2xs;
+    margin-bottom: v.$space-sm;
+}
+
+.profile-menu__input {
+    flex: 1;
+    min-width: 0;
+    padding: v.$space-2xs v.$space-sm;
+    border-radius: v.$radius-sm;
+}
+
+.profile-menu__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+}
+
+.profile-menu__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 260px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.profile-menu__row {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: v.$space-2xs;
+}
+
+.profile-menu__item {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: v.$space-xs;
+    min-width: 0;
+    padding: v.$space-xs v.$space-sm;
+    border: 1px solid transparent;
+    border-radius: v.$radius-sm;
+    background: transparent;
+    color: v.$color-text;
+    text-align: left;
+
+    &:hover {
+        background-color: v.$color-bg-hover;
+    }
+}
+
+.profile-menu__item--active {
+    border-color: rgba(v.$color-accent, 0.5);
+    background-color: rgba(v.$color-accent, 0.14);
+}
+
+.profile-menu__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-menu__badge {
+    display: inline-flex;
+    color: v.$color-warning;
+}
+
+.profile-menu__more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: v.$radius-sm;
+    background: transparent;
+    color: v.$color-text-dim;
+
+    &:hover {
+        border-color: v.$color-border;
+        color: v.$color-text;
+    }
+}
+
+.profile-menu__submenu {
+    position: static;
+    width: 100%;
+    padding: v.$space-2xs;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-elevated;
+}
+
+.profile-menu__subitem {
     display: flex;
     align-items: center;
     gap: v.$space-xs;
-    margin-left: auto;
-}
-
-.topbar__nav-link {
-    display: inline-flex;
-    align-items: center;
-    gap: v.$space-2xs;
-    padding: v.$space-2xs v.$space-sm;
-    border: 1px solid transparent;
+    width: 100%;
+    padding: v.$space-xs v.$space-sm;
+    border: none;
     border-radius: v.$radius-sm;
+    background: transparent;
     color: v.$color-text-dim;
-    text-decoration: none;
+    text-align: left;
 
-    &:hover {
+    &:hover:not([disabled]) {
         background-color: v.$color-bg-hover;
         color: v.$color-text;
     }
 
-    &.router-link-active {
-        background-color: rgba(v.$color-accent, 0.14);
-        color: v.$color-accent;
+    &[disabled] {
+        cursor: not-allowed;
+        opacity: 0.4;
+    }
+}
+
+.profile-menu__subitem--danger:hover:not([disabled]) {
+    color: v.$color-error;
+}
+
+.profile-menu__empty {
+    margin: v.$space-sm 0;
+    color: v.$color-text-faint;
+    font-size: 0.82rem;
+}
+
+.profile-menu__footer {
+    display: flex;
+    gap: v.$space-xs;
+    margin-top: v.$space-sm;
+    padding-top: v.$space-sm;
+    border-top: 1px solid v.$color-border;
+}
+
+.profile-menu__footer-button {
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: v.$space-2xs;
+    padding: v.$space-xs;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+    font-size: 0.78rem;
+
+    &:hover {
+        color: v.$color-text;
+        border-color: v.$color-text-faint;
     }
 }
 
@@ -137,16 +407,21 @@
 .app-shell__content {
     grid-row: 2;
     grid-column: 1;
+    min-height: 0;
     overflow: auto;
-    padding: v.$space-xl;
+    padding: v.$space-lg v.$space-xl;
     background-color: v.$color-bg;
+}
+
+.app-shell--settings .app-shell__content {
+    grid-column: 1 / -1;
 }
 
 .app-shell__inspector {
     grid-row: 2;
     grid-column: 2;
-    overflow: auto;
-    padding: v.$space-lg;
+    min-height: 0;
+    overflow: hidden;
     background-color: v.$color-bg-elevated;
     border-left: 1px solid v.$color-border;
 }
@@ -168,6 +443,134 @@
 .inspector__placeholder {
     color: v.$color-text-faint;
     font-size: 0.85rem;
+}
+
+// --- Settings overlay -----------------------------------------------------
+
+.settings-overlay {
+    position: fixed;
+    inset: v.$topbar-height 0 0 0;
+    z-index: 200;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    padding: v.$space-lg;
+    background-color: rgba(10, 12, 16, 0.72);
+    backdrop-filter: blur(2px);
+}
+
+.settings-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(880px, 100%);
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-lg;
+    background-color: v.$color-bg-elevated;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+
+.settings-dialog__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: v.$space-md v.$space-lg;
+    border-bottom: 1px solid v.$color-border;
+}
+
+.settings-dialog__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.settings-dialog__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-sm;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+
+    &:hover {
+        color: v.$color-text;
+    }
+}
+
+.settings-dialog__body {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    min-height: 0;
+    flex: 1;
+}
+
+.settings-rail {
+    display: flex;
+    flex-direction: column;
+    gap: v.$space-2xs;
+    padding: v.$space-md;
+    border-right: 1px solid v.$color-border;
+    background-color: v.$color-bg;
+}
+
+.settings-rail__item {
+    display: flex;
+    align-items: center;
+    gap: v.$space-sm;
+    padding: v.$space-sm;
+    border: 1px solid transparent;
+    border-radius: v.$radius-sm;
+    background: transparent;
+    color: v.$color-text-dim;
+    text-align: left;
+
+    &:hover {
+        background-color: v.$color-bg-hover;
+        color: v.$color-text;
+    }
+}
+
+.settings-rail__item--active {
+    border-color: rgba(v.$color-accent, 0.5);
+    background-color: rgba(v.$color-accent, 0.14);
+    color: v.$color-accent;
+}
+
+.settings-panel {
+    min-height: 0;
+    padding: v.$space-lg;
+    overflow: auto;
+}
+
+.settings-panel__title {
+    margin: 0 0 v.$space-md;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.settings-panel__hint {
+    color: v.$color-text-faint;
+    font-size: 0.88rem;
+}
+
+.settings-panel__context {
+    color: v.$color-text-dim;
+    font-size: 0.85rem;
+}
+
+.plugins-panel__empty {
+    display: flex;
+    align-items: center;
+    gap: v.$space-sm;
+    margin-top: v.$space-md;
+    padding: v.$space-lg;
+    border: 1px dashed v.$color-border;
+    border-radius: v.$radius-md;
+    color: v.$color-text-faint;
 }
 
 // --- Generic views --------------------------------------------------------

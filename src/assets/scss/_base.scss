@@ -24,8 +24,37 @@ body {
     position: absolute;
     inset: 0;
     display: flex;
-    min-width: 720px;
-    min-height: 480px;
+    min-width: 1024px;
+    min-height: 680px;
+}
+
+// Global dark-theme scrollbars (override the light OS defaults).
+* {
+    scrollbar-color: #2a2d37 #12141a;
+    scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #12141a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2a2d37;
+    border: 2px solid #12141a;
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3a4150;
+}
+
+::-webkit-scrollbar-corner {
+    background: #12141a;
 }
 
 ::selection {

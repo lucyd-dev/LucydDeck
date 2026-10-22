@@ -1,6 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 import log from "electron-log/main";
 import { channels, eventChannels } from "@shared/ipc";
 import type {
@@ -9,14 +10,15 @@ import type {
     IconMeta,
     IpcChannel,
     RequestFor,
-    ResponseFor,
 } from "@shared/ipc";
+import { serializePageConfig, validatePageConfig } from "@shared/schema";
+import { iconBaseName } from "@shared/icons";
 import type { StorageService } from "../services/StorageService";
 import type { UsbService } from "../services/UsbService";
 import type { DeviceService } from "../services/DeviceService";
 import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
-import { crc32 } from "../services/usb/Crc32";
+import type { SyncService } from "../services/SyncService";
 
 /** Broadcast a typed main-process event to all renderer windows. */
 export function broadcastEvent<E extends EventChannel>(
@@ -28,9 +30,7 @@ export function broadcastEvent<E extends EventChannel>(
     }
 }
 
-type Handler<C extends IpcChannel> = (
-    payload: RequestFor<C>,
-) => ResponseFor<C> | Promise<ResponseFor<C>>;
+type Handler<C extends IpcChannel> = (payload: RequestFor<C>) => unknown;
 
 export interface IpcServices {
     storage: StorageService;
@@ -38,6 +38,7 @@ export interface IpcServices {
     device: DeviceService;
     fileTransfer: FileTransfer;
     imagePipeline: ImagePipelineService;
+    sync: SyncService;
 }
 
 /**
@@ -46,11 +47,12 @@ export interface IpcServices {
  * with a stable code where available.
  */
 export function registerIpcHandlers(services: IpcServices): void {
-    const { storage, usb, device, fileTransfer, imagePipeline } = services;
+    const { storage, usb, device, fileTransfer, imagePipeline, sync } = services;
 
     // Bridge service events to every renderer window.
     usb.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
     fileTransfer.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
+    sync.onProgress((payload) => broadcastEvent(eventChannels.syncProgress, payload));
 
     const register = <C extends IpcChannel>(
         channel: C,
@@ -134,7 +136,23 @@ export function registerIpcHandlers(services: IpcServices): void {
     register(
         channels.storage.savePage,
         ({ profile, id, page }) => {
-            storage.savePage(profile, id, page);
+            const validation = validatePageConfig(page);
+            if (!validation.ok) {
+                throw new Error(
+                    `Page config is invalid: ${
+                        validation.errors.join("; ") || "unknown validation error"
+                    }`,
+                );
+            }
+            if (validation.errors.length > 0) {
+                // Invalid actions are dropped (firmware behavior); warn without
+                // blocking the save so pre-existing/imported pages stay editable.
+                broadcastEvent(eventChannels.toast, {
+                    level: "warning",
+                    message: `Saved with dropped actions: ${validation.errors.join("; ")}`,
+                });
+            }
+            storage.savePage(profile, id, serializePageConfig(validation.page));
             return { ok: true, data: undefined };
         },
         true,
@@ -155,6 +173,21 @@ export function registerIpcHandlers(services: IpcServices): void {
             ok: true,
             data: await storage.importProfile(),
         }),
+        true,
+    );
+
+    register(
+        channels.storage.getDefaultProfile,
+        () => ({ ok: true, data: storage.getDefaultProfile() }),
+        true,
+    );
+
+    register(
+        channels.storage.setDefaultProfile,
+        ({ name }) => {
+            storage.setDefaultProfile(name);
+            return { ok: true, data: undefined };
+        },
         true,
     );
 
@@ -204,7 +237,19 @@ export function registerIpcHandlers(services: IpcServices): void {
     });
     register(channels.usb.uploadPage, async ({ profile, id }) => {
         const page = storage.loadPage(profile, id);
-        await device.uploadPage(profile, id, JSON.stringify(page));
+        const validation = validatePageConfig(page);
+        if (!validation.ok) {
+            throw new Error(
+                `Page config is invalid: ${validation.errors.join("; ") || "unknown validation error"}`,
+            );
+        }
+        // Canonicalize exactly like SyncService so the device CRC matches the
+        // locally computed hash (same bytes on both upload paths).
+        await device.uploadPage(
+            profile,
+            id,
+            JSON.stringify(serializePageConfig(validation.page)),
+        );
         return { ok: true, data: undefined };
     });
     register(channels.usb.uploadIcon, async ({ name }) => {
@@ -218,8 +263,29 @@ export function registerIpcHandlers(services: IpcServices): void {
 
     // --- icons (local library; sharp pipeline) --------------------------
     register(channels.icons.list, () => ({ ok: true, data: listLocalIcons(storage) }));
+    register(channels.icons.preview, ({ name }) => {
+        const base = iconBaseName(name);
+        const file = resolveIconFile(storage, base);
+        if (file === null) {
+            return { ok: true, data: null };
+        }
+        const bytes = fs.readFileSync(file);
+        return {
+            ok: true,
+            data: { name: base, dataUrl: `data:image/png;base64,${bytes.toString("base64")}` },
+        };
+    });
     register(channels.icons.import, async ({ paths }) => {
-        const sources = validateIconSources(paths);
+        let sources: string[];
+        if (paths === undefined) {
+            const picked = await pickIconSources();
+            if (picked.length === 0) {
+                return { ok: true, data: [] };
+            }
+            sources = validateIconSources(picked);
+        } else {
+            sources = validateIconSources(paths);
+        }
         const imported: IconMeta[] = [];
         for (const src of sources) {
             const icon = await imagePipeline.importImage(src);
@@ -227,17 +293,37 @@ export function registerIpcHandlers(services: IpcServices): void {
         }
         return { ok: true, data: imported };
     });
+    register(channels.icons.importData, async ({ name, dataUrl }) => {
+        const bytes = decodeImageDataUrl(dataUrl);
+        const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lucyddeck-crop-"));
+        const temp = path.join(tempDir, "crop.png");
+        try {
+            fs.writeFileSync(temp, bytes);
+            const icon = await imagePipeline.importImage(temp, name);
+            return { ok: true, data: { name: icon.name, hash: String(icon.crc32) } };
+        } finally {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+    });
+
     register(channels.icons.remove, ({ name }) => {
         const base = iconBaseName(name);
-        if (!storage.validateName(base)) {
-            throw new Error(`Invalid icon name: "${base}"`);
-        }
-        const file = path.join(storage.iconsDir(), `${base}.png`);
-        if (fs.existsSync(file)) {
+        const file = resolveIconFile(storage, base);
+        if (file !== null) {
             fs.rmSync(file);
         }
         return { ok: true, data: undefined };
     });
+
+    // --- sync (Step 3 delta-sync engine) --------------------------------
+    register(channels.sync.reconcile, async ({ activeProfile }) => ({
+        ok: true,
+        data: await sync.reconcile({ activeProfile }),
+    }));
+    register(channels.sync.execute, async ({ plan }) => ({
+        ok: true,
+        data: await sync.executePlan(plan),
+    }));
 
     // --- stubs for later steps -----------------------------------------
     notImplemented(channels.plugins.list, "4");
@@ -249,26 +335,29 @@ export function registerIpcHandlers(services: IpcServices): void {
     notImplemented(channels.firmware.update, "5");
 }
 
-/** Normalize an icon name to its base (no `.png` extension). */
-function iconBaseName(name: string): string {
-    return name.replace(/\.png$/i, "");
-}
-
 /**
  * Resolve `<iconsDir>/<base>.png` after validating the name. Returns `null` when
- * the name is invalid or the file is missing/outside the icons directory.
+ * the file is missing; throws for a name that fails `validateName`.
  */
 function resolveIconFile(storage: StorageService, name: string): string | null {
     const base = iconBaseName(name);
-    if (!storage.validateName(base)) {
-        throw new Error(`Invalid icon name: "${base}"`);
-    }
-    const dir = path.resolve(storage.iconsDir());
-    const file = path.resolve(dir, `${base}.png`);
-    if (file !== path.join(dir, `${base}.png`) || !file.startsWith(dir + path.sep)) {
-        throw new Error(`Invalid icon path: "${base}"`);
-    }
+    const file = storage.iconFilePath(base);
     return fs.existsSync(file) ? file : null;
+}
+
+const ICON_DIALOG_FILTERS = [
+    { name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] },
+    { name: "All files", extensions: ["*"] },
+];
+
+/** Show a native multi-select picker for icon sources; `[]` when cancelled. */
+async function pickIconSources(): Promise<string[]> {
+    const result = await dialog.showOpenDialog({
+        title: "Import icons",
+        properties: ["openFile", "multiSelections"],
+        filters: ICON_DIALOG_FILTERS,
+    });
+    return result.canceled ? [] : result.filePaths;
 }
 
 const ICON_SOURCE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
@@ -303,6 +392,30 @@ function validateIconSources(paths: unknown): string[] {
     });
 }
 
+const DATA_URL_IMAGE_PATTERN = /^data:image\/(?:png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/;
+
+/**
+ * Decode a renderer-supplied base64 image data URL (canvas crop output) into
+ * bytes, enforcing the same size cap as file imports.
+ */
+function decodeImageDataUrl(dataUrl: unknown): Buffer {
+    if (typeof dataUrl !== "string") {
+        throw new Error("Expected an image data URL");
+    }
+    const match = DATA_URL_IMAGE_PATTERN.exec(dataUrl.trim());
+    if (match === null) {
+        throw new Error("Expected a base64 PNG/JPEG/WebP data URL");
+    }
+    const bytes = Buffer.from(match[1].replace(/\s+/g, ""), "base64");
+    if (bytes.length === 0) {
+        throw new Error("Image data is empty");
+    }
+    if (bytes.length > MAX_ICON_SOURCE_BYTES) {
+        throw new Error("Image is too large to import");
+    }
+    return bytes;
+}
+
 /** Cache of `<path> -> {mtimeMs, size, crc32}` so `icons:list` avoids re-hashing. */
 const iconHashCache = new Map<string, { mtimeMs: number; size: number; crc32: number }>();
 
@@ -316,23 +429,21 @@ function listLocalIcons(storage: StorageService): IconMeta[] {
         .readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isFile() && /\.png$/i.test(entry.name))
         .map((entry) => {
+            const base = iconBaseName(entry.name);
             const file = path.join(dir, entry.name);
-            return {
-                name: entry.name.replace(/\.png$/i, ""),
-                hash: String(cachedIconHash(file)),
-            };
+            return { name: base, hash: String(cachedIconHash(storage, base, file)) };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** CRC-32 of an icon file, memoized by mtime + size. */
-function cachedIconHash(file: string): number {
+/** CRC-32 of an icon file (via the shared `StorageService.iconHash`), memoized by mtime + size. */
+function cachedIconHash(storage: StorageService, base: string, file: string): number {
     const stats = fs.statSync(file);
     const cached = iconHashCache.get(file);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
         return cached.crc32;
     }
-    const hash = crc32(new Uint8Array(fs.readFileSync(file)));
+    const hash = storage.iconHash(base) ?? 0;
     iconHashCache.set(file, { mtimeMs: stats.mtimeMs, size: stats.size, crc32: hash });
     return hash;
 }

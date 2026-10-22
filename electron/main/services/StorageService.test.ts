@@ -209,7 +209,6 @@ describe("StorageService profile CRUD", () => {
                 "0": {
                     label: "Launch",
                     click: ["CMD:explorer.exe"],
-                    longPress: [],
                 },
             },
         };
@@ -330,6 +329,49 @@ describe("StorageService export/import", () => {
 
         expect(() => storage.importProfileFrom(src)).toThrow(/already exists/);
         expect(() => storage.importProfileFrom(path.join(dataDir, "missing"))).toThrow();
+    });
+});
+
+describe("StorageService default profile", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("persists, resolves, and surfaces the default flag", () => {
+        storage.createProfile("main");
+        storage.createProfile("work");
+        expect(storage.getDefaultProfile()).toBeNull();
+
+        storage.setDefaultProfile("work");
+        expect(storage.getDefaultProfile()).toBe("work");
+        expect(storage.listProfiles().map((p) => [p.name, p.isDefault])).toEqual([
+            ["main", false],
+            ["work", true],
+        ]);
+
+        // Renaming the default follows the rename.
+        storage.renameProfile("work", "office");
+        expect(storage.getDefaultProfile()).toBe("office");
+
+        // Deleting the default clears it.
+        storage.deleteProfile("office");
+        expect(storage.getDefaultProfile()).toBeNull();
+    });
+
+    it("clears the default with null and rejects missing profiles", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setDefaultProfile(null);
+        expect(storage.getDefaultProfile()).toBeNull();
+        expect(() => storage.setDefaultProfile("ghost")).toThrow(/not found/);
     });
 });
 

@@ -44,4 +44,10 @@ describe("shared/ipc contract", () => {
         expect(eventChannels.firmwareState).toBe("firmware:state");
         expect(eventChannels.flashProgress).toBe("flash:progress");
     });
+
+    it("exposes the icon-preview and sync channels", () => {
+        expect(channels.icons.preview).toBe("icons:preview");
+        expect(channels.sync.reconcile).toBe("sync:reconcile");
+        expect(channels.sync.execute).toBe("sync:execute");
+    });
 });

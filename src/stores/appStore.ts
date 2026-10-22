@@ -13,13 +13,15 @@ export interface Toast {
 
 let nextToastId = 1;
 
-/** Global app UI state: toasts + device status chip. */
+/** Global app UI state: toasts, device status chip, and the settings overlay. */
 export const useAppStore = defineStore("app", () => {
     const toasts = ref<Toast[]>([]);
     const deviceStatus = ref<DeviceStatus>({
         state: DeviceState.Disconnected,
         label: "Disconnected",
     });
+    const settingsOpen = ref(false);
+    const settingsSection = ref("general");
 
     function pushToast(level: ToastPayload["level"], message: string): void {
         const toast: Toast = { id: nextToastId++, level, message };
@@ -37,6 +39,15 @@ export const useAppStore = defineStore("app", () => {
         deviceStatus.value = { ...status };
     }
 
+    function openSettings(section = "general"): void {
+        settingsSection.value = section;
+        settingsOpen.value = true;
+    }
+
+    function closeSettings(): void {
+        settingsOpen.value = false;
+    }
+
     // Main-process push events.
     on(eventChannels.toast, (payload) => pushToast(payload.level, payload.message));
     on(eventChannels.usb, (payload) => {
@@ -48,8 +59,12 @@ export const useAppStore = defineStore("app", () => {
     return {
         toasts,
         deviceStatus,
+        settingsOpen,
+        settingsSection,
         pushToast,
         dismissToast,
         setDeviceStatus,
+        openSettings,
+        closeSettings,
     };
 });

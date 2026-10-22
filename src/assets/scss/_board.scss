@@ -1,0 +1,156 @@
+@use "variables" as v;
+
+// 3x5 board workspace.
+
+.view--board {
+    display: flex;
+    flex-direction: column;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+}
+
+.board-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: v.$space-lg;
+    margin-bottom: v.$space-md;
+    flex: 0 0 auto;
+}
+
+.page-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: v.$space-xs;
+}
+
+.page-switcher__pill {
+    padding: v.$space-2xs v.$space-sm;
+    border: 1px solid v.$color-border;
+    border-radius: 999px;
+    background-color: v.$color-bg-hover;
+    color: v.$color-text-dim;
+    font-size: 0.78rem;
+
+    &:hover {
+        color: v.$color-text;
+        border-color: v.$color-text-faint;
+    }
+}
+
+.page-switcher__pill--active {
+    border-color: v.$color-accent;
+    background-color: rgba(v.$color-accent, 0.16);
+    color: v.$color-accent;
+}
+
+.page-switcher__add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px dashed v.$color-border;
+    border-radius: 999px;
+    background: transparent;
+    color: v.$color-text-dim;
+
+    &:hover {
+        color: v.$color-text;
+        border-color: v.$color-accent;
+    }
+}
+
+.board-canvas {
+    display: grid;
+    grid-template-columns: repeat(var(--board-cols, 5), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--board-rows, 3), minmax(0, 1fr));
+    gap: v.$space-md;
+    width: 100%;
+    // Keep the board square (5:3) and cap it by the shorter of a 900px
+    // comfortable width and the height left over after the shell chrome, so
+    // the buttons never grow past the viewport on short displays.
+    max-width: min(900px, calc((100dvh - 170px) * 5 / 3));
+    margin: 0 auto;
+}
+
+.key-button {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    aspect-ratio: 1 / 1;
+    padding: v.$space-sm;
+    border: 1px solid v.$color-border;
+    border-radius: v.$radius-lg;
+    background-color: v.$color-surface;
+    color: v.$color-text;
+    transition:
+        border-color 100ms ease,
+        box-shadow 100ms ease;
+
+    &:hover {
+        border-color: v.$color-text-faint;
+    }
+}
+
+.key-button--selected {
+    border-color: v.$color-accent;
+    box-shadow: 0 0 0 2px rgba(v.$color-accent, 0.35);
+}
+
+.key-button--empty {
+    border-style: dashed;
+    background-color: v.$color-bg-elevated;
+}
+
+.key-button__icon {
+    width: 60%;
+    height: 60%;
+    object-fit: contain;
+}
+
+.key-button__missing {
+    color: v.$color-warning;
+}
+
+.key-button__index {
+    position: absolute;
+    top: v.$space-xs;
+    left: v.$space-sm;
+    font-size: 0.72rem;
+    color: v.$color-text-faint;
+}
+
+.key-button__label {
+    max-width: 100%;
+    margin-top: v.$space-xs;
+    overflow: hidden;
+    font-size: 0.78rem;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.key-button__badges {
+    position: absolute;
+    right: v.$space-xs;
+    bottom: v.$space-xs;
+    display: flex;
+    gap: v.$space-2xs;
+}
+
+.key-button__badge {
+    padding: 0 v.$space-2xs;
+    border-radius: v.$radius-sm;
+    background-color: rgba(0, 0, 0, 0.45);
+    color: v.$color-text-dim;
+    font-size: 0.68rem;
+}

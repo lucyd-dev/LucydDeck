@@ -1,6 +1,7 @@
 import { channels } from "@shared/ipc";
 import type { IpcChannel, RequestFor, ResponseFor } from "@shared/ipc";
 import type { PageConfig } from "@shared/types";
+import type { DiffPlan } from "@shared/sync";
 
 /**
  * Typed wrappers over `window.lucyd`. The renderer calls these instead of
@@ -26,6 +27,9 @@ export const storageClient = {
         invoke(channels.storage.savePage, { profile, id, page }),
     exportProfile: (name: string) => invoke(channels.storage.exportProfile, { name }),
     importProfile: () => invoke(channels.storage.importProfile, undefined),
+    getDefaultProfile: () => invoke(channels.storage.getDefaultProfile, undefined),
+    setDefaultProfile: (name: string | null) =>
+        invoke(channels.storage.setDefaultProfile, { name }),
 };
 
 export const usbClient = {
@@ -47,8 +51,18 @@ export const usbClient = {
 
 export const iconsClient = {
     list: () => invoke(channels.icons.list, undefined),
-    import: (paths: string[]) => invoke(channels.icons.import, { paths }),
+    /** Import picked files; omit `paths` to open the native picker. */
+    import: (paths?: string[]) => invoke(channels.icons.import, paths === undefined ? {} : { paths }),
+    importData: (name: string, dataUrl: string) =>
+        invoke(channels.icons.importData, { name, dataUrl }),
     remove: (name: string) => invoke(channels.icons.remove, { name }),
+    preview: (name: string) => invoke(channels.icons.preview, { name }),
+};
+
+export const syncClient = {
+    reconcile: (activeProfile?: string) =>
+        invoke(channels.sync.reconcile, activeProfile === undefined ? {} : { activeProfile }),
+    execute: (plan: DiffPlan) => invoke(channels.sync.execute, { plan }),
 };
 
 export const pluginsClient = {

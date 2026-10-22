@@ -8,6 +8,7 @@ import { UsbService } from "./main/services/UsbService";
 import { FileTransfer } from "./main/services/FileTransfer";
 import { DeviceService } from "./main/services/DeviceService";
 import { ImagePipelineService } from "./main/services/ImagePipelineService";
+import { SyncService } from "./main/services/SyncService";
 import { createStorageDialogs } from "./main/ipc/dialogs";
 import { registerIpcHandlers } from "./main/ipc/register";
 
@@ -32,6 +33,11 @@ let win: BrowserWindow | null;
 
 async function createWindow() {
     win = new BrowserWindow({
+        width: 1280,
+        height: 800,
+        minWidth: 1024,
+        minHeight: 680,
+        backgroundColor: "#14171d",
         webPreferences: {
             preload: path.join(__dirname, "preload.mjs"),
         },
@@ -76,7 +82,8 @@ app.whenReady().then(() => {
     const fileTransfer = new FileTransfer(usb);
     const device = new DeviceService(usb, fileTransfer);
     const imagePipeline = new ImagePipelineService(storage);
-    registerIpcHandlers({ storage, usb, device, fileTransfer, imagePipeline });
+    const sync = new SyncService(storage, device, fileTransfer);
+    registerIpcHandlers({ storage, usb, device, fileTransfer, imagePipeline, sync });
 
     createWindow();
 });

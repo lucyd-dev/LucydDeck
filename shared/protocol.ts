@@ -50,6 +50,23 @@ export function isValidPageId(id: string | number): boolean {
     return PAGE_ID_PATTERN.test(value) && Number(value) <= 255;
 }
 
+/** Canonical page filename: leading digits + `.json` (case-sensitive). */
+export const PAGE_FILENAME_PATTERN = /^(\d+)\.json$/;
+
+/**
+ * Parse a page filename to its canonical id, or `null` when it is not a
+ * `^[0-9]+\.json$` file or the id is outside 0..255. Single source of truth for
+ * `StorageService.listPages` and `SyncService`.
+ */
+export function pageIdFromFilename(filename: string): string | null {
+    const match = PAGE_FILENAME_PATTERN.exec(filename);
+    if (match === null) {
+        return null;
+    }
+    const id = match[1];
+    return isValidPageId(id) ? id : null;
+}
+
 // --- File-transfer path types ---------------------------------------------
 
 export enum PathType {

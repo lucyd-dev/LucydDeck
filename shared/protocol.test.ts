@@ -14,6 +14,7 @@ import {
     PATH_ICON,
     PATH_PAGE,
     PAYLOAD_MAX,
+    PAGE_FILENAME_PATTERN,
     REPORT_ID,
     SEQ_MASK,
     STREAM_TIMEOUT_MS,
@@ -24,6 +25,7 @@ import {
     isHostOpcode,
     isValidPageId,
     matchDevice,
+    pageIdFromFilename,
 } from "./protocol";
 import { buildFrame, parseFrame } from "../electron/main/services/usb/Framer";
 
@@ -199,5 +201,25 @@ describe("shared/protocol ↔ Framer interop", () => {
         expect(() =>
             buildFrame(HostCommand.FileChunk, 1, new Uint8Array(PAYLOAD_MAX)),
         ).not.toThrow();
+    });
+});
+
+describe("pageIdFromFilename", () => {
+    it("extracts valid leading-digit ids, including leading zeros", () => {
+        expect(pageIdFromFilename("0.json")).toBe("0");
+        expect(pageIdFromFilename("12.json")).toBe("12");
+        expect(pageIdFromFilename("007.json")).toBe("007");
+    });
+
+    it("rejects non-page files, wrong case, and out-of-range ids", () => {
+        expect(pageIdFromFilename("page.json")).toBeNull();
+        expect(pageIdFromFilename(".json")).toBeNull();
+        expect(pageIdFromFilename("5.JSON")).toBeNull();
+        expect(pageIdFromFilename("300.json")).toBeNull();
+    });
+
+    it("keeps the canonical pattern shared with storage/sync", () => {
+        expect(PAGE_FILENAME_PATTERN.exec("12.json")?.[1]).toBe("12");
+        expect(PAGE_FILENAME_PATTERN.exec("12.JSON")).toBeNull();
     });
 });
