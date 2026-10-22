@@ -31,8 +31,8 @@ Steps 1 and 2 run on `feature/ui-rebuild`, which is already checked out. Merge i
 ## Firmware contract (condensed)
 
 - Report is 64 bytes: report id `0x06` plus a 63-byte frame `[opcode][seqHi][seqLo][payload 60 max]`.
-- Host sequence rises by one per frame, wraps at `0x7FFF`, M-bit clear, resets on connect. The device sets the M-bit except on the last frame of a stream.
-- Host opcodes: `0x00` ping, `0x01` device info, `0x02` images list, `0x03` profiles list, `0x20` to `0x22` profile create, rename, delete, `0x30` to `0x33` file start, chunk, end, cancel, `0x40` and `0x41` set active profile and page.
+- Host sequence rises by one per frame, wraps at `0x7FFF` to `0`, M-bit clear, and never restarts at 1 on a HID reconnect, which raises no USB event. The device clears its baseline on USB start/resume and on `CMD_RESET_SEQUENCE` (`0x04`), and between clears it requires exactly `previous + 1`. The app sends the reset when it opens the deck and again before retrying a command the deck answered with `ERR_SEQUENCE`. Firmware without the command answers `ERR_UNKNOWN_COMMAND` and the app keeps using the running counter. The device sets the M-bit except on the last frame of a stream.
+- Host opcodes: `0x00` ping, `0x01` device info, `0x02` images list, `0x03` profiles list, `0x04` reset sequence, `0x20` to `0x22` profile create, rename, delete, `0x30` to `0x33` file start, chunk, end, cancel, `0x40` and `0x41` set active profile and page.
 - Device opcodes: `0x80` device info JSON (`fw_version`, `protocol_version`, `board`, `free_space_kb`), `0x81` images list, `0x82` profiles list, `0xA0` action triggered, `0xFE` error with one byte, `0xFF` ack.
 - One outstanding request at a time. Reassemble a stream by the expected opcode. `0xA0` can arrive at any moment and is never acked.
 - Upload: `[pathType][path]`, `0x01` page `"<profile>/<id>.json"`, `0x02` icon `"<name>.png"`, chunks of 60 bytes paced by the ack, end carries a CRC32 in IEEE form, big-endian. The firmware stages `.tmp` and keeps the old file on failure.

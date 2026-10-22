@@ -44,7 +44,18 @@ export function padToPayload(bytes: Uint8Array, payloadSize: number = PAYLOAD_MA
 /** M-bit: set on every device→host frame except the last of a stream. */
 export const M_BIT = 0x8000;
 
-/** 15-bit sequence/index mask (`seq & SEQ_MASK`). */
+/**
+ * 15-bit sequence/index mask (`seq & SEQ_MASK`).
+ *
+ * Host→device sequencing uses one counter for the life of the host process,
+ * rising by exactly one per frame and wrapping from `0x7FFF` to `0`, M-bit
+ * clear. The device keeps one baseline per USB session. It clears that baseline
+ * on USB start/resume (re-enumeration) and whenever the host sends
+ * `CMD_RESET_SEQUENCE`, after which it accepts any value as the new baseline.
+ * Between resets it requires exactly `previous + 1`. A HID handle being closed
+ * and reopened raises no such event, so restarting the host counter at 1 on
+ * reconnect makes the device answer `RESP_ERROR ERR_SEQUENCE`.
+ */
 export const SEQ_MASK = 0x7fff;
 
 // --- Timeouts / transfer limits -------------------------------------------
@@ -189,6 +200,8 @@ export enum HostCommand {
     GetDeviceInfo = 0x01,
     GetImagesList = 0x02,
     GetProfilesList = 0x03,
+    /** Clears the device's host-sequence baseline; any sequence is accepted. */
+    ResetSequence = 0x04,
     ProfileCreate = 0x20,
     ProfileRename = 0x21,
     ProfileDelete = 0x22,

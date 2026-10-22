@@ -57,15 +57,26 @@ interface PendingCommand extends QueuedCommand {
     timer: ReturnType<typeof setTimeout> | null;
 }
 
-/** Host→device sequence provider: resets on connect, monotonic `prev+1`, M=0. */
+/**
+ * Host→device sequence provider: monotonic `prev+1` for the life of the
+ * process, M=0, wrapping through `0x7FFF` to `0`.
+ *
+ * The host must **not** restart at 1 when the HID handle is reopened
+ * (`connect`/`disconnect`) or when it reconnects after a dropped device.
+ * The deck keeps one baseline per USB session: it clears it on USB
+ * start/resume (re-enumeration) and on `CMD_RESET_SEQUENCE`, and between clears
+ * it requires exactly `previous + 1`. Right after a clear it accepts any value
+ * as the new baseline, which is why counting on across every host-side
+ * reconnect works; `connect` also sends the reset to cover a restarted host.
+ */
 export class SequenceProvider {
-    private current = 0;
+    private current: number;
 
-    reset(): void {
-        this.current = 0;
+    constructor(start = 0) {
+        this.current = start & SEQ_MASK;
     }
 
-    /** Next host sequence; the first frame after a reset is `1`. */
+    /** Next host sequence; the first frame of a process is `1`. */
     next(): number {
         this.current = (this.current + 1) & SEQ_MASK;
         return this.current;
@@ -93,6 +104,11 @@ const OPCODE_NAMES: Record<number, string> = Object.fromEntries(
 
 function opcodeName(opcode: number): string {
     return OPCODE_NAMES[opcode] ?? `0x${opcode.toString(16).padStart(2, "0")}`;
+}
+
+/** True when the deck rejected a frame for arriving out of sequence. */
+function isSequenceError(error: unknown): boolean {
+    return error instanceof UsbError && error.firmwareCode === ErrorCode.Sequence;
 }
 
 function describeDevice(device: HidDescriptorLike, pid: number): string {
@@ -256,10 +272,15 @@ export class UsbService {
         }
 
         this.connection = connection;
-        this.sequence.reset();
+        // The host sequence is deliberately not reset here: opening a HID
+        // handle does not re-enumerate the device, so the firmware keeps
+        // expecting the next value of the counter we were already using.
         this.backoffIndex = 0;
         connection.onData((report) => this.handleReport(report));
         connection.onError((error) => this.handleTransportError(error));
+        // Queued before any caller's command, so it is the first frame the deck
+        // sees. It stays best effort: older firmware answers ERR_UNKNOWN_COMMAND.
+        this.clearDeckBaseline();
         this.setStatus({
             state: DeviceState.Connected,
             label: describeDevice(found.device, found.pid),
@@ -272,7 +293,7 @@ export class UsbService {
         this.cancelReconnect();
         this.teardownConnection();
         this.resetActionStream();
-        this.sequence.reset();
+        // Keep the host sequence across disconnects; see `SequenceProvider`.
         this.rejectAll(new UsbError("Device disconnected", UsbErrorCodes.NotConnected));
         this.setStatus({ state: DeviceState.Disconnected, label: "No device connected" });
     }
@@ -333,16 +354,70 @@ export class UsbService {
      * Send one host command and resolve with the reassembled response payload.
      * Commands are serialized: at most one request is outstanding at a time.
      * `RESP_ERROR` rejects with a `UsbError` carrying the firmware code.
+     *
+     * A command the deck answers with `ERR_SEQUENCE` was not dispatched, so it
+     * is retried once after clearing the deck's baseline with
+     * `CMD_RESET_SEQUENCE`. Firmware without that command cannot resync and
+     * keeps its original error.
      */
-    command(
+    async command(
         opcode: HostCommand,
         payload: Uint8Array = new Uint8Array(),
         expect: DeviceResponse = DeviceResponse.Ack,
+    ): Promise<Uint8Array> {
+        try {
+            return await this.send(opcode, payload, expect);
+        } catch (error) {
+            if (opcode === HostCommand.ResetSequence || !isSequenceError(error)) {
+                throw error;
+            }
+            log.warn(
+                `[usb] ${opcodeName(opcode)} arrived out of sequence; resetting the deck baseline and retrying once`,
+            );
+            try {
+                await this.send(HostCommand.ResetSequence, new Uint8Array(), DeviceResponse.Ack);
+            } catch (resetError) {
+                log.warn(`[usb] sequence reset failed: ${String(resetError)}`);
+                throw error;
+            }
+            return this.send(opcode, payload, expect);
+        }
+    }
+
+    private send(
+        opcode: HostCommand,
+        payload: Uint8Array,
+        expect: DeviceResponse,
     ): Promise<Uint8Array> {
         return new Promise<Uint8Array>((resolve, reject) => {
             this.queue.push({ opcode, payload, expect, resolve, reject });
             this.pump();
         });
+    }
+
+    /**
+     * Clear the deck's host-sequence baseline so a host restart, or a frame the
+     * deck dropped, cannot leave the two counters out of step. Best effort:
+     * firmware that predates `CMD_RESET_SEQUENCE` answers `ERR_UNKNOWN_COMMAND`
+     * and the running host sequence is still the right frame to send.
+     */
+    private clearDeckBaseline(): void {
+        this.command(HostCommand.ResetSequence, new Uint8Array(), DeviceResponse.Ack).catch(
+            (error: unknown) => {
+                const benign =
+                    error instanceof UsbError &&
+                    (error.firmwareCode === ErrorCode.UnknownCommand ||
+                        error.code === UsbErrorCodes.NotConnected);
+                const message = `[usb] sequence reset ${
+                    benign ? "not accepted" : "failed"
+                }: ${String(error)}`;
+                if (benign) {
+                    log.info(message);
+                } else {
+                    log.warn(message);
+                }
+            },
+        );
     }
 
     private pump(): void {
