@@ -33,6 +33,11 @@ export class FileTransferError extends Error {
 /** Minimal surface `FileTransfer` needs from `UsbService` (mockable in tests). */
 export interface UsbCommandClient {
     command(opcode: HostCommand, payload: Uint8Array, expect: DeviceResponse): Promise<Uint8Array>;
+    /**
+     * False once the HID link is down. Cleanup commands are pointless then, and
+     * the deck resets its transfer state when it re-enumerates.
+     */
+    readonly connected?: boolean;
 }
 
 export interface FileTransferOptions {
@@ -59,6 +64,26 @@ function isCrcError(error: unknown): boolean {
     );
 }
 
+/** True when the deck answered `CMD_FILE_CANCEL` with "nothing to cancel". */
+function isNoTransferError(error: unknown): boolean {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "firmwareCode" in error &&
+        (error as UsbError).firmwareCode === ErrorCode.NoTransfer
+    );
+}
+
+/** True when the deck refused `CMD_FILE_START` because a transfer is open. */
+function isBusyError(error: unknown): boolean {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "firmwareCode" in error &&
+        (error as UsbError).firmwareCode === ErrorCode.TransferBusy
+    );
+}
+
 /**
  * Three-phase `CMD_FILE_*` uploader: START → ACK-paced chunks → END with a
  * big-endian CRC32. One transfer at a time; `ERR_CRC` on END retries the file
@@ -78,6 +103,8 @@ export class FileTransfer {
 
     private statusValue: TransferState = "idle";
     private cancelled = false;
+    /** True between an ACKed `CMD_FILE_START` and `CMD_FILE_END`. */
+    private transferOpen = false;
     private currentPath = "";
     private currentPathType: number = 0;
     private lastProgressAt = 0;
@@ -142,6 +169,7 @@ export class FileTransfer {
 
         this.statusValue = "active";
         this.cancelled = false;
+        this.transferOpen = false;
         this.currentPath = path;
         this.currentPathType = pathType;
         this.lastProgressAt = 0;
@@ -168,6 +196,7 @@ export class FileTransfer {
             if (this.cancelled) {
                 throw new FileTransferError("Transfer cancelled", FileTransferErrorCodes.Cancelled);
             }
+            await this.clearOpenTransfer();
             throw error;
         } finally {
             this.currentPath = "";
@@ -192,6 +221,55 @@ export class FileTransfer {
         }
     }
 
+    /**
+     * Clear a transfer the deck still has open after a failed upload. Without
+     * this the deck keeps the staging transfer and answers the next
+     * `CMD_FILE_START` with `ERR_TRANSFER_BUSY`. Best effort: `ERR_NO_TRANSFER`
+     * means the deck already closed it, and a dropped link needs no cleanup.
+     */
+    private async clearOpenTransfer(): Promise<void> {
+        if (!this.transferOpen) {
+            return;
+        }
+        this.transferOpen = false;
+        if (this.usb.connected === false) {
+            return;
+        }
+        try {
+            await this.usb.command(HostCommand.FileCancel, new Uint8Array(), DeviceResponse.Ack);
+        } catch (error) {
+            if (isNoTransferError(error)) {
+                return;
+            }
+            log.warn(`[transfer] could not clear the failed transfer: ${String(error)}`);
+        }
+    }
+
+    /**
+     * Start a transfer, clearing a staging transfer the deck still holds after
+     * an interrupted session (app crash, dropped link). One retry only: the
+     * second `ERR_TRANSFER_BUSY` is real and belongs to the caller.
+     */
+    private async startTransfer(payload: Uint8Array): Promise<void> {
+        try {
+            await this.send(HostCommand.FileStart, payload);
+            return;
+        } catch (error) {
+            if (!isBusyError(error)) {
+                throw error;
+            }
+            log.warn("[transfer] deck still holds a transfer; cancelling it before retrying");
+            try {
+                await this.send(HostCommand.FileCancel, new Uint8Array());
+            } catch (cancelError) {
+                if (!isNoTransferError(cancelError)) {
+                    throw error;
+                }
+            }
+            await this.send(HostCommand.FileStart, payload);
+        }
+    }
+
     private async runTransfer(
         pathType: PathType | number,
         path: string,
@@ -204,7 +282,8 @@ export class FileTransfer {
         startPayload.set(encodedPath, 1);
 
         this.assertNotCancelled();
-        await this.send(HostCommand.FileStart, startPayload);
+        await this.startTransfer(startPayload);
+        this.transferOpen = true;
         this.emit("start", 0, bytes.length);
 
         let sent = 0;
@@ -218,6 +297,7 @@ export class FileTransfer {
 
         this.assertNotCancelled();
         await this.send(HostCommand.FileEnd, this.crc(wire));
+        this.transferOpen = false;
         this.emit("end", bytes.length, bytes.length);
     }
 

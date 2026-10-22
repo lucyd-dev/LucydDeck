@@ -36,6 +36,7 @@ interface Call {
 
 class MockUsb implements UsbCommandClient {
     readonly calls: Call[] = [];
+    connected = true;
     handler: (opcode: HostCommand, payload: Uint8Array) => Promise<Uint8Array> = async () =>
         new Uint8Array();
 
@@ -248,8 +249,123 @@ describe("FileTransfer control", () => {
         expect(transfer.state).toBe("cancelled");
     });
 
+    it("cancels the transfer the deck still holds after a failed upload", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileChunk) {
+                throw new UsbError("no ack", UsbErrorCodes.Timeout);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: UsbErrorCodes.Timeout,
+        });
+
+        expect(usb.calls.map((call) => call.opcode)).toEqual([
+            HostCommand.FileStart,
+            HostCommand.FileChunk,
+            HostCommand.FileCancel,
+        ]);
+        expect(transfer.state).toBe("idle");
+    });
+
+    it("keeps the original error when the deck has nothing to cancel", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileEnd) {
+                throw new UsbError("crc", "ERR_CRC", ErrorCode.Crc);
+            }
+            if (opcode === HostCommand.FileCancel) {
+                throw new UsbError("nothing open", "ERR_NO_TRANSFER", ErrorCode.NoTransfer);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb, { crcRetries: 0 });
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(10))).rejects.toMatchObject({
+            code: "ERR_CRC",
+            firmwareCode: ErrorCode.Crc,
+        });
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(1);
+    });
+
+    it("does not cancel after a successful upload", async () => {
+        const usb = new MockUsb();
+        await new FileTransfer(usb).upload(PATH_PAGE, PATH, bytes(10));
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(0);
+    });
+
+    it("clears a stale transfer and retries the start once", async () => {
+        const usb = new MockUsb();
+        let startCalls = 0;
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                startCalls++;
+                if (startCalls === 1) {
+                    throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+                }
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await transfer.upload(PATH_PAGE, PATH, bytes(61));
+
+        expect(usb.calls.map((call) => call.opcode)).toEqual([
+            HostCommand.FileStart,
+            HostCommand.FileCancel,
+            HostCommand.FileStart,
+            HostCommand.FileChunk,
+            HostCommand.FileChunk,
+            HostCommand.FileEnd,
+        ]);
+        expect(usb.payloads(HostCommand.FileStart)[1]).toEqual(
+            usb.payloads(HostCommand.FileStart)[0],
+        );
+        expect(transfer.state).toBe("done");
+    });
+
+    it("surfaces ERR_TRANSFER_BUSY when the deck is still busy after the clear", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: "ERR_TRANSFER_BUSY",
+            firmwareCode: ErrorCode.TransferBusy,
+        });
+        expect(usb.payloads(HostCommand.FileStart)).toHaveLength(2);
+    });
+
+    it("keeps the busy error when the cancel itself fails", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+            }
+            if (opcode === HostCommand.FileCancel) {
+                throw new UsbError("no ack", UsbErrorCodes.Timeout);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: "ERR_TRANSFER_BUSY",
+        });
+        expect(usb.payloads(HostCommand.FileStart)).toHaveLength(1);
+    });
+
     it("aborts when the device disconnects", async () => {
         const usb = new MockUsb();
+        usb.connected = false;
         usb.handler = async (opcode) => {
             if (opcode === HostCommand.FileChunk) {
                 throw new UsbError("gone", UsbErrorCodes.NotConnected);
@@ -261,6 +377,8 @@ describe("FileTransfer control", () => {
             code: UsbErrorCodes.NotConnected,
         });
         expect(transfer.state).toBe("idle");
+        // Nothing to clean up over a dropped link; the deck resets on replug.
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(0);
     });
 });
 
