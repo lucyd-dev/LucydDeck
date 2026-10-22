@@ -19,6 +19,28 @@ export const FRAME_SIZE = 63;
 /** Maximum payload bytes carried by one frame. */
 export const PAYLOAD_MAX = 60;
 
+/**
+ * Zero-pad `bytes` to a whole number of HID payloads.
+ *
+ * The USB stack delivers every host→device report at its full 63-byte length,
+ * so the firmware always reads a `PAYLOAD_MAX`-byte payload and computes the
+ * payload length from that fixed size (`wiki/USB-Protocol.md` §2). Trailing
+ * bytes are zero fill. File hashes and the `CMD_FILE_END` CRC must cover this
+ * padded stream, not the unpadded file, or the two sides disagree.
+ */
+export function padToPayload(bytes: Uint8Array, payloadSize: number = PAYLOAD_MAX): Uint8Array {
+    if (!Number.isInteger(payloadSize) || payloadSize <= 0) {
+        throw new RangeError(`Invalid payload size: ${payloadSize}`);
+    }
+    const remainder = bytes.length % payloadSize;
+    if (remainder === 0) {
+        return bytes;
+    }
+    const padded = new Uint8Array(bytes.length + payloadSize - remainder);
+    padded.set(bytes);
+    return padded;
+}
+
 /** M-bit: set on every device→host frame except the last of a stream. */
 export const M_BIT = 0x8000;
 

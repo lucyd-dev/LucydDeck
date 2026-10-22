@@ -5,6 +5,7 @@ import {
     FILE_TRANSFER_MAX_BYTES,
     HostCommand,
     PAYLOAD_MAX,
+    padToPayload,
 } from "@shared/protocol";
 import type { PathType } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
@@ -35,7 +36,6 @@ export interface UsbCommandClient {
 }
 
 export interface FileTransferOptions {
-    chunkSize?: number;
     /** How many times to retry the whole file after `ERR_CRC` on END. */
     crcRetries?: number;
     crc?: (bytes: Uint8Array) => Uint8Array;
@@ -63,10 +63,13 @@ function isCrcError(error: unknown): boolean {
  * Three-phase `CMD_FILE_*` uploader: START → ACK-paced chunks → END with a
  * big-endian CRC32. One transfer at a time; `ERR_CRC` on END retries the file
  * once (the device keeps the last-good file until a rename succeeds).
+ *
+ * Every chunk payload is exactly `PAYLOAD_MAX` bytes: the final chunk is
+ * zero-padded and the CRC covers the padded stream, matching what the fixed
+ * 63-byte USB report delivers to the firmware.
  */
 export class FileTransfer {
     private readonly usb: UsbCommandClient;
-    private readonly chunkSize: number;
     private readonly crcRetries: number;
     private readonly crc: (bytes: Uint8Array) => Uint8Array;
     private readonly progressIntervalMs: number;
@@ -81,7 +84,6 @@ export class FileTransfer {
 
     constructor(usb: UsbCommandClient, options: FileTransferOptions = {}) {
         this.usb = usb;
-        this.chunkSize = options.chunkSize ?? PAYLOAD_MAX;
         this.crcRetries = options.crcRetries ?? 1;
         this.crc = options.crc ?? crc32BigEndian;
         this.progressIntervalMs = options.progressIntervalMs ?? 100;
@@ -129,6 +131,14 @@ export class FileTransfer {
                 FileTransferErrorCodes.TooLarge,
             );
         }
+        // The firmware counts the padded bytes it receives against its budget.
+        const wire = padToPayload(bytes);
+        if (wire.length > FILE_TRANSFER_MAX_BYTES) {
+            throw new FileTransferError(
+                `File too large after HID padding: ${wire.length} > ${FILE_TRANSFER_MAX_BYTES} bytes`,
+                FileTransferErrorCodes.TooLarge,
+            );
+        }
 
         this.statusValue = "active";
         this.cancelled = false;
@@ -139,7 +149,7 @@ export class FileTransfer {
         try {
             for (let attempt = 0; ; attempt++) {
                 try {
-                    await this.runTransfer(pathType, path, bytes);
+                    await this.runTransfer(pathType, path, bytes, wire);
                     break;
                 } catch (error) {
                     if (attempt < this.crcRetries && !this.cancelled && isCrcError(error)) {
@@ -186,6 +196,7 @@ export class FileTransfer {
         pathType: PathType | number,
         path: string,
         bytes: Uint8Array,
+        wire: Uint8Array,
     ): Promise<void> {
         const encodedPath = textBytes(path);
         const startPayload = new Uint8Array(1 + encodedPath.length);
@@ -197,16 +208,16 @@ export class FileTransfer {
         this.emit("start", 0, bytes.length);
 
         let sent = 0;
-        while (sent < bytes.length) {
+        while (sent < wire.length) {
             this.assertNotCancelled();
-            const end = Math.min(sent + this.chunkSize, bytes.length);
-            await this.send(HostCommand.FileChunk, bytes.subarray(sent, end));
+            const end = Math.min(sent + PAYLOAD_MAX, wire.length);
+            await this.send(HostCommand.FileChunk, wire.subarray(sent, end));
             sent = end;
-            this.maybeEmitChunkProgress(sent, bytes.length);
+            this.maybeEmitChunkProgress(Math.min(sent, bytes.length), bytes.length);
         }
 
         this.assertNotCancelled();
-        await this.send(HostCommand.FileEnd, this.crc(bytes));
+        await this.send(HostCommand.FileEnd, this.crc(wire));
         this.emit("end", bytes.length, bytes.length);
     }
 

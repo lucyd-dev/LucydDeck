@@ -27,6 +27,7 @@ import {
     isHostOpcode,
     isValidPageId,
     matchDevice,
+    padToPayload,
     pageIdFromFilename,
     supportsFileDelete,
 } from "./protocol";
@@ -49,6 +50,27 @@ describe("shared/protocol constants", () => {
     it("maps path types", () => {
         expect(PATH_PAGE).toBe(0x01);
         expect(PATH_ICON).toBe(0x02);
+    });
+});
+
+describe("padToPayload", () => {
+    it("fills the last HID payload with zeros", () => {
+        const padded = padToPayload(Uint8Array.from([0x41]));
+        expect(padded).toHaveLength(PAYLOAD_MAX);
+        expect(padded[0]).toBe(0x41);
+        expect(padded.subarray(1)).toEqual(new Uint8Array(PAYLOAD_MAX - 1));
+    });
+
+    it("leaves whole payloads (and empty files) untouched", () => {
+        const whole = new Uint8Array(PAYLOAD_MAX * 2);
+        expect(padToPayload(whole)).toBe(whole);
+        const empty = new Uint8Array(0);
+        expect(padToPayload(empty)).toBe(empty);
+    });
+
+    it("pads to a caller-chosen payload size", () => {
+        expect(padToPayload(Uint8Array.from([1, 2, 3]), 4)).toEqual(Uint8Array.from([1, 2, 3, 0]));
+        expect(() => padToPayload(new Uint8Array(), 0)).toThrow(RangeError);
     });
 });
 

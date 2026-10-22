@@ -5,7 +5,9 @@ import {
     FILE_TRANSFER_MAX_BYTES,
     HostCommand,
     PATH_PAGE,
+    PAYLOAD_MAX,
     PathType,
+    padToPayload,
 } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
 import { crc32BigEndian } from "./usb/Crc32";
@@ -96,9 +98,11 @@ describe("FileTransfer chunking", () => {
         for (const chunk of usb.payloads(HostCommand.FileChunk)) {
             expect(chunk.length).toBeLessThanOrEqual(60);
         }
+        // 130 bytes become three full payloads; the last 50 bytes are zero fill.
         expect(usb.payloads(HostCommand.FileChunk).map((chunk) => chunk.length)).toEqual([
-            60, 60, 10,
+            60, 60, 60,
         ]);
+        expect(usb.payloads(HostCommand.FileChunk)[2].slice(10)).toEqual(new Uint8Array(50));
     });
 
     it("preserves order and paces on each ACK", async () => {
@@ -118,13 +122,41 @@ describe("FileTransfer chunking", () => {
     });
 });
 
+/**
+ * The firmware's view of a chunk stream. The USB stack delivers every report
+ * at its full 63-byte length (`wiki/USB-Protocol.md` §2), so the device always
+ * receives a 60-byte payload: the chunk bytes followed by zero fill.
+ */
+function firmwareStream(chunks: Uint8Array[]): Uint8Array {
+    const stream = new Uint8Array(chunks.length * PAYLOAD_MAX);
+    chunks.forEach((chunk, index) =>
+        stream.set(chunk.subarray(0, PAYLOAD_MAX), index * PAYLOAD_MAX),
+    );
+    return stream;
+}
+
 describe("FileTransfer CRC", () => {
+    it("hashes the zero-padded stream the firmware receives (test vector 0x41)", async () => {
+        const usb = new MockUsb();
+        // One byte -> one 60-byte payload: 0x41 followed by 59 zero-fill bytes.
+        await new FileTransfer(usb).upload(PATH_PAGE, PATH, Uint8Array.from([0x41]));
+
+        const wire = firmwareStream(usb.payloads(HostCommand.FileChunk));
+        expect(wire).toHaveLength(PAYLOAD_MAX);
+        expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual(
+            Array.from(crc32BigEndian(wire)),
+        );
+        // CRC-32 (IEEE) of 0x41 + 59 * 0x00.
+        expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual([0xa2, 0x4e, 0x47, 0x6b]);
+    });
+
     it("sends the big-endian CRC32 of all bytes in exact order", async () => {
         const usb = new MockUsb();
         const data = bytes(137);
         await new FileTransfer(usb).upload(PATH_PAGE, PATH, data);
+        // 137 file bytes + 43 zero-fill bytes in the final payload.
         expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual(
-            Array.from(crc32BigEndian(data)),
+            Array.from(crc32BigEndian(padToPayload(data))),
         );
     });
 

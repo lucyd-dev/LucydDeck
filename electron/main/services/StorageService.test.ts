@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { serializePageConfig } from "@shared/schema";
 import {
     DATA_DIR_ENV,
     PAGE_FILE_PATTERN,
@@ -10,6 +11,7 @@ import {
     resolveDataDir,
     validateName,
 } from "./StorageService";
+import { crc32Upload } from "./usb/Crc32";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -420,12 +422,19 @@ describe("StorageService app settings", () => {
 
     it("reports the canonical page hash matching the upload bytes", () => {
         storage.createProfile("main");
-        storage.savePage("main", "0", {
+        const page = {
             buttons: { "1": { label: "Run", click: ["CMD:echo hi"] } },
-        });
+        };
+        storage.savePage("main", "0", page);
         const hash = storage.listPages("main")[0].hash;
         expect(typeof hash).toBe("number");
         expect(storage.pageHash("main", "0")).toBe(hash);
+        // The device stores the zero-padded HID payloads, so its list hash is
+        // the CRC of the padded canonical JSON, not the unpadded file.
+        const canonical = new TextEncoder().encode(
+            JSON.stringify(serializePageConfig(page as never)),
+        );
+        expect(hash).toBe(crc32Upload(canonical));
     });
 });
 

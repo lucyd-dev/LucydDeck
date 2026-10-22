@@ -17,7 +17,7 @@ import {
     emptyDiffPlan,
 } from "@shared/sync";
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
-import { crc32 } from "./usb/Crc32";
+import { crc32Upload } from "./usb/Crc32";
 import type { StorageService } from "./StorageService";
 
 export const SyncErrorCodes = {
@@ -187,7 +187,7 @@ export class SyncService {
                 }
                 const canonical = serializePageConfig(validation.page);
                 const bytes = encoder.encode(JSON.stringify(canonical));
-                const localHash = crc32(bytes);
+                const localHash = crc32Upload(bytes);
                 const deviceHash = devicePages.get(meta.id);
                 if (deviceHash === undefined || deviceHash === null || deviceHash !== localHash) {
                     plan.pagesToUpload.push({ profile, id: meta.id });

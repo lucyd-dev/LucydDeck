@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log/main";
-import { crc32 } from "./usb/Crc32";
+import { crc32Upload } from "./usb/Crc32";
 import { validateName } from "./StorageService";
 import type { StorageService } from "./StorageService";
 
@@ -111,7 +111,7 @@ export class ImagePipelineService {
             );
         }
         log.info(`[icons] imported ${src} -> ${dest} (${output.length} bytes)`);
-        return { name, path: dest, bytes: output.length, crc32: crc32(output) };
+        return { name, path: dest, bytes: output.length, crc32: crc32Upload(output) };
     }
 }
 

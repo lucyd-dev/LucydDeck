@@ -6,7 +6,7 @@ import type { DeviceImageEntry, DevicePageEntry, DeviceProfileEntry } from "@sha
 import { serializePageConfig } from "@shared/schema";
 import type { SyncProgressPayload } from "@shared/ipc";
 import type { DiffPlan } from "@shared/sync";
-import { crc32 } from "./usb/Crc32";
+import { crc32Upload } from "./usb/Crc32";
 import { StorageService } from "./StorageService";
 import { SyncService } from "./SyncService";
 import type { SyncDeviceClient, SyncTransferClient } from "./SyncService";
@@ -23,7 +23,7 @@ vi.mock("electron-log/main", () => ({
 const encoder = new TextEncoder();
 
 function pageHash(page: { buttons: Record<string, unknown> }): number {
-    return crc32(encoder.encode(JSON.stringify(serializePageConfig(page as never))));
+    return crc32Upload(encoder.encode(JSON.stringify(serializePageConfig(page as never))));
 }
 
 class MockDevice implements SyncDeviceClient {
@@ -50,7 +50,11 @@ class MockDevice implements SyncDeviceClient {
         this.calls.push(`active:${name}`);
     }
 
-    async uploadPage(profile: string, id: string | number, _json: string | Uint8Array): Promise<void> {
+    async uploadPage(
+        profile: string,
+        id: string | number,
+        _json: string | Uint8Array,
+    ): Promise<void> {
         void _json;
         this.check("uploadPage");
         this.calls.push(`page:${profile}/${id}`);
@@ -149,7 +153,7 @@ describe("SyncService.reconcile", () => {
     it("plans icons by CRC-32 and strips the .png extension", async () => {
         fs.writeFileSync(path.join(storage.iconsDir(), "github.png"), Buffer.from([1, 2, 3]));
         device.images = [
-            { filename: "github.png", hash: crc32(Uint8Array.from([1, 2, 3])) },
+            { filename: "github.png", hash: crc32Upload(Uint8Array.from([1, 2, 3])) },
             { filename: "stale.png", hash: 1 },
         ];
 

@@ -8,7 +8,7 @@ import { serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
-import { crc32 } from "./usb/Crc32";
+import { crc32Upload } from "./usb/Crc32";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
 export const APP_DIR_NAME = "LucydDeck";
@@ -171,7 +171,7 @@ export class StorageService {
         if (!fs.existsSync(file)) {
             return null;
         }
-        return crc32(new Uint8Array(fs.readFileSync(file)));
+        return crc32Upload(new Uint8Array(fs.readFileSync(file)));
     }
 
     /** List stored `icons/*.png` as `{name (base), path}`, sorted by name. */
@@ -404,7 +404,7 @@ export class StorageService {
         if (!validation.ok) {
             return null;
         }
-        return crc32(encoder.encode(JSON.stringify(serializePageConfig(validation.page))));
+        return crc32Upload(encoder.encode(JSON.stringify(serializePageConfig(validation.page))));
     }
 
     // --- Export / import ------------------------------------------------
