@@ -1,6 +1,5 @@
-@use "variables" as v;
+// Base resets + global element styles. Colours come from `_tokens.scss`.
 
-// Base resets + global element styles (dark theme).
 *,
 *::before,
 *::after {
@@ -8,14 +7,15 @@
 }
 
 html {
-    font-size: v.$font-size-root;
+    font-size: var(--font-size-root);
+    background-color: var(--color-bg);
 }
 
 body {
     margin: 0;
-    background-color: v.$color-bg;
-    color: v.$color-text;
-    font-family: v.$font-sans;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
     line-height: 1.45;
     overflow: hidden;
 }
@@ -28,9 +28,8 @@ body {
     min-height: 680px;
 }
 
-// Global dark-theme scrollbars (override the light OS defaults).
 * {
-    scrollbar-color: #2a2d37 #12141a;
+    scrollbar-color: var(--color-scroll-thumb) var(--color-scroll-track);
     scrollbar-width: thin;
 }
 
@@ -40,52 +39,54 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-    background: #12141a;
+    background: var(--color-scroll-track);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #2a2d37;
-    border: 2px solid #12141a;
-    border-radius: 999px;
+    background: var(--color-scroll-thumb);
+    border: 2px solid var(--color-scroll-track);
+    border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #3a4150;
+    background: var(--color-scroll-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
-    background: #12141a;
+    background: var(--color-scroll-track);
 }
 
 ::selection {
-    background-color: rgba(124, 108, 240, 0.3);
+    background-color: var(--color-accent-soft);
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+    color: var(--color-text);
 }
 
 button {
-    font-family: inherit;
     cursor: pointer;
 }
 
-select,
-input,
-textarea {
-    font-family: inherit;
-    color: v.$color-text;
-    background-color: v.$color-surface;
-    border: 1px solid v.$color-border;
+a {
+    color: var(--color-accent);
+    text-decoration: none;
 }
 
-a {
-    color: v.$color-text;
-    text-decoration: none;
+a:hover {
+    text-decoration: underline;
 }
 
 code,
 kbd {
-    font-family: v.$font-mono;
+    font-family: var(--font-mono);
 }
 
 :focus-visible {
-    outline: 2px solid v.$color-accent;
+    outline: 2px solid var(--color-accent);
     outline-offset: 1px;
 }

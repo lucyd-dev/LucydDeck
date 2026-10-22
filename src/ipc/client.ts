@@ -1,5 +1,6 @@
 import { channels } from "@shared/ipc";
-import type { IpcChannel, RequestFor, ResponseFor } from "@shared/ipc";
+import type { IpcChannel, RequestFor, ResponseFor, UsbDeleteFileRequest } from "@shared/ipc";
+import type { AppSettings } from "@shared/settings";
 import type { PageConfig } from "@shared/types";
 import type { DiffPlan } from "@shared/sync";
 
@@ -37,6 +38,7 @@ export const usbClient = {
     connect: () => invoke(channels.usb.connect, undefined),
     disconnect: () => invoke(channels.usb.disconnect, undefined),
     deviceInfo: () => invoke(channels.usb.deviceInfo, undefined),
+    capabilities: () => invoke(channels.usb.capabilities, undefined),
     listImages: () => invoke(channels.usb.listImages, undefined),
     listProfiles: () => invoke(channels.usb.listProfiles, undefined),
     createProfile: (name: string) => invoke(channels.usb.createProfile, { name }),
@@ -47,12 +49,21 @@ export const usbClient = {
     setActivePage: (id: string) => invoke(channels.usb.setActivePage, { id }),
     uploadPage: (profile: string, id: string) => invoke(channels.usb.uploadPage, { profile, id }),
     uploadIcon: (name: string) => invoke(channels.usb.uploadIcon, { name }),
+    deleteFile: (request: UsbDeleteFileRequest) => invoke(channels.usb.deleteFile, request),
+};
+
+export const settingsClient = {
+    get: () => invoke(channels.settings.get, undefined),
+    set: (settings: Partial<AppSettings>) => invoke(channels.settings.set, { settings }),
+    revealDataFolder: () => invoke(channels.settings.revealDataFolder, undefined),
+    openLogsFolder: () => invoke(channels.settings.openLogsFolder, undefined),
 };
 
 export const iconsClient = {
     list: () => invoke(channels.icons.list, undefined),
     /** Import picked files; omit `paths` to open the native picker. */
-    import: (paths?: string[]) => invoke(channels.icons.import, paths === undefined ? {} : { paths }),
+    import: (paths?: string[]) =>
+        invoke(channels.icons.import, paths === undefined ? {} : { paths }),
     importData: (name: string, dataUrl: string) =>
         invoke(channels.icons.importData, { name, dataUrl }),
     remove: (name: string) => invoke(channels.icons.remove, { name }),

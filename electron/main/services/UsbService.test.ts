@@ -277,6 +277,19 @@ describe("UsbService failures", () => {
         expect(error?.code).toBe("ERR_CRC");
     });
 
+    it("maps ERR_FILE_NOT_FOUND from a delete command", async () => {
+        const { usb, connection } = makeService();
+        await usb.connect();
+        const promise = usb.command(HostCommand.FileDelete, new Uint8Array(), DeviceResponse.Ack);
+        connection.respond(DeviceResponse.Error, Uint8Array.from([ErrorCode.FileNotFound]));
+        const error = await promise.then(
+            () => null,
+            (rejection: UsbError) => rejection,
+        );
+        expect(error?.firmwareCode).toBe(ErrorCode.FileNotFound);
+        expect(error?.code).toBe("ERR_FILE_NOT_FOUND");
+    });
+
     it("rejects pending and queued commands on transport error", async () => {
         const { usb, connection } = makeService();
         await usb.connect();

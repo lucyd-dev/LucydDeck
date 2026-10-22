@@ -21,6 +21,13 @@ export default tseslint.config(
         },
     },
     {
+        files: ["src/components/ui/*.vue"],
+        rules: {
+            // The UI primitives intentionally use one-word names (Button, Tabs, ...).
+            "vue/multi-word-component-names": "off",
+        },
+    },
+    {
         files: ["**/*.vue"],
         languageOptions: {
             parserOptions: {

@@ -13,10 +13,12 @@ import {
     X,
 } from "@lucide/vue";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
 
 const profile = useProfileStore();
 const app = useAppStore();
+const confirm = useConfirmStore();
 
 const open = ref(false);
 const rowMenu = ref<string | null>(null);
@@ -103,7 +105,13 @@ async function removeProfile(name: string): Promise<void> {
     if (!canDelete.value) {
         return;
     }
-    if (!window.confirm(`Delete profile "${name}" and all its pages?`)) {
+    const confirmed = await confirm.ask({
+        title: "Delete profile",
+        message: `Delete profile "${name}" and all its pages?`,
+        confirmLabel: "Delete profile",
+        danger: true,
+    });
+    if (!confirmed) {
         return;
     }
     await profile.deleteProfile(name);
@@ -150,7 +158,9 @@ async function importProfile(): Promise<void> {
                 <li v-for="item in profile.profiles" :key="item.name" class="profile-menu__row">
                     <button
                         class="profile-menu__item"
-                        :class="{ 'profile-menu__item--active': item.name === profile.activeProfile }"
+                        :class="{
+                            'profile-menu__item--active': item.name === profile.activeProfile,
+                        }"
                         type="button"
                         role="menuitem"
                         @click="choose(item.name)"
@@ -199,7 +209,9 @@ async function importProfile(): Promise<void> {
                             class="profile-menu__subitem profile-menu__subitem--danger"
                             type="button"
                             :disabled="!canDelete"
-                            :title="!canDelete ? 'Cannot delete the only profile' : 'Delete Profile'"
+                            :title="
+                                !canDelete ? 'Cannot delete the only profile' : 'Delete Profile'
+                            "
                             @click="removeProfile(item.name)"
                         >
                             <Trash2 :size="13" />
@@ -209,9 +221,7 @@ async function importProfile(): Promise<void> {
                 </li>
             </ul>
 
-            <p v-if="profile.profiles.length === 0" class="profile-menu__empty">
-                No profiles yet.
-            </p>
+            <p v-if="profile.profiles.length === 0" class="profile-menu__empty">No profiles yet.</p>
 
             <div class="profile-menu__footer">
                 <button class="profile-menu__footer-button" type="button" @click="startCreate">

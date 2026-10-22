@@ -1,0 +1,98 @@
+// ---------------------------------------------------------------------------
+// Design tokens (single place where literal colours live).
+// Themes are selected with `data-theme` on <html>; accent presets with
+// `data-accent`. Every component reads the custom properties below.
+// ---------------------------------------------------------------------------
+
+:root {
+    // Typography
+    --font-sans:
+        "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+    --font-size-root: 14px;
+
+    // Spacing
+    --space-2xs: 2px;
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 12px;
+    --space-lg: 16px;
+    --space-xl: 24px;
+    --space-2xl: 32px;
+
+    // Radii
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
+    --radius-full: 999px;
+
+    // Layout
+    --sidebar-width: 240px;
+    --inspector-width: 340px;
+    --z-menu: 200;
+    --z-dialog: 300;
+    --z-toasts: 1000;
+    --transition-fast: 120ms ease;
+
+    // Dark theme (default)
+    --color-bg: #14171d;
+    --color-bg-elevated: #1c2129;
+    --color-bg-hover: #232933;
+    --color-surface: #262b35;
+    --color-input-bg: #12151b;
+    --color-border: #343c49;
+    --color-text: #e6e9ef;
+    --color-text-dim: #9aa3b2;
+    --color-text-faint: #6b7280;
+    --color-success: #3fbf7f;
+    --color-warning: #e6a23c;
+    --color-error: #e5475b;
+    --color-disabled: #4b5462;
+    --color-overlay: rgb(10 12 16 / 72%);
+    --color-scroll-track: #12141a;
+    --color-scroll-thumb: #2a2d37;
+    --color-scroll-thumb-hover: #3a4150;
+    --shadow-1: 0 4px 12px rgb(0 0 0 / 35%);
+    --shadow-2: 0 12px 28px rgb(0 0 0 / 45%);
+    --shadow-3: 0 24px 60px rgb(0 0 0 / 55%);
+
+    // Theme-preview swatches (fixed, independent of the active theme).
+    --preview-light-bg: #ffffff;
+    --preview-light-rail: #e3e6eb;
+    --preview-light-body: #f0f2f5;
+    --preview-dark-bg: #1c2129;
+    --preview-dark-rail: #2a2d37;
+    --preview-dark-body: #353b47;
+
+    color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+    --color-bg: #f6f7f9;
+    --color-bg-elevated: #ffffff;
+    --color-bg-hover: #eef0f4;
+    --color-surface: #ffffff;
+    --color-input-bg: #ffffff;
+    --color-border: #d7dbe3;
+    --color-text: #1b1f27;
+    --color-text-dim: #515a6b;
+    --color-text-faint: #77808f;
+    --color-success: #1f9d63;
+    --color-warning: #b7791f;
+    --color-error: #c53030;
+    --color-disabled: #b6bdc9;
+    --color-overlay: rgb(15 18 24 / 55%);
+    --color-scroll-track: #eef0f4;
+    --color-scroll-thumb: #c4cad4;
+    --color-scroll-thumb-hover: #aab2bf;
+    --shadow-1: 0 4px 12px rgb(15 18 24 / 8%);
+    --shadow-2: 0 12px 28px rgb(15 18 24 / 12%);
+    --shadow-3: 0 24px 60px rgb(15 18 24 / 18%);
+
+    color-scheme: light;
+}
+
+:root {
+    --color-accent-soft: color-mix(in srgb, var(--color-accent) 16%, transparent);
+    --color-accent-border: color-mix(in srgb, var(--color-accent) 50%, transparent);
+}

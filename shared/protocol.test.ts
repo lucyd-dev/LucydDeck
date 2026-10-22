@@ -18,7 +18,9 @@ import {
     REPORT_ID,
     SEQ_MASK,
     STREAM_TIMEOUT_MS,
+    capabilitiesFromDeviceInfo,
     describeErrorCode,
+    fileDeleteUnsupportedReason,
     findUsbDevice,
     isDeviceOpcode,
     isErrorCode,
@@ -26,6 +28,7 @@ import {
     isValidPageId,
     matchDevice,
     pageIdFromFilename,
+    supportsFileDelete,
 } from "./protocol";
 import { buildFrame, parseFrame } from "../electron/main/services/usb/Framer";
 
@@ -62,6 +65,7 @@ describe("shared/protocol opcodes", () => {
         expect(HostCommand.FileChunk).toBe(0x31);
         expect(HostCommand.FileEnd).toBe(0x32);
         expect(HostCommand.FileCancel).toBe(0x33);
+        expect(HostCommand.FileDelete).toBe(0x34);
         expect(HostCommand.SetActiveProfile).toBe(0x40);
         expect(HostCommand.SetActivePage).toBe(0x41);
     });
@@ -106,6 +110,7 @@ describe("shared/protocol error codes", () => {
         expect(ErrorCode.CrcMissing).toBe(0x27);
         expect(ErrorCode.Crc).toBe(0x28);
         expect(ErrorCode.Finalize).toBe(0x29);
+        expect(ErrorCode.FileNotFound).toBe(0x2a);
         expect(ErrorCode.UnknownAction).toBe(0x30);
         expect(ErrorCode.PageLoad).toBe(0x31);
         expect(ErrorCode.ProfileLoad).toBe(0x32);
@@ -113,9 +118,43 @@ describe("shared/protocol error codes", () => {
 
     it("describes known and unknown codes", () => {
         expect(describeErrorCode(ErrorCode.Crc)).toBe("ERR_CRC");
+        expect(describeErrorCode(ErrorCode.FileNotFound)).toBe("ERR_FILE_NOT_FOUND");
         expect(isErrorCode(ErrorCode.Crc)).toBe(true);
+        expect(isErrorCode(ErrorCode.FileNotFound)).toBe(true);
         expect(isErrorCode(0x99)).toBe(false);
         expect(describeErrorCode(0x99)).toBe("ERR_UNKNOWN(0x99)");
+    });
+});
+
+describe("shared/protocol deletion capability", () => {
+    it("enables deletion only on protocol 2 or newer", () => {
+        expect(supportsFileDelete(1)).toBe(false);
+        expect(supportsFileDelete("1")).toBe(false);
+        expect(supportsFileDelete(2)).toBe(true);
+        expect(supportsFileDelete("2")).toBe(true);
+        expect(supportsFileDelete("v3")).toBe(true);
+        expect(supportsFileDelete(undefined)).toBe(false);
+        expect(supportsFileDelete("protocol-two")).toBe(false);
+    });
+
+    it("derives capability flags from device info", () => {
+        expect(capabilitiesFromDeviceInfo(null)).toEqual({
+            deleteFile: false,
+            protocolVersion: null,
+        });
+        expect(capabilitiesFromDeviceInfo({ protocolVersion: 1 })).toEqual({
+            deleteFile: false,
+            protocolVersion: "1",
+        });
+        expect(capabilitiesFromDeviceInfo({ protocolVersion: "2" })).toEqual({
+            deleteFile: true,
+            protocolVersion: "2",
+        });
+    });
+
+    it("returns one reason string for protocol 1 and null for 2", () => {
+        expect(fileDeleteUnsupportedReason({ protocolVersion: 1 })).toContain("protocol 1");
+        expect(fileDeleteUnsupportedReason({ protocolVersion: "2" })).toBeNull();
     });
 });
 

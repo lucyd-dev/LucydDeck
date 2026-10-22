@@ -375,6 +375,60 @@ describe("StorageService default profile", () => {
     });
 });
 
+describe("StorageService app settings", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("defaults when settings.json has no app section", () => {
+        expect(storage.getAppSettings().theme).toBe("system");
+        expect(storage.getAppSettings().accent).toBe("violet");
+    });
+
+    it("persists appearance and window settings beside defaultProfile", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setAppSettings({ theme: "light", accent: "blue" });
+        const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")) as {
+            defaultProfile?: string;
+            app?: { theme?: string; accent?: string };
+        };
+        expect(saved.defaultProfile).toBe("main");
+        expect(saved.app?.theme).toBe("light");
+        expect(saved.app?.accent).toBe("blue");
+        expect(storage.getAppSettings().theme).toBe("light");
+    });
+
+    it("sanitizes hostile settings and clamps window bounds", () => {
+        fs.writeFileSync(
+            path.join(dataDir, "settings.json"),
+            JSON.stringify({ app: { theme: "neon", accent: 42, window: { width: 1 } } }),
+        );
+        const settings = storage.getAppSettings();
+        expect(settings.theme).toBe("system");
+        expect(settings.accent).toBe("violet");
+        expect(settings.window.width).toBe(1024);
+    });
+
+    it("reports the canonical page hash matching the upload bytes", () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", {
+            buttons: { "1": { label: "Run", click: ["CMD:echo hi"] } },
+        });
+        const hash = storage.listPages("main")[0].hash;
+        expect(typeof hash).toBe("number");
+        expect(storage.pageHash("main", "0")).toBe(hash);
+    });
+});
+
 describe("PAGE_FILE_PATTERN", () => {
     it("extracts the leading digits as the id", () => {
         expect(PAGE_FILE_PATTERN.exec("0.json")?.[1]).toBe("0");

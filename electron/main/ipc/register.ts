@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, shell } from "electron";
 import log from "electron-log/main";
 import { channels, eventChannels } from "@shared/ipc";
 import type {
@@ -10,8 +10,10 @@ import type {
     IconMeta,
     IpcChannel,
     RequestFor,
+    SettingsSnapshot,
 } from "@shared/ipc";
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
+import { capabilitiesFromDeviceInfo, fileDeleteUnsupportedReason } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
 import type { StorageService } from "../services/StorageService";
 import type { UsbService } from "../services/UsbService";
@@ -207,6 +209,12 @@ export function registerIpcHandlers(services: IpcServices): void {
         }
         return { ok: true, data: await device.getDeviceInfo() };
     });
+    register(channels.usb.capabilities, async () => {
+        if (!usb.connected) {
+            return { ok: true, data: { deleteFile: false, protocolVersion: null } };
+        }
+        return { ok: true, data: capabilitiesFromDeviceInfo(await device.getDeviceInfo()) };
+    });
     register(channels.usb.listImages, async () => ({
         ok: true,
         data: await device.listImages(),
@@ -245,11 +253,7 @@ export function registerIpcHandlers(services: IpcServices): void {
         }
         // Canonicalize exactly like SyncService so the device CRC matches the
         // locally computed hash (same bytes on both upload paths).
-        await device.uploadPage(
-            profile,
-            id,
-            JSON.stringify(serializePageConfig(validation.page)),
-        );
+        await device.uploadPage(profile, id, JSON.stringify(serializePageConfig(validation.page)));
         return { ok: true, data: undefined };
     });
     register(channels.usb.uploadIcon, async ({ name }) => {
@@ -258,6 +262,43 @@ export function registerIpcHandlers(services: IpcServices): void {
             throw new Error(`Icon not found: "${iconBaseName(name)}"`);
         }
         await device.uploadIcon(iconBaseName(name), new Uint8Array(fs.readFileSync(file)));
+        return { ok: true, data: undefined };
+    });
+    register(channels.usb.deleteFile, async (request) => {
+        if (!usb.connected) {
+            throw new Error("Device is not connected");
+        }
+        const unsupported = fileDeleteUnsupportedReason(await device.getDeviceInfo());
+        if (unsupported !== null) {
+            throw new Error(unsupported);
+        }
+        if (request.kind === "page") {
+            await device.deletePage(request.profile, request.id);
+        } else {
+            await device.deleteIcon(request.name);
+        }
+        return { ok: true, data: undefined };
+    });
+
+    // --- settings -------------------------------------------------------
+    register(channels.settings.get, () => ({ ok: true, data: settingsSnapshot(storage) }));
+    register(channels.settings.set, ({ settings }) => {
+        storage.setAppSettings(settings);
+        return { ok: true, data: settingsSnapshot(storage) };
+    });
+    register(channels.settings.revealDataFolder, async () => {
+        const error = await shell.openPath(storage.dataDir);
+        if (error !== "") {
+            throw new Error(error);
+        }
+        return { ok: true, data: undefined };
+    });
+    register(channels.settings.openLogsFolder, async () => {
+        fs.mkdirSync(storage.logsDir(), { recursive: true });
+        const error = await shell.openPath(storage.logsDir());
+        if (error !== "") {
+            throw new Error(error);
+        }
         return { ok: true, data: undefined };
     });
 
@@ -333,6 +374,21 @@ export function registerIpcHandlers(services: IpcServices): void {
     notImplemented(channels.updater.check, "5");
     notImplemented(channels.firmware.getState, "5");
     notImplemented(channels.firmware.update, "5");
+}
+
+const REPOSITORY_URL = "https://github.com/lucyd-dev/LucydDeck";
+const APP_LICENSE = "MIT";
+
+/** The renderer's single source for settings, paths and About metadata. */
+function settingsSnapshot(storage: StorageService): SettingsSnapshot {
+    return {
+        settings: storage.getAppSettings(),
+        dataDir: storage.dataDir,
+        logsDir: storage.logsDir(),
+        version: app.getVersion(),
+        repository: REPOSITORY_URL,
+        license: APP_LICENSE,
+    };
 }
 
 /**

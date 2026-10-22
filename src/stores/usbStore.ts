@@ -102,7 +102,7 @@ export const useUsbStore = defineStore("usb", () => {
             if (deletions > 0) {
                 useAppStore().pushToast(
                     "warning",
-                    `Synced. ${deletions} device file(s) have no local copy and cannot be deleted by this firmware.`,
+                    `Synced. ${deletions} device file(s) have no local copy; review them in Device.`,
                 );
             } else {
                 useAppStore().pushToast("success", "Device synced");

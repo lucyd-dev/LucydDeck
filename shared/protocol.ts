@@ -78,6 +78,71 @@ export enum PathType {
 export const PATH_PAGE = PathType.Page;
 export const PATH_ICON = PathType.Icon;
 
+/** First protocol version with `CMD_FILE_DELETE` (`0x34`) support. */
+export const PROTOCOL_VERSION_WITH_DELETE = 2;
+
+/**
+ * Parse a device-reported protocol version (`"2"`, `2`, `"v2"`).
+ * Returns `null` when the value carries no leading integer.
+ */
+export function parseProtocolVersion(value: string | number | null | undefined): number | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const match = /^\s*v?(\d+)/i.exec(String(value));
+    if (match === null) {
+        return null;
+    }
+    const version = Number(match[1]);
+    return Number.isFinite(version) ? version : null;
+}
+
+/** True when the firmware exposes the file-delete command (protocol 2+). */
+export function supportsFileDelete(value: string | number | null | undefined): boolean {
+    const version = parseProtocolVersion(value);
+    return version !== null && version >= PROTOCOL_VERSION_WITH_DELETE;
+}
+
+/** Capability flags derived from a `RESP_DEVICE_INFO` payload. */
+export interface DeviceCapabilities {
+    deleteFile: boolean;
+    protocolVersion: string | null;
+}
+
+/**
+ * Build capability flags from the device info. A missing/unknown protocol
+ * version is treated as protocol 1 (no deletion) so the app never sends a
+ * command an older firmware would reject.
+ */
+export function capabilitiesFromDeviceInfo(
+    info: { protocolVersion?: string | number | null } | null | undefined,
+): DeviceCapabilities {
+    if (!info) {
+        return { deleteFile: false, protocolVersion: null };
+    }
+    const raw = info.protocolVersion;
+    return {
+        deleteFile: supportsFileDelete(raw),
+        protocolVersion: raw === null || raw === undefined ? null : String(raw),
+    };
+}
+
+/**
+ * Human reason when a firmware cannot delete files, or `null` when it can.
+ * Shared by the IPC guard and the Device view so both say the same thing.
+ */
+export function fileDeleteUnsupportedReason(
+    info: { protocolVersion?: string | number | null } | null | undefined,
+): string | null {
+    const capabilities = capabilitiesFromDeviceInfo(info);
+    if (capabilities.deleteFile) {
+        return null;
+    }
+    return `This firmware does not support file deletion (protocol ${
+        capabilities.protocolVersion ?? "1"
+    }; protocol 2 is required)`;
+}
+
 // --- Device detection ------------------------------------------------------
 
 /** Espressif Systems USB vendor ID. */
@@ -109,6 +174,7 @@ export enum HostCommand {
     FileChunk = 0x31,
     FileEnd = 0x32,
     FileCancel = 0x33,
+    FileDelete = 0x34,
     SetActiveProfile = 0x40,
     SetActivePage = 0x41,
 }
@@ -158,6 +224,7 @@ export enum ErrorCode {
     CrcMissing = 0x27,
     Crc = 0x28,
     Finalize = 0x29,
+    FileNotFound = 0x2a,
     UnknownAction = 0x30,
     PageLoad = 0x31,
     ProfileLoad = 0x32,
@@ -185,6 +252,7 @@ const ERROR_CODE_NAMES: Record<number, string> = {
     [ErrorCode.CrcMissing]: "ERR_CRC_MISSING",
     [ErrorCode.Crc]: "ERR_CRC",
     [ErrorCode.Finalize]: "ERR_FINALIZE",
+    [ErrorCode.FileNotFound]: "ERR_FILE_NOT_FOUND",
     [ErrorCode.UnknownAction]: "ERR_UNKNOWN_ACTION",
     [ErrorCode.PageLoad]: "ERR_PAGE_LOAD",
     [ErrorCode.ProfileLoad]: "ERR_PROFILE_LOAD",

@@ -1,5 +1,3 @@
-@use "variables" as v;
-
 // 3x5 board workspace.
 
 .view--board {
@@ -12,11 +10,11 @@
 
 .board-header {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    gap: v.$space-lg;
-    margin-bottom: v.$space-md;
-    flex: 0 0 auto;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-md);
 }
 
 .page-switcher {
@@ -24,27 +22,27 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: v.$space-xs;
+    gap: var(--space-xs);
 }
 
 .page-switcher__pill {
-    padding: v.$space-2xs v.$space-sm;
-    border: 1px solid v.$color-border;
-    border-radius: 999px;
-    background-color: v.$color-bg-hover;
-    color: v.$color-text-dim;
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background-color: var(--color-bg-hover);
+    color: var(--color-text-dim);
     font-size: 0.78rem;
+}
 
-    &:hover {
-        color: v.$color-text;
-        border-color: v.$color-text-faint;
-    }
+.page-switcher__pill:hover {
+    border-color: var(--color-text-faint);
+    color: var(--color-text);
 }
 
 .page-switcher__pill--active {
-    border-color: v.$color-accent;
-    background-color: rgba(v.$color-accent, 0.16);
-    color: v.$color-accent;
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
 }
 
 .page-switcher__add {
@@ -54,27 +52,26 @@
     width: 26px;
     height: 26px;
     padding: 0;
-    border: 1px dashed v.$color-border;
-    border-radius: 999px;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-full);
     background: transparent;
-    color: v.$color-text-dim;
+    color: var(--color-text-dim);
+}
 
-    &:hover {
-        color: v.$color-text;
-        border-color: v.$color-accent;
-    }
+.page-switcher__add:hover {
+    border-color: var(--color-accent);
+    color: var(--color-text);
 }
 
 .board-canvas {
     display: grid;
     grid-template-columns: repeat(var(--board-cols, 5), minmax(0, 1fr));
     grid-template-rows: repeat(var(--board-rows, 3), minmax(0, 1fr));
-    gap: v.$space-md;
+    gap: var(--space-md);
     width: 100%;
-    // Keep the board square (5:3) and cap it by the shorter of a 900px
-    // comfortable width and the height left over after the shell chrome, so
-    // the buttons never grow past the viewport on short displays.
-    max-width: min(900px, calc((100dvh - 170px) * 5 / 3));
+    // Keep the 5:3 deck proportions and cap by the available height so keys
+    // never outgrow a short window.
+    max-width: min(100%, calc((100dvh - 150px) * 5 / 3));
     margin: 0 auto;
 }
 
@@ -87,28 +84,28 @@
     min-width: 0;
     min-height: 0;
     aspect-ratio: 1 / 1;
-    padding: v.$space-sm;
-    border: 1px solid v.$color-border;
-    border-radius: v.$radius-lg;
-    background-color: v.$color-surface;
-    color: v.$color-text;
+    padding: var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-surface);
+    color: var(--color-text);
     transition:
         border-color 100ms ease,
         box-shadow 100ms ease;
+}
 
-    &:hover {
-        border-color: v.$color-text-faint;
-    }
+.key-button:hover {
+    border-color: var(--color-text-faint);
 }
 
 .key-button--selected {
-    border-color: v.$color-accent;
-    box-shadow: 0 0 0 2px rgba(v.$color-accent, 0.35);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
 .key-button--empty {
     border-style: dashed;
-    background-color: v.$color-bg-elevated;
+    background-color: var(--color-bg-elevated);
 }
 
 .key-button__icon {
@@ -118,20 +115,20 @@
 }
 
 .key-button__missing {
-    color: v.$color-warning;
+    color: var(--color-warning);
 }
 
 .key-button__index {
     position: absolute;
-    top: v.$space-xs;
-    left: v.$space-sm;
+    top: var(--space-xs);
+    left: var(--space-sm);
+    color: var(--color-text-faint);
     font-size: 0.72rem;
-    color: v.$color-text-faint;
 }
 
 .key-button__label {
     max-width: 100%;
-    margin-top: v.$space-xs;
+    margin-top: var(--space-xs);
     overflow: hidden;
     font-size: 0.78rem;
     text-align: center;
@@ -141,16 +138,16 @@
 
 .key-button__badges {
     position: absolute;
-    right: v.$space-xs;
-    bottom: v.$space-xs;
+    right: var(--space-xs);
+    bottom: var(--space-xs);
     display: flex;
-    gap: v.$space-2xs;
+    gap: var(--space-2xs);
 }
 
 .key-button__badge {
-    padding: 0 v.$space-2xs;
-    border-radius: v.$radius-sm;
-    background-color: rgba(0, 0, 0, 0.45);
-    color: v.$color-text-dim;
+    padding: 0 var(--space-2xs);
+    border-radius: var(--radius-sm);
+    background-color: rgb(0 0 0 / 45%);
+    color: var(--color-text-dim);
     font-size: 0.68rem;
 }

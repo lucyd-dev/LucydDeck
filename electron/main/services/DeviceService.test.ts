@@ -137,3 +137,35 @@ describe("DeviceService mutations", () => {
         });
     });
 });
+
+describe("DeviceService file deletion", () => {
+    it("encodes CMD_FILE_DELETE as [pathType][path]", async () => {
+        const { usb, device } = makeService();
+
+        await device.deletePage("gaming", 3);
+        expect(usb.calls.at(-1)?.opcode).toBe(HostCommand.FileDelete);
+        expect(Array.from(usb.lastPayload())).toEqual([
+            PATH_PAGE,
+            ...Array.from(new TextEncoder().encode("gaming/3.json")),
+        ]);
+
+        await device.deleteIcon("github.png");
+        expect(Array.from(usb.lastPayload())).toEqual([
+            PATH_ICON,
+            ...Array.from(new TextEncoder().encode("github.png")),
+        ]);
+    });
+
+    it("validates page ids, names and the one-frame path limit", async () => {
+        const { device } = makeService();
+        await expect(device.deletePage("gaming", "300")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_PAGE_ID",
+        });
+        await expect(device.deleteIcon("bad/name")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+        await expect(device.deleteFile(PATH_PAGE, "x".repeat(60))).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+    });
+});

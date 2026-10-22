@@ -1,5 +1,6 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
-import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
+import type { DeviceCapabilities, DeviceImageEntry, DeviceProfileEntry } from "./protocol";
+import type { AppSettings } from "./settings";
 import type { DiffPlan, SyncResult } from "./sync";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,7 @@ export const channels = {
         connect: "usb:connect",
         disconnect: "usb:disconnect",
         deviceInfo: "usb:deviceInfo",
+        capabilities: "usb:capabilities",
         listImages: "usb:listImages",
         listProfiles: "usb:listProfiles",
         createProfile: "usb:createProfile",
@@ -67,6 +69,13 @@ export const channels = {
         setActivePage: "usb:setActivePage",
         uploadPage: "usb:uploadPage",
         uploadIcon: "usb:uploadIcon",
+        deleteFile: "usb:deleteFile",
+    },
+    settings: {
+        get: "settings:get",
+        set: "settings:set",
+        revealDataFolder: "settings:revealDataFolder",
+        openLogsFolder: "settings:openLogsFolder",
     },
     plugins: {
         list: "plugins:list",
@@ -170,6 +179,24 @@ export interface UsbUploadIconRequest {
     name: string;
 }
 
+/** Delete one device file when the firmware exposes `CMD_FILE_DELETE`. */
+export type UsbDeleteFileRequest =
+    { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string };
+
+export interface SettingsSetRequest {
+    settings: Partial<AppSettings>;
+}
+
+/** Everything the renderer needs to paint Settings and apply the theme. */
+export interface SettingsSnapshot {
+    settings: AppSettings;
+    dataDir: string;
+    logsDir: string;
+    version: string;
+    repository: string;
+    license: string;
+}
+
 export interface PluginSetEnabledRequest {
     id: string;
     enabled: boolean;
@@ -209,6 +236,7 @@ export interface RequestMap {
     [channels.usb.connect]: undefined;
     [channels.usb.disconnect]: undefined;
     [channels.usb.deviceInfo]: undefined;
+    [channels.usb.capabilities]: undefined;
     [channels.usb.listImages]: undefined;
     [channels.usb.listProfiles]: undefined;
     [channels.usb.createProfile]: ProfileNameRequest;
@@ -218,6 +246,13 @@ export interface RequestMap {
     [channels.usb.setActivePage]: UsbSetActivePageRequest;
     [channels.usb.uploadPage]: UsbUploadPageRequest;
     [channels.usb.uploadIcon]: UsbUploadIconRequest;
+    [channels.usb.deleteFile]: UsbDeleteFileRequest;
+
+    // settings
+    [channels.settings.get]: undefined;
+    [channels.settings.set]: SettingsSetRequest;
+    [channels.settings.revealDataFolder]: undefined;
+    [channels.settings.openLogsFolder]: undefined;
 
     // plugins (stub — Step 4)
     [channels.plugins.list]: undefined;
@@ -263,6 +298,7 @@ export interface ResponseMap {
     [channels.usb.connect]: IpcResponse<void>;
     [channels.usb.disconnect]: IpcResponse<void>;
     [channels.usb.deviceInfo]: IpcResponse<DeviceInfo | null>;
+    [channels.usb.capabilities]: IpcResponse<DeviceCapabilities>;
     [channels.usb.listImages]: IpcResponse<DeviceImageEntry[]>;
     [channels.usb.listProfiles]: IpcResponse<DeviceProfileEntry[]>;
     [channels.usb.createProfile]: IpcResponse<void>;
@@ -272,6 +308,13 @@ export interface ResponseMap {
     [channels.usb.setActivePage]: IpcResponse<void>;
     [channels.usb.uploadPage]: IpcResponse<void>;
     [channels.usb.uploadIcon]: IpcResponse<void>;
+    [channels.usb.deleteFile]: IpcResponse<void>;
+
+    // settings
+    [channels.settings.get]: IpcResponse<SettingsSnapshot>;
+    [channels.settings.set]: IpcResponse<SettingsSnapshot>;
+    [channels.settings.revealDataFolder]: IpcResponse<void>;
+    [channels.settings.openLogsFolder]: IpcResponse<void>;
 
     // plugins
     [channels.plugins.list]: IpcResponse<PluginMeta[]>;

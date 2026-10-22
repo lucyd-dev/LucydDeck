@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from "vue";
-import { Crop, Upload, X } from "@lucide/vue";
+import { Crop, Upload } from "@lucide/vue";
+import Button from "@/components/ui/Button.vue";
+import Dialog from "@/components/ui/Dialog.vue";
+import Field from "@/components/ui/Field.vue";
+import Input from "@/components/ui/Input.vue";
 import { useAppStore } from "@/stores/appStore";
 import { useIconStore } from "@/stores/iconStore";
+import { readCssToken } from "@/theme/cssTokens";
 
 const emit = defineEmits<{
     (event: "imported", name: string): void;
@@ -91,7 +96,7 @@ function draw(): void {
     ctx.fillRect(0, area.y + area.h, CANVAS_SIZE, CANVAS_SIZE - area.y - area.h);
     ctx.fillRect(0, area.y, area.x, area.h);
     ctx.fillRect(area.x + area.w, area.y, CANVAS_SIZE - area.x - area.w, area.h);
-    ctx.strokeStyle = "#7c6cf0";
+    ctx.strokeStyle = readCssToken("--color-accent", "CanvasText");
     ctx.lineWidth = 2;
     ctx.strokeRect(area.x, area.y, area.w, area.h);
     ctx.restore();
@@ -180,71 +185,51 @@ async function confirmImport(): Promise<void> {
 </script>
 
 <template>
-    <div class="crop-dialog" role="dialog" aria-modal="true" aria-label="Import icon">
-        <div class="crop-dialog__dialog">
-            <header class="crop-dialog__header">
-                <h3 class="crop-dialog__title">
-                    <Crop :size="15" />
-                    <span>Import Icon</span>
-                </h3>
-                <button
-                    class="crop-dialog__close"
-                    type="button"
-                    title="Close"
-                    @click="emit('close')"
-                >
-                    <X :size="16" />
-                </button>
-            </header>
+    <Dialog title="Import Icon" @close="emit('close')">
+        <p class="inspector-section__hint">
+            Output is stored at <strong>140×140 px</strong> (device button size). Source images up
+            to <strong>25 MB</strong> — PNG, JPEG, or WebP. Drag on the preview to crop before
+            importing.
+        </p>
 
-            <p class="inspector-section__hint">
-                Output is stored at <strong>140×140 px</strong> (device button size). Source images
-                up to <strong>25 MB</strong> — PNG, JPEG, or WebP. Drag on the preview to crop
-                before importing.
-            </p>
+        <input
+            ref="fileInput"
+            class="crop-dialog__file"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            @change="onFileChange"
+        />
 
-            <input
-                ref="fileInput"
-                class="crop-dialog__file"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                @change="onFileChange"
-            />
-
-            <div class="crop-dialog__stage">
-                <canvas
-                    ref="canvas"
-                    class="crop-dialog__canvas"
-                    :class="{ 'crop-dialog__canvas--empty': !image }"
-                    @pointerdown="onPointerDown"
-                ></canvas>
-                <p v-if="!image" class="crop-dialog__placeholder">Choose an image to begin</p>
-            </div>
-
-            <label class="field">
-                <span class="field__label">Icon name</span>
-                <input
-                    v-model="iconName"
-                    class="field__input"
-                    type="text"
-                    placeholder="my-icon"
-                />
-            </label>
-
-            <div class="crop-dialog__actions">
-                <button class="crop-dialog__secondary" type="button" @click="pickFile">
-                    <Upload :size="13" />
-                    <span>Choose image</span>
-                </button>
-                <button
-                    class="crop-dialog__primary"
-                    type="button"
-                    :disabled="busy || !image"
-                    @click="confirmImport"
-                >
-                    Import icon
-                </button>
-            </div>
+        <div class="crop-dialog__stage">
+            <canvas
+                ref="canvas"
+                class="crop-dialog__canvas"
+                :class="{ 'crop-dialog__canvas--empty': !image }"
+                @pointerdown="onPointerDown"
+            ></canvas>
+            <p v-if="!image" class="crop-dialog__placeholder">Choose an image to begin</p>
         </div>
-    </div>
+
+        <Field label="Icon name">
+            <template #default="{ id }">
+                <Input :id="id" v-model="iconName" placeholder="my-icon" />
+            </template>
+        </Field>
+
+        <template #footer>
+            <Button variant="ghost" @click="pickFile">
+                <Upload :size="13" />
+                <span>Choose image</span>
+            </Button>
+            <Button
+                variant="primary"
+                :disabled="busy || !image"
+                :loading="busy"
+                @click="confirmImport"
+            >
+                <Crop :size="13" />
+                <span>Import icon</span>
+            </Button>
+        </template>
+    </Dialog>
 </template>

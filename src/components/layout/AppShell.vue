@@ -1,55 +1,39 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
-import { RefreshCw, Save, Settings, X, Zap } from "@lucide/vue";
-import { diffPlanDeletions, isDiffPlanEmpty } from "@shared/sync";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { useRoute } from "vue-router";
+import { LayoutGrid, Plug, Settings as SettingsIcon, Usb, Zap } from "@lucide/vue";
+import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
+import Toast from "@/components/ui/Toast.vue";
+import Tooltip from "@/components/ui/Tooltip.vue";
 import InspectorPanel from "@/components/inspector/InspectorPanel.vue";
-import ProfileMenu from "@/components/layout/ProfileMenu.vue";
-import SettingsDialog from "@/components/settings/SettingsDialog.vue";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
+import { NARROW_QUERY } from "@/layout";
 
+const route = useRoute();
 const app = useAppStore();
+const confirm = useConfirmStore();
 const profile = useProfileStore();
 const usb = useUsbStore();
 
-const syncBusy = computed(() => usb.syncing);
-const syncDisabled = computed(() => !usb.connected || syncBusy.value || profile.saving);
-const syncPercent = computed(() => usb.syncProgress?.percent ?? 0);
-const syncLabel = computed(() => {
-    if (usb.syncing) {
-        const progress = usb.syncProgress;
-        if (progress?.message) {
-            return progress.message;
-        }
-        if (progress?.current) {
-            return `Syncing ${progress.current}`;
-        }
-        if (progress?.completed !== undefined && progress?.total !== undefined) {
-            return `Syncing ${progress.completed}/${progress.total}…`;
-        }
-        return progress?.phase ?? "Syncing…";
-    }
-    return "Sync";
-});
-const saveDisabled = computed(
-    () => !profile.dirty || !profile.hasPage || profile.saving || !profile.hasProfile,
+const views = [
+    { name: "deck", label: "Deck", icon: LayoutGrid, to: "/" },
+    { name: "plugins", label: "Plugins", icon: Plug, to: "/plugins" },
+    { name: "device", label: "Device", icon: Usb, to: "/device" },
+    { name: "settings", label: "Settings", icon: SettingsIcon, to: "/settings" },
+];
+
+const showInspector = computed(
+    () => route.meta.inspector === true && (!app.narrow || app.inspectorOpen),
 );
+const inspectorOverlay = computed(() => showInspector.value && app.narrow);
 
-onMounted(() => {
-    void profile.initProfiles();
-    void usb.refreshStatus();
-    window.addEventListener("focus", onWindowFocus);
-    window.addEventListener("beforeunload", onBeforeUnload);
-});
+let media: MediaQueryList | null = null;
 
-onBeforeUnmount(() => {
-    window.removeEventListener("focus", onWindowFocus);
-    window.removeEventListener("beforeunload", onBeforeUnload);
-});
-
-function onWindowFocus(): void {
-    void profile.checkExternalChanges();
+function onMediaChange(event: MediaQueryListEvent | MediaQueryList): void {
+    app.setNarrow(event.matches);
 }
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
@@ -59,148 +43,118 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
     }
 }
 
-function save(): void {
-    void profile.saveCurrentPage();
+function onWindowFocus(): void {
+    void profile.checkExternalChanges();
 }
 
-async function sync(): Promise<void> {
-    if (!usb.connected) {
-        app.pushToast("warning", "Connect a device before syncing");
-        return;
-    }
-    const plan = await usb.reconcile(profile.activeProfile || undefined);
-    if (plan === null) {
-        return;
-    }
-    if (plan.missingIcons.length > 0) {
-        app.pushToast(
-            "warning",
-            `Missing icon(s): ${plan.missingIcons.map((icon) => icon.name).join(", ")}`,
-        );
-    }
-    const deletions = diffPlanDeletions(plan);
-    if (isDiffPlanEmpty(plan) && deletions === 0) {
-        app.pushToast("info", "Device is already up to date");
-        return;
-    }
-    if (deletions > 0) {
-        const confirmed = window.confirm(
-            `Upload ${plan.pagesToUpload.length} page(s) and ${plan.iconsToUpload.length} icon(s)?\n\n` +
-                `The device has ${deletions} file(s) with no local copy. Protocol v1 has no ` +
-                "delete command, so they will be left on the device.",
-        );
-        if (!confirmed) {
-            return;
+onMounted(() => {
+    void profile.initProfiles();
+    void usb.refreshStatus();
+    media = window.matchMedia(NARROW_QUERY);
+    onMediaChange(media);
+    media.addEventListener("change", onMediaChange);
+    window.addEventListener("focus", onWindowFocus);
+    window.addEventListener("beforeunload", onBeforeUnload);
+});
+
+onBeforeUnmount(() => {
+    media?.removeEventListener("change", onMediaChange);
+    window.removeEventListener("focus", onWindowFocus);
+    window.removeEventListener("beforeunload", onBeforeUnload);
+});
+
+watch(
+    () => route.fullPath,
+    () => {
+        if (app.narrow) {
+            app.closeInspector();
         }
-    }
-    await usb.executePlan(plan);
-}
+    },
+);
 </script>
 
 <template>
-    <div class="app-shell" :class="{ 'app-shell--settings': app.settingsOpen }">
-        <header class="app-shell__topbar">
-            <div class="topbar__left">
-                <div class="topbar__brand">
-                    <span class="topbar__logo">LucydDeck</span>
-                </div>
-                <ProfileMenu />
+    <div
+        class="app-shell"
+        :class="{
+            'app-shell--with-inspector': showInspector,
+            'app-shell--inspector-open': inspectorOverlay,
+        }"
+    >
+        <aside class="sidebar">
+            <div class="sidebar__brand">
+                <span class="sidebar__brand-mark"><Zap :size="16" /></span>
+                <span>LucydDeck</span>
             </div>
 
-            <div class="topbar__center">
+            <nav class="sidebar__views" aria-label="Views">
+                <Tooltip v-for="view in views" :key="view.name" :text="view.label">
+                    <RouterLink
+                        class="sidebar__view"
+                        :class="{ 'sidebar__view--active': route.name === view.name }"
+                        :to="view.to"
+                        :aria-label="view.label"
+                        :aria-current="route.name === view.name ? 'page' : undefined"
+                    >
+                        <component :is="view.icon" :size="18" />
+                    </RouterLink>
+                </Tooltip>
+            </nav>
+
+            <div class="sidebar__body">
+                <RouterView name="sidebar" />
+            </div>
+
+            <footer class="sidebar__footer">
                 <button
-                    class="topbar__status"
-                    :class="`topbar__status--${app.deviceStatus.state}`"
+                    class="device-chip"
+                    :class="`device-chip--${app.deviceStatus.state}`"
                     type="button"
                     :disabled="usb.busy"
-                    :title="
-                        app.deviceStatus.state === 'connected'
-                            ? 'Disconnect device'
-                            : 'Connect device'
-                    "
+                    :title="usb.connected ? 'Disconnect the deck' : 'Connect the deck'"
                     @click="usb.toggle()"
                 >
-                    <Zap :size="14" />
-                    <span class="topbar__status-label">{{ app.deviceStatus.label }}</span>
+                    <span class="device-chip__dot" aria-hidden="true"></span>
+                    <span class="device-chip__label">{{ app.deviceStatus.label }}</span>
                 </button>
-            </div>
-
-            <div class="topbar__right">
-                <div class="topbar__actions">
-                    <button
-                        class="topbar__sync"
-                        type="button"
-                        :disabled="syncDisabled"
-                        :title="usb.connected ? 'Sync with device' : 'Connect a device to sync'"
-                        @click="sync"
-                    >
-                        <RefreshCw :size="14" :class="{ 'is-spinning': syncBusy }" />
-                        <span class="topbar__sync-label">{{ syncLabel }}</span>
-                        <span
-                            v-if="syncBusy"
-                            class="topbar__sync-bar"
-                            :style="{ width: `${syncPercent}%` }"
-                        ></span>
-                    </button>
-
-                    <button
-                        class="topbar__save"
-                        type="button"
-                        :disabled="saveDisabled"
-                        :title="profile.dirty ? 'Save page' : 'No changes to save'"
-                        @click="save"
-                    >
-                        <Save :size="14" />
-                        <span>Save</span>
-                        <span
-                            v-if="profile.dirty"
-                            class="topbar__dirty-dot"
-                            title="Unsaved changes"
-                        ></span>
-                    </button>
-                </div>
-
-                <span class="topbar__divider" aria-hidden="true"></span>
-
-                <button
-                    class="topbar__settings"
-                    type="button"
-                    title="Settings"
-                    aria-label="Settings"
-                    @click="app.openSettings()"
-                >
-                    <Settings :size="16" />
-                </button>
-            </div>
-        </header>
+            </footer>
+        </aside>
 
         <main class="app-shell__content">
-            <router-view />
+            <RouterView />
         </main>
 
-        <aside v-if="!app.settingsOpen" class="app-shell__inspector">
+        <button
+            v-if="inspectorOverlay"
+            class="app-shell__scrim"
+            type="button"
+            aria-label="Close inspector"
+            @click="app.closeInspector()"
+        ></button>
+
+        <aside v-if="showInspector" class="app-shell__inspector">
             <InspectorPanel />
         </aside>
 
-        <SettingsDialog v-if="app.settingsOpen" @close="app.closeSettings()" />
-
         <div class="app-shell__toasts" aria-live="polite">
-            <div
+            <Toast
                 v-for="toast in app.toasts"
                 :key="toast.id"
-                class="toast"
-                :class="`toast--${toast.level}`"
-            >
-                <span class="toast__message">{{ toast.message }}</span>
-                <button
-                    class="toast__dismiss"
-                    type="button"
-                    aria-label="Dismiss"
-                    @click="app.dismissToast(toast.id)"
-                >
-                    <X :size="12" />
-                </button>
-            </div>
+                :level="toast.level"
+                :message="toast.message"
+                @dismiss="app.dismissToast(toast.id)"
+            />
         </div>
+
+        <ConfirmDialog
+            v-if="confirm.request !== null"
+            :title="confirm.request.title"
+            :message="confirm.request.message"
+            :confirm-label="confirm.request.confirmLabel"
+            :cancel-label="confirm.request.cancelLabel"
+            :danger="confirm.request.danger"
+            @confirm="confirm.answer(true)"
+            @cancel="confirm.answer(false)"
+        />
     </div>
 </template>

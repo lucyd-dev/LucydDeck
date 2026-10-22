@@ -3,6 +3,8 @@ import {
     HostCommand,
     PATH_ICON,
     PATH_PAGE,
+    PAYLOAD_MAX,
+    PathType,
     isValidPageId,
     type DeviceImageEntry,
     type DeviceInfoPayload,
@@ -154,6 +156,36 @@ export class DeviceService {
         const base = name.replace(PNG_EXTENSION, "");
         this.assertName(base);
         await this.transfer.upload(PATH_ICON, `${base}.png`, pngBytes);
+    }
+
+    /**
+     * Delete one file (`CMD_FILE_DELETE = 0x34`, protocol 2+). Payload is
+     * `[pathType][path]`, same path grammar as `CMD_FILE_START`.
+     */
+    async deleteFile(pathType: PathType, path: string): Promise<void> {
+        const pathBytes = textBytes(path);
+        if (path === "" || pathBytes.length + 1 > PAYLOAD_MAX) {
+            throw new DeviceError(`Invalid file path: "${path}"`, DeviceErrorCodes.InvalidName);
+        }
+        const payload = new Uint8Array(pathBytes.length + 1);
+        payload[0] = pathType;
+        payload.set(pathBytes, 1);
+        await this.usb.command(HostCommand.FileDelete, payload, DeviceResponse.Ack);
+    }
+
+    /** Delete `/profiles/<profile>/<id>.json` on the device. */
+    async deletePage(profile: string, id: string | number): Promise<void> {
+        this.assertName(profile);
+        const pageId = String(id);
+        this.assertPageId(pageId);
+        await this.deleteFile(PathType.Page, `${profile}/${pageId}.json`);
+    }
+
+    /** Delete `/icons/<name>.png` on the device (base name, with or without extension). */
+    async deleteIcon(name: string): Promise<void> {
+        const base = name.replace(PNG_EXTENSION, "");
+        this.assertName(base);
+        await this.deleteFile(PathType.Icon, `${base}.png`);
     }
 
     private assertName(name: string): void {

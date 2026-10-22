@@ -2,8 +2,10 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { storageClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { emptyButtonConfig, emptyPageConfig, isValidBoardIndex } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
+import { pageLabel } from "@shared/pages";
 import type { ButtonConfig, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 
 /** Next free page id (smallest 0..255 not present); `null` when full. */
@@ -49,7 +51,10 @@ export const useProfileStore = defineStore("profile", () => {
             return;
         }
         profiles.value = result.data;
-        if (activeProfile.value !== "" && !result.data.some((p) => p.name === activeProfile.value)) {
+        if (
+            activeProfile.value !== "" &&
+            !result.data.some((p) => p.name === activeProfile.value)
+        ) {
             activeProfile.value = "";
             pages.value = [];
             currentPageId.value = null;
@@ -80,11 +85,16 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     /** Confirm discarding unsaved edits; true when it is safe to proceed. */
-    function guardUnsaved(): boolean {
+    async function guardUnsaved(): Promise<boolean> {
         if (!dirty.value) {
             return true;
         }
-        return window.confirm("This page has unsaved changes. Discard them?");
+        return useConfirmStore().ask({
+            title: "Discard unsaved changes",
+            message: "This page has unsaved changes. Discard them?",
+            confirmLabel: "Discard",
+            danger: true,
+        });
     }
 
     async function loadPage(id: string): Promise<void> {
@@ -107,7 +117,7 @@ export const useProfileStore = defineStore("profile", () => {
         if (profile === activeProfile.value) {
             return;
         }
-        if (!guardUnsaved()) {
+        if (!(await guardUnsaved())) {
             return;
         }
         activeProfile.value = profile;
@@ -138,7 +148,7 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     async function selectPage(id: string): Promise<void> {
-        if (id === currentPageId.value || !guardUnsaved()) {
+        if (id === currentPageId.value || !(await guardUnsaved())) {
             return;
         }
         await loadPage(id);
@@ -150,7 +160,7 @@ export const useProfileStore = defineStore("profile", () => {
             useAppStore().pushToast("warning", "Select a profile first");
             return;
         }
-        if (!guardUnsaved()) {
+        if (!(await guardUnsaved())) {
             return;
         }
         const id = nextPageId(pages.value);
@@ -434,9 +444,12 @@ export const useProfileStore = defineStore("profile", () => {
             currentPageMtime.value !== null &&
             meta.mtimeMs > currentPageMtime.value
         ) {
-            const reload = window.confirm(
-                `Page ${currentPageId.value} changed on disk. Reload it and discard unsaved edits?`,
-            );
+            const reload = await useConfirmStore().ask({
+                title: "Page changed on disk",
+                message: `${pageLabel(currentPageId.value)} changed on disk. Reload it and discard unsaved edits?`,
+                confirmLabel: "Reload",
+                danger: true,
+            });
             if (reload) {
                 await loadPage(currentPageId.value);
             } else {

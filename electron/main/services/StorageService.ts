@@ -4,7 +4,10 @@ import path from "node:path";
 import log from "electron-log/main";
 import type { PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
+import { serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
+import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
+import type { AppSettings } from "@shared/settings";
 import { crc32 } from "./usb/Crc32";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
@@ -18,12 +21,16 @@ export const SETTINGS_FILE = "settings.json";
 export interface StorageSettings {
     /** Name of the profile to open on boot; absent = first profile. */
     defaultProfile?: string;
+    /** Appearance + window preferences (`shared/settings.ts` shape, untrusted). */
+    app?: unknown;
 }
 
 /** @deprecated Use `PAGE_FILENAME_PATTERN` from `@shared/protocol` (single source). */
 export const PAGE_FILE_PATTERN = PAGE_FILENAME_PATTERN;
 
 export type PlatformName = string;
+
+const encoder = new TextEncoder();
 
 export interface ResolveDataDirOptions {
     platform?: PlatformName;
@@ -209,6 +216,34 @@ export class StorageService {
         );
     }
 
+    /** Normalized app settings from `settings.json` (defaults when absent). */
+    getAppSettings(): AppSettings {
+        const { app } = this.readSettings();
+        return sanitizeAppSettings(app);
+    }
+
+    /**
+     * Merge a partial settings update into `settings.json` and return the
+     * normalized result. Invalid fields fall back to the current/default value;
+     * `defaultProfile` and any future keys are preserved.
+     */
+    setAppSettings(patch: unknown): AppSettings {
+        const settings = this.readSettings();
+        const next = mergeAppSettings(this.getAppSettings(), patch);
+        settings.app = next;
+        this.writeSettings(settings);
+        log.info(
+            `[storage] settings updated: theme=${next.theme} accent=${next.accent} ` +
+                `window=${next.window.width}x${next.window.height}`,
+        );
+        return next;
+    }
+
+    /** Absolute path of the `logs/` directory. */
+    logsDir(): string {
+        return path.join(this.dataDir, "logs");
+    }
+
     /** Persisted default profile name, or `null` when unset/invalid. */
     getDefaultProfile(): string | null {
         const { defaultProfile } = this.readSettings();
@@ -317,6 +352,7 @@ export class StorageService {
             .map((item) => ({
                 id: item.id!,
                 mtimeMs: safeMtimeMs(path.join(dir, item.entry.name)),
+                hash: this.pageHash(profile, item.id!) ?? undefined,
             }))
             .sort((a, b) => Number(a.id) - Number(b.id));
     }
@@ -351,6 +387,24 @@ export class StorageService {
         }
         fs.writeFileSync(this.pageFile(profile, id), JSON.stringify(page, null, 2) + "\n");
         log.info(`[storage] page saved: ${profile}/${id}`);
+    }
+
+    /**
+     * CRC-32 of the canonical upload bytes for a page (the same bytes
+     * `SyncService` hashes), or `null` when the page is missing/invalid.
+     */
+    pageHash(profile: string, id: string): number | null {
+        let page: PageConfig;
+        try {
+            page = this.loadPage(profile, id);
+        } catch {
+            return null;
+        }
+        const validation = validatePageConfig(page);
+        if (!validation.ok) {
+            return null;
+        }
+        return crc32(encoder.encode(JSON.stringify(serializePageConfig(validation.page))));
     }
 
     // --- Export / import ------------------------------------------------

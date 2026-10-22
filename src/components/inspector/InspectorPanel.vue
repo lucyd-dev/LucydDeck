@@ -19,8 +19,11 @@ import { parseActionString, validateActionString } from "@shared/actions";
 import type { ActionTypeDef } from "@/actions/registry";
 import { INTERNAL_ACTION_TYPES, loadPluginCommandTypes } from "@/actions/registry";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { useIconStore } from "@/stores/iconStore";
 import { useProfileStore } from "@/stores/profileStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import { readCssToken } from "@/theme/cssTokens";
 import ActionPicker from "./ActionPicker.vue";
 import IconGallery from "./IconGallery.vue";
 import IconImportDialog from "./IconImportDialog.vue";
@@ -30,6 +33,8 @@ type SectionId = "general" | "custom" | "system" | "lucyddeck" | "plugins";
 const profile = useProfileStore();
 const icons = useIconStore();
 const app = useAppStore();
+const confirm = useConfirmStore();
+const settings = useSettingsStore();
 
 const sections: Array<{ id: SectionId; label: string; icon: unknown }> = [
     { id: "general", label: "General", icon: SlidersHorizontal },
@@ -81,7 +86,12 @@ const searchResults = computed(() => {
 
 const sequence = computed(() => profile.selectedButton?.click ?? []);
 const currentImageName = computed(() => profile.selectedButton?.imageName ?? "");
-const backgroundColor = computed(() => profile.selectedButton?.backgroundColor ?? "#1c2129");
+const backgroundColor = computed(() => {
+    // Re-read after a theme switch so the colour picker shows the new surface.
+    void settings.theme;
+    void settings.accent;
+    return profile.selectedButton?.backgroundColor ?? readCssToken("--color-bg-elevated", "Canvas");
+});
 const sectionLabel = computed(
     () => sections.find((section) => section.id === activeSection.value)?.label ?? "",
 );
@@ -121,8 +131,14 @@ function onImported(name: string): void {
     app.pushToast("success", `Imported icon "${name}"`);
 }
 
-function clearKey(): void {
-    if (!window.confirm("Clear this key's icon, label and action sequences?")) {
+async function clearKey(): Promise<void> {
+    const confirmed = await confirm.ask({
+        title: "Clear key",
+        message: "Clear this key's icon, label and action sequences?",
+        confirmLabel: "Clear key",
+        danger: true,
+    });
+    if (!confirmed) {
         return;
     }
     profile.clearButton();
@@ -232,7 +248,7 @@ onMounted(async () => {
                                     class="field__input"
                                     type="text"
                                     :value="profile.selectedButton?.backgroundColor ?? ''"
-                                    placeholder="#1c2129"
+                                    placeholder="Surface colour"
                                     @change="
                                         profile.setBackgroundColor(
                                             ($event.target as HTMLInputElement).value.trim(),
@@ -388,10 +404,6 @@ onMounted(async () => {
             @select="toggleIcon"
             @close="galleryOpen = false"
         />
-        <IconImportDialog
-            v-if="importOpen"
-            @imported="onImported"
-            @close="importOpen = false"
-        />
+        <IconImportDialog v-if="importOpen" @imported="onImported" @close="importOpen = false" />
     </div>
 </template>

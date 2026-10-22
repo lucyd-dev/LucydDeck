@@ -1,0 +1,186 @@
+// Settings view sections.
+
+.settings-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.settings-section__intro {
+    margin: 0 0 var(--space-md);
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+    line-height: 1.55;
+}
+
+.theme-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-sm);
+}
+
+.theme-option {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    text-align: left;
+}
+
+.theme-option:hover {
+    border-color: var(--color-text-faint);
+}
+
+.theme-option--active {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+}
+
+.theme-option__preview {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: var(--space-2xs);
+    height: 48px;
+    padding: var(--space-2xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background-color: var(--preview-light-bg);
+    overflow: hidden;
+}
+
+.theme-option__preview--dark {
+    background-color: var(--preview-dark-bg);
+}
+
+.theme-option__preview--system {
+    background: linear-gradient(90deg, var(--preview-dark-bg) 50%, var(--preview-light-bg) 50%);
+}
+
+.theme-option__preview-rail {
+    border-radius: 2px;
+    background-color: var(--preview-dark-rail);
+}
+
+.theme-option__preview-body {
+    border-radius: 2px;
+    background-color: var(--preview-dark-body);
+}
+
+.theme-option__preview--light .theme-option__preview-rail {
+    background-color: var(--preview-light-rail);
+}
+
+.theme-option__preview--light .theme-option__preview-body {
+    background-color: var(--preview-light-body);
+}
+
+.theme-option__preview--system .theme-option__preview-rail {
+    background: linear-gradient(90deg, var(--preview-dark-rail) 50%, var(--preview-light-rail) 50%);
+}
+
+.theme-option__preview--system .theme-option__preview-body {
+    background: linear-gradient(90deg, var(--preview-dark-body) 50%, var(--preview-light-body) 50%);
+}
+
+.theme-option__label {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.accent-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.accent-swatch {
+    width: 34px;
+    height: 34px;
+    border: 2px solid transparent;
+    border-radius: var(--radius-full);
+    background-color: var(--swatch);
+}
+
+.accent-swatch:hover {
+    border-color: var(--color-text-faint);
+}
+
+.accent-swatch--active {
+    border-color: var(--color-text);
+    box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.settings-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-row__label {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.settings-row__value {
+    margin: var(--space-2xs) 0 0;
+    color: var(--color-text-faint);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    word-break: break-all;
+}
+
+.settings-row__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.about-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-md);
+}
+
+.about-item__label {
+    margin: 0;
+    color: var(--color-text-faint);
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.about-item__value {
+    margin: var(--space-2xs) 0 0;
+    font-size: 0.86rem;
+    word-break: break-word;
+}
+
+.about-licenses {
+    margin: var(--space-sm) 0 0;
+    padding-left: var(--space-lg);
+    color: var(--color-text-dim);
+    font-size: 0.8rem;
+    line-height: 1.6;
+}
+
+// --- Plugins view ---------------------------------------------------------
+
+.plugins-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}

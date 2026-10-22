@@ -8,7 +8,8 @@ Referenced by every step plan. The firmware wiki (`Home`, `USB-Protocol`, `File-
 | ------------------------------------------------------------ | ------------------------------------------------------------- |
 | CI, storage shell, HID engine, file transfer, image pipeline | shipped in `main`                                             |
 | 3x5 configurator, action inspector, delta sync               | committed on `feature/ui-rebuild`, one commit ahead of `main` |
-| Steps 1 to 4 below                                           | to do                                                         |
+| Step 1: UI foundation, device view, settings                 | implemented on `feature/ui-rebuild`, awaiting review          |
+| Steps 2 to 4 below                                           | to do                                                         |
 
 Steps 1 and 2 run on `feature/ui-rebuild`, which is already checked out. Merge it into `main` when the UI work is done.
 

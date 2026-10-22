@@ -14,8 +14,8 @@
         "artifactName": "${productName}-Windows-${version}-Setup.${ext}"
     },
     "nsis": {
-        "installerIcon": "public/favicon.ico",
-        "uninstallerIcon": "public/favicon.ico",
+        "installerIcon": "public/icon.ico",
+        "uninstallerIcon": "public/icon.ico",
         "oneClick": false,
         "perMachine": false,
         "allowToChangeInstallationDirectory": true,
