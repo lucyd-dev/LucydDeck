@@ -186,7 +186,7 @@ async function confirmImport(): Promise<void> {
 
 <template>
     <Dialog title="Import Icon" @close="emit('close')">
-        <p class="inspector-section__hint">
+        <p class="icon-library__hint">
             Output is stored at <strong>140×140 px</strong> (device button size). Source images up
             to <strong>25 MB</strong> — PNG, JPEG, or WebP. Drag on the preview to crop before
             importing.

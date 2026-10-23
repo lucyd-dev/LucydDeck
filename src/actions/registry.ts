@@ -1,9 +1,4 @@
-import {
-    ACTION_NAMESPACES,
-    CONTROL_KEYS,
-    MOUSE_BUTTONS,
-    buildActionString,
-} from "@shared/actions";
+import { ACTION_NAMESPACES, CONTROL_KEYS, MOUSE_BUTTONS, buildActionString } from "@shared/actions";
 import type { ActionNamespace } from "@shared/actions";
 
 /**
@@ -29,6 +24,8 @@ export interface ActionFieldDef {
     options?: Array<{ value: string; label: string }>;
     optional?: boolean;
     default?: string;
+    /** Span both columns in the inspector field grid. */
+    wide?: boolean;
 }
 
 export interface ActionTypeDef {
@@ -83,6 +80,7 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
                 kind: "text",
                 placeholder: "CTRL+C",
                 default: "CTRL+C",
+                wide: true,
             },
         ],
         build: (values) => buildActionString("HID_KEY", (values.keys ?? "").trim()),
@@ -135,14 +133,11 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
         build: (values) => {
             const button = values.button ?? "LEFT";
             const count = (values.count ?? "").trim();
-            return buildActionString(
-                "MOUSE_CLICK",
-                count === "" ? button : `${button},${count}`,
-            );
+            return buildActionString("MOUSE_CLICK", count === "" ? button : `${button},${count}`);
         },
     },
     DELAY: {
-        label: "Delay",
+        label: "Wait",
         section: "system",
         fields: [{ key: "ms", label: "Milliseconds", kind: "number", default: "100" }],
         build: (values) => buildActionString("DELAY", (values.ms ?? "").trim()),
@@ -150,7 +145,15 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
     TEXT: {
         label: "Type text",
         section: "system",
-        fields: [{ key: "text", label: "Text", kind: "textarea", placeholder: "Hello world" }],
+        fields: [
+            {
+                key: "text",
+                label: "Text",
+                kind: "textarea",
+                placeholder: "Hello world",
+                wide: true,
+            },
+        ],
         build: (values) => buildActionString("TEXT", values.text ?? ""),
     },
     CMD: {
@@ -162,6 +165,7 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
                 label: "Command",
                 kind: "text",
                 placeholder: "explorer.exe",
+                wide: true,
             },
         ],
         build: (values) => buildActionString("CMD", (values.command ?? "").trim()),

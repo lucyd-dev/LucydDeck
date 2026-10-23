@@ -2,7 +2,14 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useIconStore } from "@/stores/iconStore";
 
-const props = defineProps<{ name: string; selected: boolean }>();
+const props = withDefaults(
+    defineProps<{
+        name: string;
+        selected: boolean;
+        removable?: boolean;
+    }>(),
+    { removable: false },
+);
 
 const emit = defineEmits<{
     (event: "select", name: string): void;
@@ -43,14 +50,15 @@ onBeforeUnmount(() => {
 <template>
     <button
         ref="root"
-        class="icon-grid__item"
-        :class="{ 'icon-grid__item--selected': props.selected }"
+        class="icon-tile"
+        :class="{ 'icon-tile--selected': props.selected }"
         type="button"
         :title="props.name"
+        :aria-pressed="props.selected"
         @click="emit('select', props.name)"
-        @contextmenu.prevent="emit('remove', props.name)"
+        @contextmenu.prevent="props.removable && emit('remove', props.name)"
     >
-        <img v-if="dataUrl" class="icon-grid__image" :src="dataUrl" :alt="props.name" />
-        <span v-else class="icon-grid__placeholder">{{ props.name.slice(0, 2) }}</span>
+        <img v-if="dataUrl" class="icon-tile__image" :src="dataUrl" :alt="props.name" />
+        <span v-else class="icon-tile__placeholder">{{ props.name.slice(0, 2) }}</span>
     </button>
 </template>

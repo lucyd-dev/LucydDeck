@@ -19,7 +19,6 @@ Steps 1 and 2 run on `feature/ui-rebuild`, which is already checked out. Merge i
 - Windows build check: `/mnt/c/Users/steve/Documents/Code/LucydDeckProject/LucydDeck`,
   a separate clone. Sync it with git before building. Do not develop features there.
 
-
 ## Code map
 
 - `shared/`: wire, schema, action grammar, sync planner, IPC contract. Unit tested.

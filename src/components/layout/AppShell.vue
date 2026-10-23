@@ -36,13 +36,6 @@ function onMediaChange(event: MediaQueryListEvent | MediaQueryList): void {
     app.setNarrow(event.matches);
 }
 
-function onBeforeUnload(event: BeforeUnloadEvent): void {
-    if (profile.dirty) {
-        event.preventDefault();
-        event.returnValue = "";
-    }
-}
-
 function onWindowFocus(): void {
     void profile.checkExternalChanges();
 }
@@ -54,13 +47,11 @@ onMounted(() => {
     onMediaChange(media);
     media.addEventListener("change", onMediaChange);
     window.addEventListener("focus", onWindowFocus);
-    window.addEventListener("beforeunload", onBeforeUnload);
 });
 
 onBeforeUnmount(() => {
     media?.removeEventListener("change", onMediaChange);
     window.removeEventListener("focus", onWindowFocus);
-    window.removeEventListener("beforeunload", onBeforeUnload);
 });
 
 watch(

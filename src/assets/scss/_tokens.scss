@@ -28,7 +28,9 @@
 
     // Layout
     --sidebar-width: 240px;
-    --inspector-width: 340px;
+    // The chosen board-panel prototype sets a 400px inspector so the key
+    // header, action list and Add Action dock fit without a section rail.
+    --inspector-width: 400px;
     --z-menu: 200;
     --z-dialog: 300;
     --z-toasts: 1000;
@@ -48,6 +50,13 @@
     --color-warning: #e6a23c;
     --color-error: #e5475b;
     --color-disabled: #4b5462;
+    --color-category-deck: #8f8af4;
+    --color-category-keyboard: #69b7e8;
+    --color-category-mouse: #7fd1b0;
+    --color-category-text: #e8c06a;
+    --color-category-timing: #d99a7a;
+    --color-category-commands: #b7b0f5;
+    --color-category-plugins: #e58fbf;
     --color-overlay: rgb(10 12 16 / 72%);
     --color-scroll-track: #12141a;
     --color-scroll-thumb: #2a2d37;
@@ -81,6 +90,13 @@
     --color-warning: #b7791f;
     --color-error: #c53030;
     --color-disabled: #b6bdc9;
+    --color-category-deck: #5b52d6;
+    --color-category-keyboard: #1f6fa0;
+    --color-category-mouse: #1f8a68;
+    --color-category-text: #8a6a12;
+    --color-category-timing: #a05a34;
+    --color-category-commands: #6a5fd0;
+    --color-category-plugins: #b04d84;
     --color-overlay: rgb(15 18 24 / 55%);
     --color-scroll-track: #eef0f4;
     --color-scroll-thumb: #c4cad4;

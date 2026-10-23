@@ -4,6 +4,31 @@ import { iconsClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
 import type { IconMeta } from "@shared/ipc";
 
+const RECENT_STORAGE_KEY = "lucyd.recent-icons";
+const RECENT_LIMIT = 8;
+
+function readRecent(): string[] {
+    try {
+        const raw = localStorage.getItem(RECENT_STORAGE_KEY);
+        const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+        return Array.isArray(parsed)
+            ? parsed
+                  .filter((item): item is string => typeof item === "string")
+                  .slice(0, RECENT_LIMIT)
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeRecent(names: string[]): void {
+    try {
+        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(names));
+    } catch {
+        // The recent list is a convenience; the icon library is authoritative.
+    }
+}
+
 /**
  * Local icon library. The renderer cannot read data-dir files directly, so
  * previews come from the `icons:preview` data-URL cache (loaded lazily by the
@@ -12,6 +37,7 @@ import type { IconMeta } from "@shared/ipc";
 export const useIconStore = defineStore("icons", () => {
     const icons = ref<IconMeta[]>([]);
     const previews = ref<Record<string, string | null>>({});
+    const recent = ref<string[]>(readRecent());
     const inflight = new Map<string, Promise<string | null>>();
 
     async function refresh(): Promise<void> {
@@ -53,6 +79,18 @@ export const useIconStore = defineStore("icons", () => {
         return previews.value[name] ?? null;
     }
 
+    /** Remember the last icons picked in the inspector's quick popover. */
+    function markRecent(name: string): void {
+        if (name === "") {
+            return;
+        }
+        recent.value = [name, ...recent.value.filter((item) => item !== name)].slice(
+            0,
+            RECENT_LIMIT,
+        );
+        writeRecent(recent.value);
+    }
+
     function invalidate(name?: string): void {
         if (name === undefined) {
             previews.value = {};
@@ -92,15 +130,19 @@ export const useIconStore = defineStore("icons", () => {
             return;
         }
         invalidate(name);
+        recent.value = recent.value.filter((item) => item !== name);
+        writeRecent(recent.value);
         await refresh();
     }
 
     return {
         icons,
         previews,
+        recent,
         refresh,
         ensurePreview,
         preview,
+        markRecent,
         invalidate,
         importIcons,
         importData,

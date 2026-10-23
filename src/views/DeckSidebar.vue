@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { FilePlus2, PanelRight, Save } from "@lucide/vue";
+import { FilePlus2, PanelRight } from "@lucide/vue";
 import { BOARD_SIZE } from "@shared/schema";
 import { pageLabel } from "@shared/pages";
 import type { PageConfig } from "@shared/types";
@@ -20,9 +20,6 @@ const previews = ref<Record<string, PageConfig>>({});
 let previewSeq = 0;
 
 const pageKey = computed(() => profile.pages.map((page) => page.id).join(","));
-const saveDisabled = computed(
-    () => !profile.dirty || !profile.hasPage || profile.saving || !profile.hasProfile,
-);
 
 watch(
     [() => profile.activeProfile, pageKey],
@@ -75,10 +72,6 @@ function selectPage(id: string): void {
 function createPage(): void {
     void profile.createPage();
 }
-
-function save(): void {
-    void profile.saveCurrentPage();
-}
 </script>
 
 <template>
@@ -96,16 +89,6 @@ function save(): void {
             <Button size="sm" :disabled="!profile.hasProfile" @click="createPage">
                 <FilePlus2 :size="14" />
                 <span>New page</span>
-            </Button>
-            <Button
-                size="sm"
-                variant="primary"
-                :disabled="saveDisabled"
-                :loading="profile.saving"
-                @click="save"
-            >
-                <Save :size="14" />
-                <span>Save</span>
             </Button>
         </div>
 

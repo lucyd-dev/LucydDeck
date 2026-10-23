@@ -103,6 +103,26 @@
     box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
+.key-button--multi-selected {
+    border-color: var(--color-accent-border);
+    background-color: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    box-shadow: inset 0 0 0 1px var(--color-accent-border);
+}
+
+.key-button__check {
+    position: absolute;
+    top: var(--space-xs);
+    right: var(--space-xs);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--color-accent);
+    color: var(--color-accent-contrast);
+}
+
 .key-button--empty {
     border-style: dashed;
     background-color: var(--color-bg-elevated);

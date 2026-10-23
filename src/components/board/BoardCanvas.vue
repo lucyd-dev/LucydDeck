@@ -20,6 +20,7 @@ const profile = useProfileStore();
             :index="position - 1"
             :button="profile.currentPage.buttons[String(position - 1)]"
             :selected="profile.selectedKey === String(position - 1)"
+            :multi-selected="profile.isMultiSelect && profile.isKeySelected(String(position - 1))"
             @select="profile.selectKey"
         />
     </div>

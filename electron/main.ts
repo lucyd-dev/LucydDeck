@@ -33,6 +33,40 @@ export const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 
 let win: BrowserWindow | null;
 let storageService: StorageService | null = null;
+let quitting = false;
+
+/** Ask the renderer to flush a pending autosave; timeout keeps quit responsive. */
+async function flushEditor(window: BrowserWindow): Promise<boolean> {
+    try {
+        const flushed = await Promise.race([
+            window.webContents.executeJavaScript(
+                "window.lucydEditorFlush?.() ?? true",
+                true,
+            ) as Promise<unknown>,
+            new Promise<false>((resolve) => setTimeout(() => resolve(false), 1500)),
+        ]);
+        return flushed === true;
+    } catch (error) {
+        log.warn(`[app] could not flush the editor before quitting: ${String(error)}`);
+        return false;
+    }
+}
+
+app.on("before-quit", (event) => {
+    const window = win;
+    if (quitting || window === null || window.isDestroyed()) {
+        return;
+    }
+    event.preventDefault();
+    quitting = true;
+    void flushEditor(window)
+        .then((flushed) => {
+            if (!flushed) {
+                log.warn("[app] quitting before the editor finished saving");
+            }
+        })
+        .finally(() => app.quit());
+});
 
 async function createWindow(settings: AppSettings, storage: StorageService) {
     const window = new BrowserWindow({
@@ -66,7 +100,8 @@ async function createWindow(settings: AppSettings, storage: StorageService) {
     }, 5000);
     window.on("closed", () => clearTimeout(showFallback));
 
-    window.on("close", () => {
+    let closing = false;
+    window.on("close", (event) => {
         if (window.isDestroyed()) {
             return;
         }
@@ -82,6 +117,24 @@ async function createWindow(settings: AppSettings, storage: StorageService) {
         } catch (error) {
             log.warn(`[window] could not save window preferences: ${String(error)}`);
         }
+
+        // Closing the window directly skips `before-quit`, so flush here too.
+        if (quitting) {
+            return;
+        }
+        if (closing) {
+            event.preventDefault();
+            return;
+        }
+        event.preventDefault();
+        closing = true;
+        void flushEditor(window)
+            .then((flushed) => {
+                if (!flushed) {
+                    log.warn("[app] closing before the editor finished saving");
+                }
+            })
+            .finally(() => window.destroy());
     });
 
     window.on("closed", () => {

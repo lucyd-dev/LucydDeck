@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { AlertTriangle } from "@lucide/vue";
+import { AlertTriangle, Check } from "@lucide/vue";
 import { useIconStore } from "@/stores/iconStore";
 import type { ButtonConfig } from "@shared/types";
 
@@ -8,9 +8,12 @@ const props = defineProps<{
     index: number;
     button?: ButtonConfig;
     selected: boolean;
+    multiSelected?: boolean;
 }>();
 
-const emit = defineEmits<{ (event: "select", index: string): void }>();
+const emit = defineEmits<{
+    (event: "select", index: string, extend: boolean): void;
+}>();
 
 const icons = useIconStore();
 const key = String(props.index);
@@ -33,8 +36,18 @@ async function loadPreview(): Promise<void> {
     resolved.value = true;
 }
 
+function onClick(event: MouseEvent): void {
+    emit("select", key, event.shiftKey);
+}
+
 onMounted(loadPreview);
 watch(() => props.button?.imageName, loadPreview);
+watch(
+    () => (props.button?.imageName ? icons.previews[props.button.imageName] : null),
+    () => {
+        void loadPreview();
+    },
+);
 </script>
 
 <template>
@@ -42,13 +55,22 @@ watch(() => props.button?.imageName, loadPreview);
         class="key-button"
         :class="{
             'key-button--selected': props.selected,
+            'key-button--multi-selected': props.multiSelected === true,
             'key-button--empty': !props.button,
         }"
-        :style="props.button?.backgroundColor ? { backgroundColor: props.button.backgroundColor } : undefined"
+        :style="
+            props.button?.backgroundColor
+                ? { backgroundColor: props.button.backgroundColor }
+                : undefined
+        "
         type="button"
-        :aria-pressed="props.selected"
-        @click="emit('select', key)"
+        :aria-pressed="props.selected || props.multiSelected === true"
+        @click="onClick"
     >
+        <span v-if="props.multiSelected" class="key-button__check" aria-hidden="true">
+            <Check :size="12" />
+        </span>
+
         <img
             v-if="dataUrl"
             class="key-button__icon"
@@ -62,10 +84,7 @@ watch(() => props.button?.imageName, loadPreview);
 
         <span v-if="props.button?.label" class="key-button__label">{{ props.button.label }}</span>
 
-        <span
-            v-if="props.button && props.button.click.length > 0"
-            class="key-button__badges"
-        >
+        <span v-if="props.button && props.button.click.length > 0" class="key-button__badges">
             <span class="key-button__badge"> C{{ props.button.click.length }} </span>
         </span>
     </button>

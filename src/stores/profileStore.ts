@@ -2,11 +2,26 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { storageClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
-import { useConfirmStore } from "@/stores/confirmStore";
+import { PageDocumentHistory, clonePageConfig } from "@/editor/pageDocument";
+import { validateActionString } from "@shared/actions";
 import { emptyButtonConfig, emptyPageConfig, isValidBoardIndex } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
-import { pageLabel } from "@shared/pages";
 import type { ButtonConfig, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
+
+/** Delay between the last edit and the autosave write. */
+export const AUTOSAVE_DELAY_MS = 400;
+
+export type SaveState = "saved" | "dirty" | "saving" | "blocked" | "error";
+
+export interface ExternalChange {
+    pageId: string;
+    mtimeMs: number;
+}
+
+/** Stable history/document key for one page in one profile. */
+export function pageHistoryKey(profile: string, pageId: string): string {
+    return `${profile}/${pageId}`;
+}
 
 /** Next free page id (smallest 0..255 not present); `null` when full. */
 export function nextPageId(pages: readonly PageMeta[]): string | null {
@@ -20,8 +35,12 @@ export function nextPageId(pages: readonly PageMeta[]): string | null {
 }
 
 /**
- * Profile editing state: active profile, its pages, the loaded page (with
- * dirty tracking), and the selected board key driving the inspector.
+ * Profile editing state: active profile, its pages, the loaded page, the
+ * selected keys driving the inspector, and the autosave loop.
+ *
+ * The store owns the edit document. Every mutation records an undo snapshot,
+ * bumps a revision, and schedules one write 400 ms later. Writes run one at a
+ * time; a change made during a write queues another pass.
  */
 export const useProfileStore = defineStore("profile", () => {
     const profiles = ref<ProfileMeta[]>([]);
@@ -30,19 +49,221 @@ export const useProfileStore = defineStore("profile", () => {
     const currentPageId = ref<string | null>(null);
     const currentPage = ref<PageConfig>(emptyPageConfig());
     const currentPageMtime = ref<number | null>(null);
-    const selectedKey = ref<string | null>(null);
-    const saving = ref(false);
+    const selectedKeys = ref<string[]>([]);
     const dirty = ref(false);
+    const saveState = ref<SaveState>("saved");
+    const externalChange = ref<ExternalChange | null>(null);
+
+    const history = new PageDocumentHistory();
+    const historyVersion = ref(0);
+    /** Pages with unsaved invalid steps, kept while the user edits elsewhere. */
+    const deferredPages = new Map<string, PageConfig>();
+    let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSave: Promise<boolean> | null = null;
+    let saveAgain = false;
+    let changeRevision = 0;
     let pagesRequestSeq = 0;
 
     const hasProfile = computed(() => activeProfile.value !== "");
     const hasPage = computed(() => currentPageId.value !== null);
+    const selectedKey = computed<string | null>(() =>
+        selectedKeys.value.length === 1 ? selectedKeys.value[0] : null,
+    );
     const selectedButton = computed<ButtonConfig | undefined>(() =>
         selectedKey.value === null ? undefined : currentPage.value.buttons[selectedKey.value],
     );
+    const selectedCount = computed(() => selectedKeys.value.length);
+    const isMultiSelect = computed(() => selectedKeys.value.length > 1);
+    const saving = computed(() => saveState.value === "saving");
     const defaultProfile = computed(
         () => profiles.value.find((item) => item.isDefault)?.name ?? null,
     );
+
+    const invalidStepCount = computed(() => {
+        let count = 0;
+        for (const button of Object.values(currentPage.value.buttons)) {
+            for (const action of button.click) {
+                if (!validateActionString(action).ok) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    });
+
+    const historyPageId = (): string | null => {
+        if (activeProfile.value === "" || currentPageId.value === null) {
+            return null;
+        }
+        return pageHistoryKey(activeProfile.value, currentPageId.value);
+    };
+
+    const canUndo = computed(() => {
+        void historyVersion.value;
+        const id = historyPageId();
+        return id !== null && history.canUndo(id);
+    });
+
+    const canRedo = computed(() => {
+        void historyVersion.value;
+        const id = historyPageId();
+        return id !== null && history.canRedo(id);
+    });
+
+    function clearAutosaveTimer(): void {
+        if (autosaveTimer !== null) {
+            clearTimeout(autosaveTimer);
+            autosaveTimer = null;
+        }
+    }
+
+    function scheduleAutosave(): void {
+        clearAutosaveTimer();
+        if (invalidStepCount.value > 0) {
+            saveState.value = "blocked";
+            return;
+        }
+        saveState.value = "dirty";
+        autosaveTimer = setTimeout(() => {
+            autosaveTimer = null;
+            void saveNow();
+        }, AUTOSAVE_DELAY_MS);
+    }
+
+    /** Mark a change and queue the debounced write. */
+    function touch(): void {
+        dirty.value = true;
+        changeRevision++;
+        scheduleAutosave();
+    }
+
+    function recordHistory(coalesce?: string): void {
+        const id = historyPageId();
+        if (id === null) {
+            return;
+        }
+        history.record(id, currentPage.value, coalesce === undefined ? {} : { coalesce });
+        historyVersion.value++;
+    }
+
+    async function writeCurrentPage(): Promise<boolean> {
+        const profile = activeProfile.value;
+        const id = currentPageId.value;
+        if (profile === "" || id === null) {
+            return true;
+        }
+        if (invalidStepCount.value > 0) {
+            saveState.value = "blocked";
+            return false;
+        }
+
+        const revision = changeRevision;
+        const page = clonePageConfig(currentPage.value);
+        saveState.value = "saving";
+        const result = await storageClient.savePage(profile, id, page);
+        if (!result.ok) {
+            saveState.value = "error";
+            dirty.value = true;
+            useAppStore().pushToast("error", result.error);
+            return false;
+        }
+
+        if (activeProfile.value !== profile || currentPageId.value !== id) {
+            // The user left this page while the write was in flight. The page
+            // itself is saved; the new page keeps its own state.
+            return true;
+        }
+
+        // Read back the file mtime instead of guessing with the local clock:
+        // a stale mtime would make the app report its own write as an external
+        // edit on the next focus.
+        deferredPages.delete(pageHistoryKey(profile, id));
+        const pagesResult = await storageClient.listPages(profile).catch(() => null);
+        if (activeProfile.value !== profile || currentPageId.value !== id) {
+            return true;
+        }
+        if (pagesResult?.ok) {
+            pages.value = pagesResult.data;
+            currentPageMtime.value =
+                pagesResult.data.find((page) => page.id === id)?.mtimeMs ?? Date.now();
+        } else {
+            currentPageMtime.value = Date.now();
+        }
+
+        if (revision === changeRevision) {
+            dirty.value = false;
+            saveState.value = "saved";
+        } else {
+            dirty.value = true;
+            saveState.value = "dirty";
+            if (autosaveTimer === null && invalidStepCount.value === 0) {
+                scheduleAutosave();
+            }
+        }
+        return true;
+    }
+
+    async function saveNow(): Promise<boolean> {
+        if (activeSave !== null) {
+            saveAgain = true;
+            return activeSave;
+        }
+        const task = (async () => {
+            let ok: boolean;
+            do {
+                saveAgain = false;
+                ok = await writeCurrentPage();
+            } while (ok && saveAgain);
+            return ok;
+        })();
+        activeSave = task;
+        try {
+            return await task;
+        } finally {
+            if (activeSave === task) {
+                activeSave = null;
+            }
+        }
+    }
+
+    /** Write a pending change immediately; the page-switch flush. */
+    async function flushPending(): Promise<boolean> {
+        clearAutosaveTimer();
+        if (activeSave !== null) {
+            await activeSave;
+        }
+        if (!dirty.value) {
+            return true;
+        }
+        return saveNow();
+    }
+
+    /**
+     * Leave the current page. Invalid steps cannot be written, so their page is
+     * kept in memory and restored when the user comes back; everything else is
+     * flushed first.
+     */
+    async function leaveCurrentPage(): Promise<boolean> {
+        if (!dirty.value) {
+            return true;
+        }
+        if (invalidStepCount.value > 0) {
+            const key = historyPageId();
+            if (key === null) {
+                return false;
+            }
+            deferredPages.set(key, clonePageConfig(currentPage.value));
+            clearAutosaveTimer();
+            dirty.value = false;
+            changeRevision++;
+            useAppStore().pushToast(
+                "warning",
+                "That page has invalid steps. Its changes stay in the editor until you fix them.",
+            );
+            return true;
+        }
+        return flushPending();
+    }
 
     async function refreshProfiles(): Promise<void> {
         const result = await storageClient.listProfiles();
@@ -55,12 +276,10 @@ export const useProfileStore = defineStore("profile", () => {
             activeProfile.value !== "" &&
             !result.data.some((p) => p.name === activeProfile.value)
         ) {
-            activeProfile.value = "";
+            resetDocument();
+            history.clear();
+            historyVersion.value++;
             pages.value = [];
-            currentPageId.value = null;
-            currentPage.value = emptyPageConfig();
-            selectedKey.value = null;
-            dirty.value = false;
         }
     }
 
@@ -84,40 +303,70 @@ export const useProfileStore = defineStore("profile", () => {
         pages.value = result.data;
     }
 
-    /** Confirm discarding unsaved edits; true when it is safe to proceed. */
-    async function guardUnsaved(): Promise<boolean> {
-        if (!dirty.value) {
-            return true;
-        }
-        return useConfirmStore().ask({
-            title: "Discard unsaved changes",
-            message: "This page has unsaved changes. Discard them?",
-            confirmLabel: "Discard",
-            danger: true,
-        });
+    function resetDocument(): void {
+        clearAutosaveTimer();
+        activeProfile.value = "";
+        pages.value = [];
+        currentPageId.value = null;
+        currentPage.value = emptyPageConfig();
+        currentPageMtime.value = null;
+        selectedKeys.value = [];
+        dirty.value = false;
+        saveState.value = "saved";
+        externalChange.value = null;
+        deferredPages.clear();
+        changeRevision++;
     }
 
-    async function loadPage(id: string): Promise<void> {
+    async function loadPage(id: string, options: { fromDisk?: boolean } = {}): Promise<boolean> {
         if (activeProfile.value === "") {
-            return;
+            return false;
         }
+        const key = pageHistoryKey(activeProfile.value, id);
+        if (options.fromDisk) {
+            deferredPages.delete(key);
+        } else {
+            const deferred = deferredPages.get(key);
+            if (deferred !== undefined) {
+                deferredPages.delete(key);
+                currentPage.value = clonePageConfig(deferred);
+                currentPageId.value = id;
+                currentPageMtime.value =
+                    pages.value.find((page) => page.id === id)?.mtimeMs ?? null;
+                selectedKeys.value = [];
+                dirty.value = true;
+                saveState.value = "blocked";
+                externalChange.value = null;
+                changeRevision++;
+                return true;
+            }
+        }
+
         const result = await storageClient.loadPage(activeProfile.value, id);
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
-            return;
+            return false;
         }
         currentPage.value = result.data;
         currentPageId.value = id;
         currentPageMtime.value = pages.value.find((page) => page.id === id)?.mtimeMs ?? null;
-        selectedKey.value = null;
+        selectedKeys.value = [];
         dirty.value = false;
+        saveState.value = "saved";
+        externalChange.value = null;
+        changeRevision++;
+        if (options.fromDisk) {
+            history.clear(key);
+            historyVersion.value++;
+        }
+        return true;
     }
 
     async function selectProfile(profile: string): Promise<void> {
         if (profile === activeProfile.value) {
             return;
         }
-        if (!(await guardUnsaved())) {
+        if (!(await leaveCurrentPage())) {
             return;
         }
         activeProfile.value = profile;
@@ -128,8 +377,11 @@ export const useProfileStore = defineStore("profile", () => {
             currentPage.value = emptyPageConfig();
             currentPageId.value = null;
             currentPageMtime.value = null;
-            selectedKey.value = null;
+            selectedKeys.value = [];
             dirty.value = false;
+            saveState.value = "saved";
+            externalChange.value = null;
+            changeRevision++;
         }
     }
 
@@ -148,7 +400,10 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     async function selectPage(id: string): Promise<void> {
-        if (id === currentPageId.value || !(await guardUnsaved())) {
+        if (id === currentPageId.value) {
+            return;
+        }
+        if (!(await leaveCurrentPage())) {
             return;
         }
         await loadPage(id);
@@ -160,7 +415,7 @@ export const useProfileStore = defineStore("profile", () => {
             useAppStore().pushToast("warning", "Select a profile first");
             return;
         }
-        if (!(await guardUnsaved())) {
+        if (!(await leaveCurrentPage())) {
             return;
         }
         const id = nextPageId(pages.value);
@@ -177,8 +432,24 @@ export const useProfileStore = defineStore("profile", () => {
         await loadPage(id);
     }
 
-    function selectKey(index: string | null): void {
-        selectedKey.value = index !== null && isValidBoardIndex(index) ? index : null;
+    function selectKey(index: string | null, extend = false): void {
+        if (index === null || !isValidBoardIndex(index)) {
+            selectedKeys.value = [];
+            return;
+        }
+        if (extend) {
+            if (selectedKeys.value.includes(index)) {
+                selectedKeys.value = selectedKeys.value.filter((key) => key !== index);
+            } else {
+                selectedKeys.value = [...selectedKeys.value, index];
+            }
+            return;
+        }
+        selectedKeys.value = [index];
+    }
+
+    function isKeySelected(index: string): boolean {
+        return selectedKeys.value.includes(index);
     }
 
     function ensureButton(index: string): ButtonConfig {
@@ -199,6 +470,14 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     function setLabel(value: string): void {
+        if (selectedKey.value === null) {
+            return;
+        }
+        const existing = currentPage.value.buttons[selectedKey.value];
+        if ((existing?.label ?? "") === value) {
+            return;
+        }
+        recordHistory("label");
         const button = ensureSelectedButton();
         if (!button) {
             return;
@@ -208,10 +487,18 @@ export const useProfileStore = defineStore("profile", () => {
         } else {
             button.label = value;
         }
-        dirty.value = true;
+        touch();
     }
 
     function setBackgroundColor(value: string): void {
+        if (selectedKey.value === null) {
+            return;
+        }
+        const existing = currentPage.value.buttons[selectedKey.value];
+        if ((existing?.backgroundColor ?? "") === value) {
+            return;
+        }
+        recordHistory("background");
         const button = ensureSelectedButton();
         if (!button) {
             return;
@@ -221,39 +508,55 @@ export const useProfileStore = defineStore("profile", () => {
         } else {
             button.backgroundColor = value;
         }
-        dirty.value = true;
+        touch();
     }
 
     /** `imageName` is always stored without the `.png` extension. */
     function setImageName(value: string): void {
+        if (selectedKey.value === null) {
+            return;
+        }
+        const base = iconBaseName(value);
+        const existing = currentPage.value.buttons[selectedKey.value];
+        if ((existing?.imageName ?? "") === base) {
+            return;
+        }
+        recordHistory();
         const button = ensureSelectedButton();
         if (!button) {
             return;
         }
-        const base = iconBaseName(value);
         if (base === "") {
             delete button.imageName;
         } else {
             button.imageName = base;
         }
-        dirty.value = true;
+        touch();
     }
 
     function clearButton(): void {
+        if (
+            selectedKey.value === null ||
+            currentPage.value.buttons[selectedKey.value] === undefined
+        ) {
+            return;
+        }
+        recordHistory();
+        delete currentPage.value.buttons[selectedKey.value];
+        touch();
+    }
+
+    function addAction(action: string, mode: "append" | "replace"): void {
         if (selectedKey.value === null) {
             return;
         }
-        delete currentPage.value.buttons[selectedKey.value];
-        dirty.value = true;
-    }
-
-    function addAction(action: string): void {
+        recordHistory();
         const button = ensureSelectedButton();
         if (!button) {
             return;
         }
-        button.click = [...button.click, action];
-        dirty.value = true;
+        button.click = mode === "replace" ? [action] : [...button.click, action];
+        touch();
     }
 
     function updateAction(index: number, value: string): void {
@@ -261,10 +564,14 @@ export const useProfileStore = defineStore("profile", () => {
         if (!button || index < 0 || index >= button.click.length) {
             return;
         }
+        if (button.click[index] === value) {
+            return;
+        }
+        recordHistory(`step:${index}`);
         const next = [...button.click];
         next[index] = value;
         button.click = next;
-        dirty.value = true;
+        touch();
     }
 
     function removeAction(index: number): void {
@@ -272,57 +579,117 @@ export const useProfileStore = defineStore("profile", () => {
         if (!button || index < 0 || index >= button.click.length) {
             return;
         }
+        recordHistory();
         const next = [...button.click];
         next.splice(index, 1);
         button.click = next;
-        dirty.value = true;
+        touch();
     }
 
-    /** Move a step up (`delta = -1`) or down (`delta = 1`). */
-    function moveAction(index: number, delta: -1 | 1): void {
+    /** Move a step to a new position; used by drag and the arrow controls. */
+    function moveActionTo(from: number, to: number): void {
         const button = ensureSelectedButton();
         if (!button) {
             return;
         }
-        const target = index + delta;
         if (
-            index < 0 ||
-            index >= button.click.length ||
-            target < 0 ||
-            target >= button.click.length
+            from < 0 ||
+            from >= button.click.length ||
+            to < 0 ||
+            to >= button.click.length ||
+            from === to
         ) {
             return;
         }
+        recordHistory();
         const next = [...button.click];
-        [next[index], next[target]] = [next[target], next[index]];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
         button.click = next;
-        dirty.value = true;
+        touch();
     }
 
-    async function saveCurrentPage(): Promise<boolean> {
-        if (activeProfile.value === "" || currentPageId.value === null) {
-            return false;
+    /** Move a step up (`delta = -1`) or down (`delta = 1`). */
+    function moveAction(index: number, delta: -1 | 1): void {
+        moveActionTo(index, index + delta);
+    }
+
+    function setSelectedBackgroundColor(value: string): void {
+        if (selectedKeys.value.length === 0) {
+            return;
         }
-        saving.value = true;
-        try {
-            const result = await storageClient.savePage(
-                activeProfile.value,
-                currentPageId.value,
-                currentPage.value,
-            );
-            if (!result.ok) {
-                useAppStore().pushToast("error", result.error);
-                return false;
+        recordHistory("bulk:background");
+        for (const key of selectedKeys.value) {
+            const button = ensureButton(key);
+            if (value === "") {
+                delete button.backgroundColor;
+            } else {
+                button.backgroundColor = value;
             }
-            dirty.value = false;
-            await refreshPages();
-            currentPageMtime.value =
-                pages.value.find((page) => page.id === currentPageId.value)?.mtimeMs ?? null;
-            useAppStore().pushToast("success", "Page saved");
-            return true;
-        } finally {
-            saving.value = false;
         }
+        touch();
+    }
+
+    function setSelectedImageName(value: string): void {
+        if (selectedKeys.value.length === 0) {
+            return;
+        }
+        const base = iconBaseName(value);
+        recordHistory();
+        for (const key of selectedKeys.value) {
+            const button = ensureButton(key);
+            if (base === "") {
+                delete button.imageName;
+            } else {
+                button.imageName = base;
+            }
+        }
+        touch();
+    }
+
+    function clearSelectedKeys(): void {
+        if (selectedKeys.value.length === 0) {
+            return;
+        }
+        const hasContent = selectedKeys.value.some(
+            (key) => currentPage.value.buttons[key] !== undefined,
+        );
+        if (!hasContent) {
+            return;
+        }
+        recordHistory();
+        for (const key of selectedKeys.value) {
+            delete currentPage.value.buttons[key];
+        }
+        touch();
+    }
+
+    function undo(): void {
+        const id = historyPageId();
+        if (id === null) {
+            return;
+        }
+        const previous = history.undo(id, currentPage.value);
+        historyVersion.value++;
+        if (previous === null) {
+            return;
+        }
+        currentPage.value = previous;
+        touch();
+    }
+
+    function redo(): void {
+        const id = historyPageId();
+        if (id === null) {
+            return;
+        }
+        const next = history.redo(id, currentPage.value);
+        historyVersion.value++;
+        if (next === null) {
+            return;
+        }
+        currentPage.value = next;
+        touch();
     }
 
     /** Profile CRUD wrappers (the caller owns confirmation UX). */
@@ -347,6 +714,9 @@ export const useProfileStore = defineStore("profile", () => {
             useAppStore().pushToast("error", result.error);
             return;
         }
+        history.clear();
+        historyVersion.value++;
+        deferredPages.clear();
         if (activeProfile.value === oldName) {
             activeProfile.value = newName;
         }
@@ -364,12 +734,15 @@ export const useProfileStore = defineStore("profile", () => {
             return;
         }
         if (activeProfile.value === name) {
-            activeProfile.value = "";
-            pages.value = [];
-            currentPageId.value = null;
-            currentPage.value = emptyPageConfig();
-            selectedKey.value = null;
-            dirty.value = false;
+            resetDocument();
+            history.clear();
+            historyVersion.value++;
+        } else {
+            for (const key of [...deferredPages.keys()]) {
+                if (key.startsWith(`${name}/`)) {
+                    deferredPages.delete(key);
+                }
+            }
         }
         await refreshProfiles();
         if (wasDefault) {
@@ -426,8 +799,9 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     /**
-     * Re-list pages and, when the open page file changed on disk since it was
-     * loaded, offer to reload (store<->disk desync guard).
+     * Re-list pages and show a banner when the open page changed on disk.
+     * External edits never open a blocking dialog: the panel offers reload or
+     * keep local.
      */
     async function checkExternalChanges(): Promise<void> {
         if (activeProfile.value === "" || currentPageId.value === null) {
@@ -444,18 +818,36 @@ export const useProfileStore = defineStore("profile", () => {
             currentPageMtime.value !== null &&
             meta.mtimeMs > currentPageMtime.value
         ) {
-            const reload = await useConfirmStore().ask({
-                title: "Page changed on disk",
-                message: `${pageLabel(currentPageId.value)} changed on disk. Reload it and discard unsaved edits?`,
-                confirmLabel: "Reload",
-                danger: true,
-            });
-            if (reload) {
-                await loadPage(currentPageId.value);
-            } else {
-                currentPageMtime.value = meta.mtimeMs;
-            }
+            externalChange.value = { pageId: currentPageId.value, mtimeMs: meta.mtimeMs };
         }
+    }
+
+    async function reloadExternalPage(): Promise<void> {
+        const change = externalChange.value;
+        if (change === null) {
+            return;
+        }
+        if (change.pageId === currentPageId.value) {
+            await loadPage(change.pageId, { fromDisk: true });
+        }
+        externalChange.value = null;
+    }
+
+    function keepLocalPage(): void {
+        const change = externalChange.value;
+        externalChange.value = null;
+        if (change !== null) {
+            currentPageMtime.value = change.mtimeMs;
+        }
+        if (activeProfile.value === "" || currentPageId.value === null) {
+            return;
+        }
+        // Keep local always means the in-memory page wins, even when it was
+        // clean before the banner appeared.
+        clearAutosaveTimer();
+        dirty.value = true;
+        changeRevision++;
+        void saveNow();
     }
 
     return {
@@ -465,13 +857,21 @@ export const useProfileStore = defineStore("profile", () => {
         currentPageId,
         currentPage,
         currentPageMtime,
+        selectedKeys,
         selectedKey,
-        saving,
+        selectedCount,
+        isMultiSelect,
         dirty,
+        saving,
+        saveState,
+        externalChange,
+        invalidStepCount,
         hasProfile,
         hasPage,
         selectedButton,
         defaultProfile,
+        canUndo,
+        canRedo,
         refreshProfiles,
         refreshPages,
         loadPage,
@@ -480,15 +880,22 @@ export const useProfileStore = defineStore("profile", () => {
         selectPage,
         createPage,
         selectKey,
+        isKeySelected,
         setLabel,
         setBackgroundColor,
         setImageName,
         clearButton,
+        setSelectedBackgroundColor,
+        setSelectedImageName,
+        clearSelectedKeys,
         addAction,
         updateAction,
         removeAction,
         moveAction,
-        saveCurrentPage,
+        moveActionTo,
+        undo,
+        redo,
+        flushPending,
         createProfile,
         renameProfile,
         deleteProfile,
@@ -496,5 +903,7 @@ export const useProfileStore = defineStore("profile", () => {
         importProfile,
         exportProfile,
         checkExternalChanges,
+        reloadExternalPage,
+        keepLocalPage,
     };
 });
