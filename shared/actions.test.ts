@@ -118,12 +118,10 @@ describe("validateActionString — invalid table", () => {
 
 describe("validateActionString — overridable key sets", () => {
     it("accepts custom HID keys and control keys", () => {
-        expect(
-            validateActionString("HID_KEY:MYSTERY", { hidKeys: ["MYSTERY"] }).ok,
-        ).toBe(true);
-        expect(
-            validateActionString("CONTROL_KEY:MYSTERY", { controlKeys: ["MYSTERY"] }).ok,
-        ).toBe(true);
+        expect(validateActionString("HID_KEY:MYSTERY", { hidKeys: ["MYSTERY"] }).ok).toBe(true);
+        expect(validateActionString("CONTROL_KEY:MYSTERY", { controlKeys: ["MYSTERY"] }).ok).toBe(
+            true,
+        );
         expect(validateActionString("HID_KEY:MYSTERY").ok).toBe(false);
         expect(validateActionString("CONTROL_KEY:MYSTERY").ok).toBe(false);
     });

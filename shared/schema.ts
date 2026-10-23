@@ -109,7 +109,10 @@ export function validatePageConfig(value: unknown): PageValidation {
         }
 
         const backgroundColor = normalizeOptionalString(rawButton.backgroundColor);
-        if (rawButton.backgroundColor !== undefined && typeof rawButton.backgroundColor !== "string") {
+        if (
+            rawButton.backgroundColor !== undefined &&
+            typeof rawButton.backgroundColor !== "string"
+        ) {
             fatal = true;
             errors.push(`Button "${key}" has an invalid backgroundColor`);
         }
@@ -145,11 +148,7 @@ export function validatePageConfig(value: unknown): PageValidation {
     return { ok: !fatal, errors, page: { buttons } };
 }
 
-function collectActions(
-    value: unknown,
-    key: string,
-    errors: string[],
-): string[] {
+function collectActions(value: unknown, key: string, errors: string[]): string[] {
     if (value === undefined) {
         return [];
     }
