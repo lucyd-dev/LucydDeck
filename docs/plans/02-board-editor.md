@@ -17,11 +17,13 @@ Make editing fast. Typed action steps, an inspector that needs no hunting, drag 
     - Keyboard: arrows move selection, Enter focuses the inspector, Delete clears, Ctrl/Cmd+C and V, Ctrl/Cmd+Z and Shift+Z.
     - Drag an icon from the gallery onto a key. Drag a key onto another key to swap them. Drag a step handle to reorder.
     - Right-click a key for duplicate, clear, copy and paste. Shift-click extends the selection.
-5. Inspector, one scroll with three parts:
-    - Key: label, background colour, icon with gallery and import.
-    - Sequence: ordered steps, add through a searchable picker grouped Deck, Keyboard, Mouse, Text, Plugin. Inline argument editing, drag reorder, duplicate, delete, and a visible reason for an invalid step.
-    - Advanced: raw JSON, read only, with a copy button.
-    - Multi-select replaces the Key and Sequence parts with bulk actions for appearance and sequence, labelled with the number of keys.
+5. Inspector, one panel, no section rail:
+    - Key header: label, Color and Icon grouped together, and a destructive Clear at the top right. PNG icons come from a recent popover or the full library modal.
+    - One list: a single action card until a second step exists, then the sequence list. One "Add Action" dock lists providers Deck, System, Discord, OBS, Spotify and other plugins, plus their actions. A chosen action opens its options with Back and Add at the bottom right.
+    - Human labels for every step, never raw action strings. Invalid steps show their reason and stay editable.
+    - Footer shows the app version, v0.2.0.
+    - Multi-select replaces the header and list with bulk actions.
+    - Chosen prototype: [prototype/one-action.html](../../prototype/one-action.html).
 6. Autosave: 400ms after the last change, written through `storage:savePage`. Failure raises a toast and keeps the document dirty in memory. No Save button and no unload prompt. External edits show a banner offering reload or keep local, never a blocking dialog. A page switch flushes a pending write first.
 7. Pages in the sidebar: live thumbnails rendered from page config, inline name editing, create takes the next free id, delete removes the local file and the device file when the capability exists, otherwise it states that the device copy remains until the profile is deleted. No reorder, and the UI says why.
 8. Profiles keep create, rename, delete, export, import and default.
