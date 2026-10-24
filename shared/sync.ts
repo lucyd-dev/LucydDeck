@@ -3,11 +3,8 @@
 // renderer. Pure types + helpers (no node/electron imports).
 //
 // `DiffPlan` is the reconciler output: local profile/page/icon files compared
-// against `CMD_GET_PROFILES_LIST` / `CMD_GET_IMAGES_LIST` by CRC-32.
-//
-// Note: sync uploads and creates only. Device-only files are planned and
-// surfaced (so the Device view can offer a delete), but `executePlan` leaves
-// them on the deck and reports them as `pendingDeletions`.
+// against `CMD_GET_PROFILES_LIST` / `CMD_GET_IMAGES_LIST` by CRC-32. A plan
+// carries both directions: files to upload and device files to remove.
 // ---------------------------------------------------------------------------
 
 export interface SyncPageRef {
@@ -26,9 +23,9 @@ export interface DiffPlan {
     pagesToUpload: SyncPageRef[];
     /** Icons whose local CRC-32 differs from the device list (or are missing). */
     iconsToUpload: SyncIconRef[];
-    /** Device pages with no matching local file (the Device view deletes them). */
+    /** Device pages with no matching local file (removed after the uploads). */
     pagesToDelete: SyncPageRef[];
-    /** Device icons with no matching local file (the Device view deletes them). */
+    /** Device icons with no matching local file (removed after the pages). */
     iconsToDelete: SyncIconRef[];
     /** Icons referenced by local pages but present neither locally nor on-device. */
     missingIcons: SyncIconRef[];
@@ -40,9 +37,11 @@ export interface SyncResult {
     createdProfiles: string[];
     uploadedPages: SyncPageRef[];
     uploadedIcons: SyncIconRef[];
+    /** Device pages deleted because the library has no copy. */
+    removedPages: SyncPageRef[];
+    /** Device icons deleted because the library has no copy. */
+    removedIcons: SyncIconRef[];
     activeProfile: string | null;
-    /** Planned deletions left for the Device view; `executePlan` does not touch them. */
-    pendingDeletions: number;
 }
 
 export function emptyDiffPlan(): DiffPlan {
@@ -67,12 +66,12 @@ export function diffPlanOperations(plan: DiffPlan): number {
     );
 }
 
-/** Planned deletions that the current protocol cannot execute. */
+/** Planned removals: device files that have no local copy. */
 export function diffPlanDeletions(plan: DiffPlan): number {
     return plan.pagesToDelete.length + plan.iconsToDelete.length;
 }
 
-/** True when there is nothing to upload and no profile to activate. */
+/** True when the plan has nothing to upload, remove or activate. */
 export function isDiffPlanEmpty(plan: DiffPlan): boolean {
-    return diffPlanOperations(plan) === 0;
+    return diffPlanOperations(plan) === 0 && diffPlanDeletions(plan) === 0;
 }

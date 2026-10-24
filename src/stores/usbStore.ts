@@ -3,7 +3,6 @@ import { defineStore } from "pinia";
 import { DeviceState } from "@shared/ipc";
 import type { DeviceInfo, DeviceStatus, SyncProgressPayload } from "@shared/ipc";
 import type { DiffPlan, SyncResult } from "@shared/sync";
-import { diffPlanDeletions } from "@shared/sync";
 import { usbClient, syncClient } from "@/ipc/client";
 import { on } from "@/ipc/events";
 import { eventChannels } from "@/ipc/events";
@@ -98,11 +97,11 @@ export const useUsbStore = defineStore("usb", () => {
                 useAppStore().pushToast("error", result.error);
                 return null;
             }
-            const deletions = diffPlanDeletions(plan);
-            if (deletions > 0) {
+            const removed = result.data.removedPages.length + result.data.removedIcons.length;
+            if (removed > 0) {
                 useAppStore().pushToast(
-                    "warning",
-                    `Synced. ${deletions} device file(s) have no local copy; review them in Device.`,
+                    "success",
+                    `Synced. Removed ${removed} file${removed === 1 ? "" : "s"} from the deck.`,
                 );
             } else {
                 useAppStore().pushToast("success", "Device synced");

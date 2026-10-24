@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { HostCommand, TARGET_ICON, TARGET_PAGE } from "@shared/protocol";
+import { ErrorCode, HostCommand, TARGET_ICON, TARGET_PAGE } from "@shared/protocol";
 import { DeviceError, DeviceService } from "./DeviceService";
+import { UsbError } from "./UsbService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 
 vi.mock("electron-log/main", () => ({
@@ -15,9 +16,13 @@ vi.mock("electron-log/main", () => ({
 class MockUsb implements UsbCommandClient {
     readonly calls: Array<{ opcode: HostCommand; payload: Uint8Array }> = [];
     response: Uint8Array = new Uint8Array();
+    failError: Error | null = null;
 
     command(opcode: HostCommand, payload: Uint8Array): Promise<Uint8Array> {
         this.calls.push({ opcode, payload });
+        if (this.failError !== null) {
+            return Promise.reject(this.failError);
+        }
         return Promise.resolve(this.response);
     }
 
@@ -165,5 +170,37 @@ describe("DeviceService file deletion", () => {
         await expect(device.deletePage("x".repeat(61), 3)).rejects.toMatchObject({
             code: "DEVICE_INVALID_IDENTITY",
         });
+    });
+
+    it("treats a missing deck file as success when asked", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_ICON_DELETE failed: ERR_FILE_NOT_FOUND",
+            "ERR_FILE_NOT_FOUND",
+            ErrorCode.FileNotFound,
+        );
+
+        await expect(device.deleteIcon("github", { allowMissing: true })).resolves.toBeUndefined();
+        await expect(
+            device.deletePage("gaming", 3, { allowMissing: true }),
+        ).resolves.toBeUndefined();
+
+        // Without the flag the same answer stays an error.
+        await expect(device.deleteIcon("github")).rejects.toMatchObject({
+            code: "ERR_FILE_NOT_FOUND",
+        });
+    });
+
+    it("still reports other deck errors when missing files are allowed", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_PAGE_DELETE failed: ERR_DELETE",
+            "ERR_DELETE",
+            ErrorCode.Delete,
+        );
+
+        await expect(
+            device.deletePage("gaming", 3, { allowMissing: true }),
+        ).rejects.toMatchObject({ code: "ERR_DELETE" });
     });
 });

@@ -42,6 +42,12 @@ export interface SyncDeviceClient {
     setActiveProfile(name: string): Promise<void>;
     uploadPage(profile: string, id: string | number, json: string | Uint8Array): Promise<void>;
     uploadIcon(name: string, pngBytes: Uint8Array): Promise<void>;
+    deletePage(
+        profile: string,
+        id: string | number,
+        options?: { allowMissing?: boolean },
+    ): Promise<void>;
+    deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<void>;
 }
 
 /** Minimal transfer surface for per-chunk progress (satisfied by `FileTransfer`). */
@@ -247,17 +253,19 @@ export class SyncService {
 
     /**
      * Execute a plan. Creates profiles before any page upload, uploads icons
-     * before pages, then activates the requested profile. Aborts on the first
-     * device error; the plan can be recomputed and resumed on the next run.
+     * before pages, then removes device files that have no local copy and
+     * activates the requested profile. Aborts on the first device error; the
+     * plan can be recomputed and resumed on the next run.
      */
     async executePlan(plan: DiffPlan): Promise<SyncResult> {
-        const total = diffPlanOperations(plan);
+        const total = diffPlanOperations(plan) + diffPlanDeletions(plan);
         const result: SyncResult = {
             createdProfiles: [],
             uploadedPages: [],
             uploadedIcons: [],
+            removedPages: [],
+            removedIcons: [],
             activeProfile: null,
-            pendingDeletions: diffPlanDeletions(plan),
         };
         let completed = 0;
         const tick = (phase: string, current: string): void => {
@@ -334,17 +342,31 @@ export class SyncService {
                 tick("page", `${page.profile}/${page.id}`);
             }
 
+            // Pages before icons: removing an icon first would leave a page that
+            // is still on the deck pointing at a missing image.
+            for (const page of plan.pagesToDelete) {
+                await this.device.deletePage(page.profile, page.id, { allowMissing: true });
+                result.removedPages.push(page);
+                tick("remove-page", `${page.profile}/${page.id}`);
+            }
+
+            for (const icon of plan.iconsToDelete) {
+                await this.device.deleteIcon(icon.name, { allowMissing: true });
+                result.removedIcons.push(icon);
+                tick("remove-icon", icon.name);
+            }
+
+            if (plan.pagesToDelete.length > 0 || plan.iconsToDelete.length > 0) {
+                log.info(
+                    `[sync] removed ${plan.pagesToDelete.length} page(s) and ` +
+                        `${plan.iconsToDelete.length} icon(s) with no local copy`,
+                );
+            }
+
             if (plan.setActiveProfile !== null) {
                 await this.device.setActiveProfile(plan.setActiveProfile);
                 result.activeProfile = plan.setActiveProfile;
                 tick("active", plan.setActiveProfile);
-            }
-
-            if (result.pendingDeletions > 0) {
-                log.warn(
-                    `[sync] ${result.pendingDeletions} device file(s) have no local copy; ` +
-                        "leaving them for the Device view to delete",
-                );
             }
 
             this.emitProgress({ phase: "done", percent: 100, completed: total, total });

@@ -1,7 +1,7 @@
 import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
 import type { DeviceInfo } from "@shared/ipc";
-import { diffPlanOperations } from "@shared/sync";
+import { diffPlanDeletions, diffPlanOperations } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
 import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
@@ -35,6 +35,9 @@ export const useDeviceStore = defineStore("device", () => {
 
     const summary = computed(() => summarizeInventory(inventory.value));
     const operations = computed(() => (plan.value === null ? 0 : diffPlanOperations(plan.value)));
+    const plannedDeletions = computed(() =>
+        plan.value === null ? 0 : diffPlanDeletions(plan.value),
+    );
     const canDelete = computed(() => usb.connected && !stale.value);
     const deleteDisabledReason = computed<string | undefined>(() => {
         if (!usb.connected) {
@@ -58,7 +61,7 @@ export const useDeviceStore = defineStore("device", () => {
         if (plan.value === null) {
             return "The review has not loaded yet";
         }
-        if (operations.value === 0) {
+        if (operations.value === 0 && plannedDeletions.value === 0) {
             return "Nothing to sync";
         }
         return undefined;
@@ -210,6 +213,7 @@ export const useDeviceStore = defineStore("device", () => {
         deletingKey,
         summary,
         operations,
+        plannedDeletions,
         canDelete,
         deleteDisabledReason,
         syncDisabledReason,

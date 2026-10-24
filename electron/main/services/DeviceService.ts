@@ -1,5 +1,6 @@
 import {
     DeviceResponse,
+    ErrorCode,
     HostCommand,
     PAYLOAD_MAX,
     TARGET_ICON,
@@ -12,6 +13,7 @@ import {
 import type { DeviceInfo } from "@shared/ipc";
 import { validateName } from "./StorageService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
+import { isFirmwareError } from "./usb/FirmwareError";
 
 export const DeviceErrorCodes = {
     InvalidName: "DEVICE_INVALID_NAME",
@@ -31,6 +33,11 @@ export class DeviceError extends Error {
 }
 
 export type NameValidator = (name: string) => boolean;
+
+export interface DeleteOptions {
+    /** Treat `ERR_FILE_NOT_FOUND` as success: the file is already gone. */
+    allowMissing?: boolean;
+}
 
 const PNG_EXTENSION = /\.png$/i;
 
@@ -162,27 +169,32 @@ export class DeviceService {
     }
 
     /** Delete `/profiles/<profile>/<id>.json` on the device (`CMD_PAGE_DELETE`). */
-    async deletePage(profile: string, id: string | number): Promise<void> {
+    async deletePage(
+        profile: string,
+        id: string | number,
+        options: DeleteOptions = {},
+    ): Promise<void> {
         this.assertName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
-        await this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`);
+        await this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
     }
 
     /**
      * Delete `/icons/<name>.png` on the device (`CMD_ICON_DELETE`). `name` may
      * be given with or without the extension.
      */
-    async deleteIcon(name: string): Promise<void> {
+    async deleteIcon(name: string, options: DeleteOptions = {}): Promise<void> {
         const base = name.replace(PNG_EXTENSION, "");
         this.assertName(base);
-        await this.deleteIdentity(HostCommand.IconDelete, base);
+        await this.deleteIdentity(HostCommand.IconDelete, base, options);
     }
 
     /** One identity string, no target byte: it must fit a single frame. */
     private async deleteIdentity(
         opcode: HostCommand.PageDelete | HostCommand.IconDelete,
         identity: string,
+        options: DeleteOptions,
     ): Promise<void> {
         const identityBytes = textBytes(identity);
         if (identity === "" || identityBytes.length > PAYLOAD_MAX) {
@@ -191,7 +203,16 @@ export class DeviceService {
                 DeviceErrorCodes.InvalidIdentity,
             );
         }
-        await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
+        try {
+            await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
+        } catch (error) {
+            // The postcondition of a delete is that the file is gone, and it
+            // already holds when the deck answers that it never had it.
+            if (options.allowMissing === true && isFirmwareError(error, ErrorCode.FileNotFound)) {
+                return;
+            }
+            throw error;
+        }
     }
 
     private assertName(name: string): void {

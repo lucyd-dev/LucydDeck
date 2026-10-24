@@ -66,6 +66,28 @@ class MockDevice implements SyncDeviceClient {
         this.calls.push(`icon:${name}`);
     }
 
+    readonly deleteCalls: Array<{
+        kind: "page" | "icon";
+        target: string;
+        options?: { allowMissing?: boolean };
+    }> = [];
+
+    async deletePage(
+        profile: string,
+        id: string | number,
+        options?: { allowMissing?: boolean },
+    ): Promise<void> {
+        this.check("deletePage");
+        this.calls.push(`del:page:${profile}/${id}`);
+        this.deleteCalls.push({ kind: "page", target: `${profile}/${id}`, options });
+    }
+
+    async deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<void> {
+        this.check("deleteIcon");
+        this.calls.push(`del:icon:${name}`);
+        this.deleteCalls.push({ kind: "icon", target: name, options });
+    }
+
     private check(op: string): void {
         if (this.failOn === op) {
             throw new Error(`boom:${op}`);
@@ -258,7 +280,7 @@ describe("SyncService.executePlan", () => {
         expect(progress.at(-1)).toMatchObject({ phase: "aborted" });
     });
 
-    it("reports pending deletions without inventing a delete opcode", async () => {
+    it("removes device files that have no local copy", async () => {
         storage.createProfile("main");
         const plan: DiffPlan = {
             profilesToCreate: [],
@@ -270,7 +292,52 @@ describe("SyncService.executePlan", () => {
             setActiveProfile: null,
         };
         const result = await sync.executePlan(plan);
-        expect(result.pendingDeletions).toBe(2);
-        expect(device.calls).toEqual([]);
+
+        expect(result.removedPages).toEqual([{ profile: "main", id: "9" }]);
+        expect(result.removedIcons).toEqual([{ name: "old" }]);
+        expect(device.calls).toEqual(["del:page:main/9", "del:icon:old"]);
+        expect(device.deleteCalls.map((call) => call.options)).toEqual([
+            { allowMissing: true },
+            { allowMissing: true },
+        ]);
+    });
+
+    it("uploads before it removes and leaves icons until the pages are gone", async () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", { buttons: { "0": { label: "A", click: [] } } });
+        const plan: DiffPlan = {
+            profilesToCreate: [],
+            pagesToUpload: [{ profile: "main", id: "0" }],
+            iconsToUpload: [],
+            pagesToDelete: [{ profile: "main", id: "9" }],
+            iconsToDelete: [{ name: "old" }],
+            missingIcons: [],
+            setActiveProfile: "main",
+        };
+        await sync.executePlan(plan);
+
+        expect(device.calls).toEqual([
+            "page:main/0",
+            "del:page:main/9",
+            "del:icon:old",
+            "active:main",
+        ]);
+    });
+
+    it("aborts on a failed removal", async () => {
+        storage.createProfile("main");
+        const plan: DiffPlan = {
+            profilesToCreate: [],
+            pagesToUpload: [],
+            iconsToUpload: [],
+            pagesToDelete: [{ profile: "main", id: "9" }],
+            iconsToDelete: [],
+            missingIcons: [],
+            setActiveProfile: null,
+        };
+        device.failOn = "deletePage";
+
+        await expect(sync.executePlan(plan)).rejects.toThrow(/boom:deletePage/);
+        expect(progress.at(-1)).toMatchObject({ phase: "aborted" });
     });
 });
