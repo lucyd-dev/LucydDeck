@@ -34,6 +34,7 @@ describe("shared/ipc contract", () => {
         expect(channels.storage.savePage).toBe("storage:savePage");
         expect(channels.storage.exportProfile).toBe("storage:exportProfile");
         expect(channels.storage.importProfile).toBe("storage:importProfile");
+        expect(channels.storage.scanReferences).toBe("storage:scanReferences");
     });
 
     it("exposes every main-to-renderer event channel", () => {

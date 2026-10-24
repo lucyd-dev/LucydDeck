@@ -10,10 +10,11 @@ import {
     Upload,
     Usb,
 } from "@lucide/vue";
-import { diffPlanDeletions } from "@shared/sync";
+import { pageLabel } from "@shared/pages";
 import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import Tooltip from "@/components/ui/Tooltip.vue";
+import HashValue from "@/components/device/HashValue.vue";
 import InventoryDeleteButton from "@/components/device/InventoryDeleteButton.vue";
 import { useSectionQuery } from "@/composables/useSectionQuery";
 import type { InventoryRow, InventoryState } from "@/device/inventory";
@@ -40,9 +41,6 @@ const profileGroups = computed(() =>
 const iconRows = computed(() => device.inventory.filter((row) => row.kind === "icon"));
 
 const planOperations = computed(() => device.operations);
-const plannedDeletions = computed(() =>
-    device.plan === null ? 0 : diffPlanDeletions(device.plan),
-);
 const deviceOnlyCount = computed(
     () =>
         device.inventory.filter((row) => row.kind !== "profile" && row.state === "device-only")
@@ -62,10 +60,6 @@ const STATE_TONE: Record<InventoryState, string> = {
     "device-only": "info",
     "out-of-sync": "error",
 };
-
-function displayHash(value: string | null): string {
-    return value ?? "—";
-}
 
 function formatSpace(kb: number): string {
     return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
@@ -100,7 +94,7 @@ async function removeRow(row: InventoryRow): Promise<void> {
 function reviewNames(items: Array<{ name?: string; profile?: string; id?: string }>): string[] {
     return items.map((item) =>
         item.profile !== undefined && item.id !== undefined
-            ? `${item.profile}/${item.id}.json`
+            ? `${item.profile} / ${pageLabel(item.id)}`
             : (item.name ?? ""),
     );
 }
@@ -145,6 +139,36 @@ watch(
                     <RefreshCw :size="14" />
                     <span>Refresh</span>
                 </Button>
+                <div class="device-sync" :class="{ 'device-sync--running': usb.syncing }">
+                    <template v-if="usb.syncing">
+                        <span
+                            class="progress"
+                            role="progressbar"
+                            :aria-valuenow="usb.syncProgress?.percent ?? 0"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-label="Sync progress"
+                        >
+                            <span
+                                class="progress__bar"
+                                :style="{ width: `${usb.syncProgress?.percent ?? 0}%` }"
+                            ></span>
+                        </span>
+                        <span class="progress-label">
+                            {{ usb.syncProgress?.message ?? usb.syncProgress?.phase ?? "Syncing…" }}
+                        </span>
+                    </template>
+                    <Tooltip v-else :text="device.syncAction.hint">
+                        <Button
+                            variant="primary"
+                            :disabled="device.syncAction.disabled"
+                            @click="device.syncNow()"
+                        >
+                            <Upload :size="14" />
+                            <span>{{ device.syncAction.label }}</span>
+                        </Button>
+                    </Tooltip>
+                </div>
             </div>
         </header>
 
@@ -189,24 +213,6 @@ watch(
                             </p>
                         </div>
                     </div>
-
-                    <div class="settings-row">
-                        <div>
-                            <p class="settings-row__label">Connection</p>
-                            <p class="settings-row__value">
-                                {{ usb.connected ? "Deck connected" : "No deck connected" }}
-                            </p>
-                        </div>
-                        <Button
-                            size="sm"
-                            :variant="usb.connected ? 'secondary' : 'primary'"
-                            :loading="usb.busy"
-                            @click="usb.toggle()"
-                        >
-                            <Usb :size="14" />
-                            <span>{{ usb.connected ? "Disconnect" : "Connect" }}</span>
-                        </Button>
-                    </div>
                 </template>
 
                 <EmptyState
@@ -244,10 +250,15 @@ watch(
                     <span v-if="device.summary.outOfSync > 0" class="badge badge--error">
                         {{ device.summary.outOfSync }} changed
                     </span>
-                    <span class="inventory-legend">
-                        <span>local CRC32</span>
-                        <span>device CRC32</span>
-                    </span>
+                </div>
+
+                <div v-if="device.inventory.length > 0" class="inventory-row inventory-row--head">
+                    <span aria-hidden="true"></span>
+                    <span></span>
+                    <span class="hash">Local CRC32</span>
+                    <span class="hash">Deck CRC32</span>
+                    <span></span>
+                    <span></span>
                 </div>
 
                 <EmptyState
@@ -277,12 +288,9 @@ watch(
                             <component :is="rowIcon(row)" :size="14" class="inventory-row__meta" />
                             <span class="inventory-row__name">
                                 <span class="inventory-row__name-text">{{ row.name }}</span>
-                                <span v-if="row.kind === 'page'" class="inventory-row__meta">
-                                    id {{ row.pageId }}
-                                </span>
                             </span>
-                            <span class="hash">{{ displayHash(row.localHash) }}</span>
-                            <span class="hash">{{ displayHash(row.deviceHash) }}</span>
+                            <HashValue :value="row.localHash" side="local" />
+                            <HashValue :value="row.deviceHash" side="device" />
                             <span class="badge" :class="`badge--${STATE_TONE[row.state]}`">
                                 {{ STATE_LABEL[row.state] }}
                             </span>
@@ -321,8 +329,8 @@ watch(
                                 <span class="inventory-row__name">
                                     <span class="inventory-row__name-text">{{ row.name }}</span>
                                 </span>
-                                <span class="hash">{{ displayHash(row.localHash) }}</span>
-                                <span class="hash">{{ displayHash(row.deviceHash) }}</span>
+                                <HashValue :value="row.localHash" side="local" />
+                                <HashValue :value="row.deviceHash" side="device" />
                                 <span class="badge" :class="`badge--${STATE_TONE[row.state]}`">
                                     {{ STATE_LABEL[row.state] }}
                                 </span>
@@ -340,12 +348,13 @@ watch(
                     </div>
 
                     <p v-if="deviceOnlyCount > 0" class="review-footer__note">
-                        {{ deviceOnlyCount }} device-only file(s).
+                        {{ deviceOnlyCount }} device-only
+                        {{ deviceOnlyCount === 1 ? "file" : "files" }}.
                         <template v-if="device.deleteDisabledReason">
                             {{ device.deleteDisabledReason }}
                         </template>
                         <template v-else>
-                            Delete them here, or remove the whole profile on the deck.
+                            Delete them here, or let the next sync remove them.
                         </template>
                     </p>
                 </template>
@@ -413,6 +422,23 @@ watch(
                                 </li>
                             </ul>
                         </div>
+                        <div class="review-group">
+                            <p class="review-group__label">Files to remove</p>
+                            <p class="review-group__count">
+                                {{ device.plannedDeletions }}
+                            </p>
+                            <ul v-if="device.plannedDeletions > 0" class="review-list">
+                                <li
+                                    v-for="name in [
+                                        ...reviewNames(device.plan.pagesToDelete),
+                                        ...reviewNames(device.plan.iconsToDelete),
+                                    ]"
+                                    :key="name"
+                                >
+                                    {{ name }}
+                                </li>
+                            </ul>
+                        </div>
                     </div>
 
                     <div
@@ -432,9 +458,12 @@ watch(
                             <p>
                                 {{ device.summary.inSync }} file(s) already match and stay
                                 untouched.
-                                <template v-if="plannedDeletions > 0">
-                                    {{ plannedDeletions }} device-only file(s) stay on the deck
-                                    unless you delete them in Files.
+                                <template v-if="device.plannedDeletions > 0">
+                                    {{ device.plannedDeletions }}
+                                    {{ device.plannedDeletions === 1 ? "file" : "files" }} that
+                                    {{ device.plannedDeletions === 1 ? "is" : "are" }} only on the
+                                    deck {{ device.plannedDeletions === 1 ? "is" : "are" }} removed
+                                    by this sync.
                                 </template>
                             </p>
                             <p v-if="device.plan.setActiveProfile">
@@ -463,19 +492,6 @@ watch(
                                 }}
                             </span>
                         </template>
-                        <Tooltip
-                            v-else-if="device.syncDisabledReason"
-                            :text="device.syncDisabledReason"
-                        >
-                            <Button variant="primary" disabled>
-                                <Upload :size="14" />
-                                <span>Sync to deck</span>
-                            </Button>
-                        </Tooltip>
-                        <Button v-else variant="primary" @click="device.push()">
-                            <Upload :size="14" />
-                            <span>Sync to deck</span>
-                        </Button>
                     </div>
                 </template>
             </div>

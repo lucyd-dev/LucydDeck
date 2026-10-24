@@ -8,6 +8,7 @@ import { serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
+import type { ReferenceHit, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
 import { crc32Upload } from "./usb/Crc32";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
@@ -357,6 +358,50 @@ export class StorageService {
             .sort((a, b) => Number(a.id) - Number(b.id));
     }
 
+    /**
+     * Find every library page that references an icon, a page or a profile.
+     *
+     * The renderer only holds the active profile, so this walks all profiles in
+     * the main process. One hit per referencing page. An unreadable or invalid
+     * page is skipped and logged; the response reports itself partial so the
+     * delete dialog can say the list may be incomplete.
+     */
+    scanReferences(query: ReferenceQuery): ReferenceScanResult {
+        const hits: ReferenceHit[] = [];
+        let partial = false;
+        for (const profile of this.listProfiles()) {
+            // A page reference only counts inside the page's own profile, and
+            // a profile reference never counts the pages that go with it.
+            if (query.kind === "page" && profile.name !== query.profile) {
+                continue;
+            }
+            if (query.kind === "profile" && profile.name === query.name) {
+                continue;
+            }
+            for (const page of this.listPages(profile.name)) {
+                let config: PageConfig;
+                try {
+                    config = this.loadPage(profile.name, page.id);
+                } catch (error) {
+                    partial = true;
+                    log.warn(
+                        `[storage] reference scan skipped ${profile.name}/${page.id}.json: ${String(
+                            error,
+                        )}`,
+                    );
+                    continue;
+                }
+                if (pageReferences(config, query)) {
+                    hits.push({ profile: profile.name, pageId: page.id });
+                }
+            }
+        }
+        hits.sort(
+            (a, b) => a.profile.localeCompare(b.profile) || Number(a.pageId) - Number(b.pageId),
+        );
+        return { hits, partial };
+    }
+
     // --- Pages ----------------------------------------------------------
 
     loadPage(profile: string, id: string): PageConfig {
@@ -517,6 +562,22 @@ export function isPageConfig(value: unknown): value is PageConfig {
     }
     const buttons = (value as PageConfig).buttons;
     return typeof buttons === "object" && buttons !== null && !Array.isArray(buttons);
+}
+
+/** True when one page's keys or steps reference the query. */
+function pageReferences(page: PageConfig, query: ReferenceQuery): boolean {
+    const buttons = Object.values(page.buttons ?? {}) as Array<
+        { imageName?: unknown; click?: unknown } | null | undefined
+    >;
+    if (query.kind === "icon") {
+        const icon = iconBaseName(query.name);
+        return buttons.some(
+            (button) =>
+                typeof button?.imageName === "string" && iconBaseName(button.imageName) === icon,
+        );
+    }
+    const needle = query.kind === "page" ? `PAGE:${query.id}` : `PROFILE:${query.name}`;
+    return buttons.some((button) => Array.isArray(button?.click) && button.click.includes(needle));
 }
 
 /** File mtime in ms, or `undefined` when the file disappeared between calls. */

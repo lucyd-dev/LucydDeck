@@ -1,19 +1,29 @@
 import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
-import type { DeviceInfo } from "@shared/ipc";
+import type { DeviceInfo, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
 import { diffPlanDeletions, diffPlanOperations } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
+import { pageLabel } from "@shared/pages";
 import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
+import { useIconStore } from "@/stores/iconStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
-import { buildInventory, summarizeInventory } from "@/device/inventory";
+import {
+    buildInventory,
+    iconInventoryKey,
+    pageInventoryKey,
+    summarizeInventory,
+} from "@/device/inventory";
 import type {
     DeviceInventory,
     InventoryRow,
     LocalInventory,
     LocalProfileSummary,
 } from "@/device/inventory";
+import { deleteConfirmation, referenceNotes } from "@/device/references";
+import { syncAction as readSyncAction } from "@/device/syncAction";
 
 /**
  * Device view state: the last device info and inventory, the sync review plan,
@@ -23,9 +33,14 @@ import type {
 export const useDeviceStore = defineStore("device", () => {
     const usb = useUsbStore();
     const profile = useProfileStore();
+    const icons = useIconStore();
+    const confirm = useConfirmStore();
 
     const info = ref<DeviceInfo | null>(null);
     const inventory = ref<InventoryRow[]>([]);
+    // Last device lists, kept so the library side can be re-read while the
+    // deck is offline (a disconnected delete still changes the local files).
+    const lastDevice = shallowRef<DeviceInventory | null>(null);
     // Shallow on purpose: the plan is replaced wholesale and goes straight over
     // IPC, and a deep ref would make it a Proxy that Electron cannot clone.
     const plan = shallowRef<DiffPlan | null>(null);
@@ -48,24 +63,16 @@ export const useDeviceStore = defineStore("device", () => {
         }
         return undefined;
     });
-    const syncDisabledReason = computed<string | undefined>(() => {
-        if (!usb.connected) {
-            return "Connect the deck before syncing";
-        }
-        if (stale.value) {
-            return "Reconnect and refresh the inventory before syncing";
-        }
-        if (usb.syncing) {
-            return "A sync is already running";
-        }
-        if (plan.value === null) {
-            return "The review has not loaded yet";
-        }
-        if (operations.value === 0 && plannedDeletions.value === 0) {
-            return "Nothing to sync";
-        }
-        return undefined;
-    });
+    const syncAction = computed(() =>
+        readSyncAction({
+            connected: usb.connected,
+            stale: stale.value,
+            syncing: usb.syncing,
+            planLoaded: plan.value !== null,
+            pendingChanges: operations.value,
+            plannedRemovals: plannedDeletions.value,
+        }),
+    );
 
     watch(
         () => usb.connected,
@@ -110,6 +117,10 @@ export const useDeviceStore = defineStore("device", () => {
     async function refresh(): Promise<void> {
         if (!usb.connected) {
             stale.value = inventory.value.length > 0;
+            const local = await loadLocalInventory();
+            if (local !== null && lastDevice.value !== null) {
+                inventory.value = buildInventory(local, lastDevice.value);
+            }
             return;
         }
         loading.value = true;
@@ -152,6 +163,7 @@ export const useDeviceStore = defineStore("device", () => {
                 })),
             };
             inventory.value = buildInventory(local, device);
+            lastDevice.value = device;
 
             const planResult = await syncClient.reconcile(profile.activeProfile || undefined);
             if (planResult.ok) {
@@ -167,8 +179,8 @@ export const useDeviceStore = defineStore("device", () => {
     }
 
     /** Push the current review plan, then refresh the inventory and plan. */
-    async function push(): Promise<boolean> {
-        if (plan.value === null || !usb.connected) {
+    async function syncNow(): Promise<boolean> {
+        if (syncAction.value.disabled || plan.value === null) {
             return false;
         }
         const result = await usb.executePlan(plan.value);
@@ -204,6 +216,80 @@ export const useDeviceStore = defineStore("device", () => {
         }
     }
 
+    /** Ask the main process where a page, icon or profile is still referenced. */
+    async function scanReferences(query: ReferenceQuery): Promise<ReferenceScanResult | null> {
+        const result = await storageClient.scanReferences(query);
+        return result.ok ? result.data : null;
+    }
+
+    /**
+     * Two-sided delete: the deck copy first with a missing file treated as
+     * success, then the library copy, then a refresh. A deck error other than a
+     * missing file aborts before the library copy goes.
+     */
+    async function deleteTarget(
+        request: { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string },
+        noun: string,
+        deleteLibrary: () => Promise<boolean>,
+    ): Promise<boolean> {
+        const connected = usb.connected;
+        const scan = await scanReferences(request);
+        const notes = referenceNotes(request, scan, profile.activeProfile);
+        const message = [deleteConfirmation(noun, connected), ...notes].join(" ");
+
+        const confirmed = await confirm.ask({
+            title: request.kind === "page" ? "Delete page" : "Delete icon",
+            message,
+            confirmLabel: request.kind === "page" ? "Delete page" : "Delete icon",
+            danger: true,
+        });
+        if (!confirmed) {
+            return false;
+        }
+        if (connected && !usb.connected) {
+            useAppStore().pushToast("warning", "The deck disconnected. Nothing was deleted.");
+            return false;
+        }
+
+        deletingKey.value =
+            request.kind === "page"
+                ? pageInventoryKey(request.profile, request.id)
+                : iconInventoryKey(request.name);
+        try {
+            if (connected) {
+                const result = await usbClient.deleteFile({ ...request, allowMissing: true });
+                if (!result.ok) {
+                    useAppStore().pushToast("error", result.error);
+                    return false;
+                }
+            }
+            const removed = await deleteLibrary();
+            if (!removed) {
+                return false;
+            }
+            await refresh();
+            return true;
+        } finally {
+            deletingKey.value = null;
+        }
+    }
+
+    /** Delete a page from the library and, when connected, from the deck. */
+    async function deletePage(id: string): Promise<boolean> {
+        const profileName = profile.activeProfile;
+        if (profileName === "" || !profile.pages.some((page) => page.id === id)) {
+            return false;
+        }
+        return deleteTarget({ kind: "page", profile: profileName, id }, pageLabel(id), () =>
+            profile.removePage(id),
+        );
+    }
+
+    /** Delete an icon from the library and, when connected, from the deck. */
+    async function deleteIcon(name: string): Promise<boolean> {
+        return deleteTarget({ kind: "icon", name }, `Icon “${name}”`, () => icons.remove(name));
+    }
+
     return {
         info,
         inventory,
@@ -216,9 +302,11 @@ export const useDeviceStore = defineStore("device", () => {
         plannedDeletions,
         canDelete,
         deleteDisabledReason,
-        syncDisabledReason,
+        syncAction,
         refresh,
-        push,
+        syncNow,
         remove,
+        deletePage,
+        deleteIcon,
     };
 });

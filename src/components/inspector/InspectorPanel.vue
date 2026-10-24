@@ -11,8 +11,12 @@ import {
     Trash2,
     Zap,
 } from "@lucide/vue";
-import type { ActionTypeDef } from "@/actions/registry";
-import { INTERNAL_ACTION_TYPES, loadPluginCommandTypes } from "@/actions/registry";
+import type { ActionTypeDef, PluginRegistration } from "@/actions/registry";
+import {
+    INTERNAL_ACTION_TYPES,
+    loadPluginRegistrations,
+    pluginRegistrationsToTypes,
+} from "@/actions/registry";
 import { describeStep } from "@/editor/actionSteps";
 import type { StepDescription } from "@/editor/actionSteps";
 import Button from "@/components/ui/Button.vue";
@@ -33,8 +37,11 @@ const icons = useIconStore();
 const settings = useSettingsStore();
 const app = useAppStore();
 
-const pluginTypes = ref<ActionTypeDef[]>([]);
-const types = computed<ActionTypeDef[]>(() => [...INTERNAL_ACTION_TYPES, ...pluginTypes.value]);
+const pluginRegistrations = ref<PluginRegistration[]>([]);
+const types = computed<ActionTypeDef[]>(() => [
+    ...INTERNAL_ACTION_TYPES,
+    ...pluginRegistrationsToTypes(pluginRegistrations.value),
+]);
 
 const galleryOpen = ref(false);
 const importOpen = ref(false);
@@ -161,7 +168,7 @@ watch(
 
 onMounted(async () => {
     await icons.refresh();
-    pluginTypes.value = await loadPluginCommandTypes();
+    pluginRegistrations.value = await loadPluginRegistrations();
 });
 
 function onLabelInput(event: Event): void {
@@ -685,6 +692,7 @@ function onDragEnd(): void {
             <AddActionDock
                 v-model:open="dockOpen"
                 :types="types"
+                :registrations="pluginRegistrations"
                 :submit-label="submitLabel"
                 :append-after="appendLabel"
                 :reset-key="profile.selectedKey"

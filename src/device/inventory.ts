@@ -61,6 +61,16 @@ export interface InventorySummary {
     total: number;
 }
 
+/** Stable list key for a page row; also names an in-flight page delete. */
+export function pageInventoryKey(profile: string, id: string): string {
+    return `page:${profile}:${id}`;
+}
+
+/** Stable list key for an icon row; also names an in-flight icon delete. */
+export function iconInventoryKey(name: string): string {
+    return `icon:${name}`;
+}
+
 function compareIds(a: string, b: string): number {
     return Number(a) - Number(b);
 }
@@ -145,7 +155,7 @@ export function buildInventory(local: LocalInventory, device: DeviceInventory): 
         for (const id of pageIds) {
             rows.push(
                 row({
-                    key: `page:${name}:${id}`,
+                    key: pageInventoryKey(name, id),
                     kind: "page",
                     name: pageLabel(id),
                     profile: name,
@@ -167,7 +177,7 @@ export function buildInventory(local: LocalInventory, device: DeviceInventory): 
     for (const name of iconNames) {
         rows.push(
             row({
-                key: `icon:${name}`,
+                key: iconInventoryKey(name),
                 kind: "icon",
                 name,
                 localHash: localIcons.get(name) ?? null,

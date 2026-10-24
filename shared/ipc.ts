@@ -43,6 +43,7 @@ export const channels = {
         importProfile: "storage:importProfile",
         getDefaultProfile: "storage:getDefaultProfile",
         setDefaultProfile: "storage:setDefaultProfile",
+        scanReferences: "storage:scanReferences",
     },
     icons: {
         list: "icons:list",
@@ -180,8 +181,31 @@ export interface UsbUploadIconRequest {
 }
 
 /** Delete one device page or icon by identity (`0x23` / `0x24`). */
-export type UsbDeleteFileRequest =
-    { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string };
+export type UsbDeleteFileRequest = (
+    { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string }
+) & {
+    /** Treat a missing deck file as success; defaults to false. */
+    allowMissing?: boolean;
+};
+
+/** One page in the library that references a page, icon or profile. */
+export interface ReferenceHit {
+    profile: string;
+    pageId: string;
+}
+
+export type ReferenceKind = "icon" | "page" | "profile";
+
+export type ReferenceQuery =
+    | { kind: "icon"; name: string }
+    | { kind: "page"; profile: string; id: string }
+    | { kind: "profile"; name: string };
+
+export interface ReferenceScanResult {
+    hits: ReferenceHit[];
+    /** True when an unreadable or invalid page was skipped. */
+    partial: boolean;
+}
 
 export interface SettingsSetRequest {
     settings: Partial<AppSettings>;
@@ -220,6 +244,7 @@ export interface RequestMap {
     [channels.storage.importProfile]: undefined;
     [channels.storage.getDefaultProfile]: undefined;
     [channels.storage.setDefaultProfile]: SetDefaultProfileRequest;
+    [channels.storage.scanReferences]: ReferenceQuery;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
@@ -282,6 +307,7 @@ export interface ResponseMap {
     [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
     [channels.storage.getDefaultProfile]: IpcResponse<string | null>;
     [channels.storage.setDefaultProfile]: IpcResponse<void>;
+    [channels.storage.scanReferences]: IpcResponse<ReferenceScanResult>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;

@@ -15,6 +15,8 @@ import {
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
+import { storageClient } from "@/ipc/client";
+import { referenceNotes } from "@/device/references";
 
 const profile = useProfileStore();
 const app = useAppStore();
@@ -105,9 +107,17 @@ async function removeProfile(name: string): Promise<void> {
     if (!canDelete.value) {
         return;
     }
+    let message = `Delete profile "${name}" and all its pages?`;
+    const scan = await storageClient.scanReferences({ kind: "profile", name });
+    if (scan.ok) {
+        const notes = referenceNotes({ kind: "profile", name }, scan.data, profile.activeProfile);
+        if (notes.length > 0) {
+            message += ` ${notes.join(" ")}`;
+        }
+    }
     const confirmed = await confirm.ask({
         title: "Delete profile",
-        message: `Delete profile "${name}" and all its pages?`,
+        message,
         confirmLabel: "Delete profile",
         danger: true,
     });
@@ -129,10 +139,10 @@ async function importProfile(): Promise<void> {
             class="profile-menu__trigger"
             type="button"
             :aria-expanded="open"
+            aria-labelledby="profile-section-title"
             title="Profile"
             @click="toggleOpen"
         >
-            <span class="profile-menu__label">Profile</span>
             <span class="profile-menu__value">{{ profile.activeProfile || "Select…" }}</span>
             <ChevronDown :size="14" />
         </button>

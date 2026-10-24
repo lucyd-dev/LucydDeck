@@ -7,33 +7,24 @@ import {
     ChevronUp,
     CornerDownLeft,
     Cpu,
-    Gamepad2,
     LayoutGrid,
-    Music,
     Plug,
     Plus,
-    Video,
     X,
 } from "@lucide/vue";
 import { validateActionString } from "@shared/actions";
-import type { ActionTypeDef } from "@/actions/registry";
+import type { ActionTypeDef, PluginRegistration } from "@/actions/registry";
 import { defaultFieldValues } from "@/actions/registry";
+import type { ProviderRow } from "@/actions/providers";
+import { buildProviders, pluginHandleOf } from "@/actions/providers";
 import { stepCategory } from "@/editor/actionSteps";
+import { useProfileStore } from "@/stores/profileStore";
 import ActionFields from "./ActionFields.vue";
 import { CATEGORY_ICONS } from "./categoryIcons";
 
-type ProviderId = "deck" | "system" | "discord" | "obs" | "spotify" | "other";
-
-interface Provider {
-    id: ProviderId;
-    label: string;
-    hint: string;
-    icon: Component;
-    actions: readonly ActionTypeDef[];
-}
-
 const props = defineProps<{
     types: readonly ActionTypeDef[];
+    registrations: readonly PluginRegistration[];
     submitLabel: string;
     appendAfter: string | null;
     resetKey: string | null;
@@ -43,12 +34,6 @@ const emit = defineEmits<{
     (event: "add", action: string): void;
     (event: "cancel-append"): void;
 }>();
-
-const KNOWN_PLUGINS: Array<{ id: ProviderId; label: string; hint: string; icon: Component }> = [
-    { id: "discord", label: "Discord", hint: "Voice controls", icon: Gamepad2 },
-    { id: "obs", label: "OBS", hint: "Recording and camera", icon: Video },
-    { id: "spotify", label: "Spotify", hint: "Playback controls", icon: Music },
-];
 
 const HINTS: Record<string, string> = {
     PAGE: "Jump to another page",
@@ -63,64 +48,15 @@ const HINTS: Record<string, string> = {
 };
 
 const open = defineModel<boolean>("open", { default: true });
-const provider = ref<ProviderId>("deck");
+const profile = useProfileStore();
+const provider = ref<string>("deck");
 const picked = ref<ActionTypeDef | null>(null);
 const values = ref<Record<string, string>>({});
 const root = ref<HTMLElement | null>(null);
 
-const pluginGroups = computed(() => {
-    const groups = new Map<string, ActionTypeDef[]>();
-    for (const type of props.types) {
-        if (type.section !== "plugins") {
-            continue;
-        }
-        const handle = type.id.split(":")[1] ?? "plugin";
-        const list = groups.get(handle) ?? [];
-        list.push(type);
-        groups.set(handle, list);
-    }
-    return groups;
-});
+const providers = computed<ProviderRow[]>(() => buildProviders(props.types, props.registrations));
 
-const providers = computed<Provider[]>(() => {
-    const deck = props.types.filter((type) => type.section === "lucyddeck");
-    const system = props.types.filter((type) => type.section === "system");
-    const known = KNOWN_PLUGINS.map((item) => ({
-        ...item,
-        actions: pluginGroups.value.get(item.id) ?? [],
-    }));
-    const knownIds = new Set(KNOWN_PLUGINS.map((item) => item.id));
-    const other = [...pluginGroups.value.entries()]
-        .filter(([handle]) => !knownIds.has(handle as ProviderId))
-        .flatMap(([, actions]) => actions);
-
-    return [
-        {
-            id: "deck",
-            label: "Deck",
-            hint: "Pages and profiles",
-            icon: LayoutGrid,
-            actions: deck,
-        },
-        {
-            id: "system",
-            label: "System",
-            hint: "Keyboard, mouse, text and timing",
-            icon: Cpu,
-            actions: system,
-        },
-        ...known,
-        {
-            id: "other",
-            label: "Other plugins",
-            hint: "Installed plugins without a group",
-            icon: Plug,
-            actions: other,
-        },
-    ];
-});
-
-const selectedProvider = computed<Provider>(
+const selectedProvider = computed<ProviderRow>(
     () => providers.value.find((item) => item.id === provider.value) ?? providers.value[0],
 );
 
@@ -135,33 +71,29 @@ const previewValid = computed(
     () => picked.value !== null && validateActionString(preview.value).ok,
 );
 
-const pickedProvider = computed<Provider | null>(() => {
+const pickedProvider = computed<ProviderRow | null>(() => {
     if (picked.value === null) {
         return null;
     }
-    if (picked.value.section === "lucyddeck") {
-        return providers.value.find((item) => item.id === "deck") ?? null;
-    }
-    if (picked.value.section === "system") {
-        return providers.value.find((item) => item.id === "system") ?? null;
-    }
-    const handle = picked.value.id.split(":")[1] ?? "";
-    return (
-        providers.value.find((item) => item.id === handle) ??
-        providers.value.find((item) => item.id === "other") ??
-        null
-    );
+    const id = providerForType(picked.value);
+    return providers.value.find((item) => item.id === id) ?? null;
 });
 
-function providerForType(type: ActionTypeDef): ProviderId {
+function providerIcon(row: ProviderRow): Component {
+    if (row.kind === "deck") {
+        return LayoutGrid;
+    }
+    return row.kind === "system" ? Cpu : Plug;
+}
+
+function providerForType(type: ActionTypeDef): string {
     if (type.section === "lucyddeck") {
         return "deck";
     }
     if (type.section === "system") {
         return "system";
     }
-    const handle = type.id.split(":")[1] ?? "";
-    return KNOWN_PLUGINS.some((item) => item.id === handle) ? (handle as ProviderId) : "other";
+    return pluginHandleOf(type) ?? "deck";
 }
 
 function categoryOf(type: ActionTypeDef): keyof typeof CATEGORY_ICONS {
@@ -180,7 +112,10 @@ function resetPicked(): void {
 function pick(type: ActionTypeDef): void {
     picked.value = type;
     provider.value = providerForType(type);
-    values.value = defaultFieldValues(type);
+    values.value = defaultFieldValues(
+        type,
+        profile.pages.map((page) => page.id),
+    );
     void nextTick(() => {
         root.value
             ?.querySelector<HTMLElement>(
@@ -306,7 +241,7 @@ watch(
                         @click="provider = item.id"
                     >
                         <span class="provider-row__icon">
-                            <component :is="item.icon" :size="13" />
+                            <component :is="providerIcon(item)" :size="13" />
                         </span>
                         <span class="provider-row__label">{{ item.label }}</span>
                         <span class="provider-row__count">
@@ -345,9 +280,7 @@ watch(
                                 <Plus :size="11" class="add-action__plus" />
                             </button>
                         </div>
-                        <p v-else class="add-pane__empty">
-                            No actions here yet. Install plugins in Settings to add more providers.
-                        </p>
+                        <p v-else class="add-pane__empty">No actions in this provider.</p>
                     </div>
                 </div>
             </div>

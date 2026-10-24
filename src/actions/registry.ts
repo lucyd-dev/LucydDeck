@@ -6,8 +6,8 @@ import type { ActionNamespace } from "@shared/actions";
  *
  * `INTERNAL_ACTION_TYPES` covers the firmware's built-in namespaces and is
  * derived from `ACTION_NAMESPACES`, so the picker and the validator can never
- * drift. The reserved plugin hook (`setPluginCommandProvider`) lets Step 4
- * inject `plugins:listCommands` entries as `CMD:<handle>:<command>` steps
+ * drift. The reserved plugin hook (`setPluginRegistrationProvider`) lets Step 4
+ * inject installed plugins and their commands as `CMD:<handle>:<command>` steps
  * without this step knowing anything about the plugin system.
  */
 
@@ -22,6 +22,8 @@ export interface ActionFieldDef {
     kind: ActionFieldKind;
     placeholder?: string;
     options?: Array<{ value: string; label: string }>;
+    /** Resolve the options from the active profile at render time. */
+    optionsSource?: "profilePages";
     optional?: boolean;
     default?: string;
     /** Span both columns in the inspector field grid. */
@@ -39,13 +41,19 @@ export interface ActionTypeDef {
     build: (values: Record<string, string>) => string;
 }
 
-export interface PluginCommand {
-    handle: string;
+export interface PluginCommandRegistration {
     command: string;
     title?: string;
 }
 
-export type PluginCommandProvider = () => Promise<PluginCommand[]>;
+/** One installed plugin: its handle, the label it supplies and its commands. */
+export interface PluginRegistration {
+    handle: string;
+    label: string;
+    commands: PluginCommandRegistration[];
+}
+
+export type PluginRegistrationProvider = () => Promise<PluginRegistration[]>;
 
 const selectOptions = (values: readonly string[]) =>
     values.map((value) => ({ value, label: value }));
@@ -61,7 +69,15 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
     PAGE: {
         label: "Switch page",
         section: "lucyddeck",
-        fields: [{ key: "id", label: "Page id", kind: "number", placeholder: "0", default: "0" }],
+        fields: [
+            {
+                key: "id",
+                label: "Page",
+                kind: "select",
+                optionsSource: "profilePages",
+                default: "0",
+            },
+        ],
         build: (values) => buildActionString("PAGE", (values.id ?? "").trim()),
     },
     PROFILE: {
@@ -180,19 +196,23 @@ export const INTERNAL_ACTION_TYPES: readonly ActionTypeDef[] = ACTION_NAMESPACES
     }),
 );
 
-let pluginCommandProvider: PluginCommandProvider | null = null;
+let pluginRegistrationProvider: PluginRegistrationProvider | null = null;
 
 /**
- * Reserved Step 4 hook: register a provider that returns plugin commands.
- * `ActionSidebar` calls `loadPluginCommandTypes()` on mount.
+ * Reserved Step 4 hook: register a provider that returns the installed plugins
+ * with their labels and commands. The inspector loads them once and passes them
+ * to the dock and the action types to the step editors.
  */
-export function setPluginCommandProvider(provider: PluginCommandProvider | null): void {
-    pluginCommandProvider = provider;
+export function setPluginRegistrationProvider(provider: PluginRegistrationProvider | null): void {
+    pluginRegistrationProvider = provider;
 }
 
-/** Map a plugin command to a `CMD:<handle>:<command>` picker type. */
-export function pluginCommandToType(command: PluginCommand): ActionTypeDef {
-    const action = `${command.handle}:${command.command}`;
+/** Map one plugin command to a `CMD:<handle>:<command>` picker type. */
+export function pluginCommandToType(
+    registration: PluginRegistration,
+    command: PluginCommandRegistration,
+): ActionTypeDef {
+    const action = `${registration.handle}:${command.command}`;
     return {
         id: `CMD:${action}`,
         namespace: "CMD",
@@ -203,24 +223,39 @@ export function pluginCommandToType(command: PluginCommand): ActionTypeDef {
     };
 }
 
-/** Load plugin-provided picker types; returns `[]` when no provider is set. */
-export async function loadPluginCommandTypes(): Promise<ActionTypeDef[]> {
-    if (pluginCommandProvider === null) {
+/** Flatten registrations into the picker's plugin action types. */
+export function pluginRegistrationsToTypes(
+    registrations: readonly PluginRegistration[],
+): ActionTypeDef[] {
+    return registrations.flatMap((registration) =>
+        registration.commands.map((command) => pluginCommandToType(registration, command)),
+    );
+}
+
+/** Load installed plugins; returns `[]` when no provider is set. */
+export async function loadPluginRegistrations(): Promise<PluginRegistration[]> {
+    if (pluginRegistrationProvider === null) {
         return [];
     }
     try {
-        const commands = await pluginCommandProvider();
-        return commands.map(pluginCommandToType);
+        return await pluginRegistrationProvider();
     } catch {
         return [];
     }
 }
 
 /** Default field values for a type (used when the picker opens). */
-export function defaultFieldValues(type: ActionTypeDef): Record<string, string> {
+export function defaultFieldValues(
+    type: ActionTypeDef,
+    pageIds: readonly string[] = [],
+): Record<string, string> {
     const values: Record<string, string> = {};
     for (const field of type.fields) {
-        values[field.key] = field.default ?? field.options?.[0]?.value ?? "";
+        if (field.optionsSource === "profilePages" && pageIds.length > 0) {
+            values[field.key] = pageIds[0];
+        } else {
+            values[field.key] = field.default ?? field.options?.[0]?.value ?? "";
+        }
     }
     return values;
 }

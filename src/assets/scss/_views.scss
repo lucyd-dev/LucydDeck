@@ -102,6 +102,11 @@
     font-size: 0.7rem;
 }
 
+.hash--absent {
+    color: var(--color-text-faint);
+    opacity: 0.6;
+}
+
 // --- Device view ----------------------------------------------------------
 
 .device-banner {
@@ -116,6 +121,30 @@
     background-color: color-mix(in srgb, var(--color-warning) 10%, transparent);
     color: var(--color-text-dim);
     font-size: 0.82rem;
+}
+
+.device-sync {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    max-width: 340px;
+}
+
+.device-sync--running {
+    flex: 1 1 220px;
+}
+
+.device-sync .progress {
+    flex: 1;
+    min-width: 80px;
+}
+
+.device-sync .progress-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .info-grid {
@@ -149,15 +178,6 @@
     margin-bottom: var(--space-md);
 }
 
-.inventory-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-    margin-left: auto;
-    color: var(--color-text-faint);
-    font-size: 0.72rem;
-}
-
 .inventory-group + .inventory-group {
     margin-top: var(--space-md);
 }
@@ -187,13 +207,28 @@
     border-bottom: none;
 }
 
+.inventory-row--head {
+    padding-top: 0;
+    padding-bottom: var(--space-2xs);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-faint);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.inventory-row--head .hash {
+    color: var(--color-text-faint);
+}
+
 .inventory-row--profile {
     background-color: var(--color-bg);
     font-weight: 600;
 }
 
-.inventory-row--page {
-    padding-left: var(--space-xl);
+.inventory-row--page .inventory-row__name {
+    padding-left: var(--space-md);
 }
 
 .inventory-row__name {

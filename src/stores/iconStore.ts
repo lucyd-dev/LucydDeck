@@ -123,16 +123,17 @@ export const useIconStore = defineStore("icons", () => {
         return result.data;
     }
 
-    async function remove(name: string): Promise<void> {
+    async function remove(name: string): Promise<boolean> {
         const result = await iconsClient.remove(name);
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
-            return;
+            return false;
         }
         invalidate(name);
         recent.value = recent.value.filter((item) => item !== name);
         writeRecent(recent.value);
         await refresh();
+        return true;
     }
 
     return {

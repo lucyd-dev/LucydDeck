@@ -452,6 +452,102 @@ describe("StorageService app settings", () => {
     });
 });
 
+describe("StorageService reference scan", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+        storage.createProfile("main");
+        storage.createProfile("work");
+        storage.createProfile("gaming");
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    function saveSteps(profile: string, id: string, steps: string[], imageName?: string): void {
+        storage.savePage(profile, id, {
+            buttons: {
+                "0": {
+                    click: steps,
+                    ...(imageName === undefined ? {} : { imageName }),
+                },
+            },
+        });
+    }
+
+    it("returns one hit per page that uses an icon, across profiles", () => {
+        saveSteps("main", "0", [], "github");
+        saveSteps("main", "1", [], "github");
+        saveSteps("work", "3", [], "github");
+        saveSteps("work", "4", [], "other");
+
+        expect(storage.scanReferences({ kind: "icon", name: "github" })).toEqual({
+            hits: [
+                { profile: "main", pageId: "0" },
+                { profile: "main", pageId: "1" },
+                { profile: "work", pageId: "3" },
+            ],
+            partial: false,
+        });
+    });
+
+    it("reports icon references even when the icon exists on neither side", () => {
+        saveSteps("main", "2", [], "missing-everywhere");
+
+        expect(storage.scanReferences({ kind: "icon", name: "missing-everywhere" }).hits).toEqual([
+            { profile: "main", pageId: "2" },
+        ]);
+    });
+
+    it("finds pages stepped to from the same profile only", () => {
+        saveSteps("main", "0", ["PAGE:3"]);
+        saveSteps("main", "3", []);
+        saveSteps("main", "4", ["PAGE:3"]);
+        saveSteps("work", "0", ["PAGE:3"]);
+
+        expect(storage.scanReferences({ kind: "page", profile: "main", id: "3" }).hits).toEqual([
+            { profile: "main", pageId: "0" },
+            { profile: "main", pageId: "4" },
+        ]);
+    });
+
+    it("finds PROFILE steps from pages outside the profile only", () => {
+        saveSteps("main", "0", ["PROFILE:work"]);
+        saveSteps("work", "0", ["PROFILE:work"]);
+        saveSteps("gaming", "1", ["PROFILE:work"]);
+
+        expect(storage.scanReferences({ kind: "profile", name: "work" }).hits).toEqual([
+            { profile: "gaming", pageId: "1" },
+            { profile: "main", pageId: "0" },
+        ]);
+    });
+
+    it("skips an unreadable page, keeps the other hits and reports partial", () => {
+        saveSteps("main", "0", [], "github");
+        saveSteps("main", "1", [], "github");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "2.json"), "{not json");
+        saveSteps("work", "5", [], "github");
+
+        expect(storage.scanReferences({ kind: "icon", name: "github" })).toEqual({
+            hits: [
+                { profile: "main", pageId: "0" },
+                { profile: "main", pageId: "1" },
+                { profile: "work", pageId: "5" },
+            ],
+            partial: true,
+        });
+    });
+
+    it("reports itself whole when every page reads", () => {
+        saveSteps("main", "0", [], "github");
+        expect(storage.scanReferences({ kind: "icon", name: "github" }).partial).toBe(false);
+    });
+});
+
 describe("PAGE_FILE_PATTERN", () => {
     it("extracts the leading digits as the id", () => {
         expect(PAGE_FILE_PATTERN.exec("0.json")?.[1]).toBe("0");

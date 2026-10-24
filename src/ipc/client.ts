@@ -1,5 +1,11 @@
 import { channels } from "@shared/ipc";
-import type { IpcChannel, RequestFor, ResponseFor, UsbDeleteFileRequest } from "@shared/ipc";
+import type {
+    IpcChannel,
+    ReferenceQuery,
+    RequestFor,
+    ResponseFor,
+    UsbDeleteFileRequest,
+} from "@shared/ipc";
 import type { AppSettings } from "@shared/settings";
 import type { PageConfig } from "@shared/types";
 import type { DiffPlan } from "@shared/sync";
@@ -33,6 +39,7 @@ export const storageClient = {
     getDefaultProfile: () => invoke(channels.storage.getDefaultProfile, undefined),
     setDefaultProfile: (name: string | null) =>
         invoke(channels.storage.setDefaultProfile, { name }),
+    scanReferences: (query: ReferenceQuery) => invoke(channels.storage.scanReferences, query),
 };
 
 export const usbClient = {

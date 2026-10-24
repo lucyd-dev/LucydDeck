@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ActionFieldDef } from "@/actions/registry";
+import { pageLabel } from "@shared/pages";
+import { useProfileStore } from "@/stores/profileStore";
 import Field from "@/components/ui/Field.vue";
 import Input from "@/components/ui/Input.vue";
 import Select from "@/components/ui/Select.vue";
@@ -11,6 +13,26 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ (event: "change", key: string, value: string): void }>();
+
+const profile = useProfileStore();
+
+function optionsFor(field: ActionFieldDef): Array<{ value: string; label: string }> {
+    if (field.optionsSource !== "profilePages") {
+        return field.options ?? [];
+    }
+    const options = profile.pages.map((page) => ({
+        value: page.id,
+        label: pageLabel(page.id),
+    }));
+    const current = props.values[field.key] ?? "";
+    if (current !== "" && !options.some((option) => option.value === current)) {
+        options.push({
+            value: current,
+            label: `${pageLabel(current)} (not in this profile)`,
+        });
+    }
+    return options;
+}
 
 function onValue(key: string, value: string | number): void {
     emit("change", key, String(value));
@@ -30,7 +52,7 @@ function onValue(key: string, value: string | number): void {
                     v-if="field.kind === 'select'"
                     :id="id"
                     :model-value="props.values[field.key] ?? ''"
-                    :options="field.options ?? []"
+                    :options="optionsFor(field)"
                     @update:model-value="onValue(field.key, $event)"
                 />
                 <Textarea

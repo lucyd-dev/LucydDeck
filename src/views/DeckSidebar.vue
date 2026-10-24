@@ -11,12 +11,12 @@ import EmptyState from "@/components/ui/EmptyState.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import ScrollArea from "@/components/ui/ScrollArea.vue";
 import ProfileMenu from "@/components/layout/ProfileMenu.vue";
-import { useConfirmStore } from "@/stores/confirmStore";
+import { useDeviceStore } from "@/stores/deviceStore";
 import { useProfileStore } from "@/stores/profileStore";
 
 const app = useAppStore();
 const profile = useProfileStore();
-const confirm = useConfirmStore();
+const device = useDeviceStore();
 const deletingPageId = ref<string | null>(null);
 
 const previews = ref<Record<string, PageConfig>>({});
@@ -77,18 +77,9 @@ function createPage(): void {
 }
 
 async function removePage(id: string): Promise<void> {
-    const confirmed = await confirm.ask({
-        title: "Delete page",
-        message: `Delete ${pageLabel(id)} from the library? The deck keeps its copy until you delete it in Device → Files.`,
-        confirmLabel: "Delete page",
-        danger: true,
-    });
-    if (!confirmed) {
-        return;
-    }
     deletingPageId.value = id;
     try {
-        await profile.removePage(id);
+        await device.deletePage(id);
     } finally {
         deletingPageId.value = null;
     }
@@ -113,7 +104,7 @@ async function removePage(id: string): Promise<void> {
             </Button>
         </div>
 
-        <p class="sidebar__section-title">Profile</p>
+        <p id="profile-section-title" class="sidebar__section-title">Profile</p>
         <ProfileMenu />
 
         <p class="sidebar__section-title">Pages</p>
@@ -140,7 +131,6 @@ async function removePage(id: string): Promise<void> {
                     </span>
                     <span class="page-card__body">
                         <span class="page-card__name">{{ pageLabel(page.id) }}</span>
-                        <span class="page-card__meta">id {{ page.id }}</span>
                     </span>
                 </button>
                 <IconButton

@@ -8,61 +8,6 @@
     min-height: 0;
 }
 
-.board-header {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-lg);
-    margin-bottom: var(--space-md);
-}
-
-.page-switcher {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-}
-
-.page-switcher__pill {
-    padding: var(--space-2xs) var(--space-sm);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-full);
-    background-color: var(--color-bg-hover);
-    color: var(--color-text-dim);
-    font-size: 0.78rem;
-}
-
-.page-switcher__pill:hover {
-    border-color: var(--color-text-faint);
-    color: var(--color-text);
-}
-
-.page-switcher__pill--active {
-    border-color: var(--color-accent);
-    background-color: var(--color-accent-soft);
-    color: var(--color-accent);
-}
-
-.page-switcher__add {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    border: 1px dashed var(--color-border);
-    border-radius: var(--radius-full);
-    background: transparent;
-    color: var(--color-text-dim);
-}
-
-.page-switcher__add:hover {
-    border-color: var(--color-accent);
-    color: var(--color-text);
-}
-
 .board-canvas {
     display: grid;
     grid-template-columns: repeat(var(--board-cols, 5), minmax(0, 1fr));
@@ -70,8 +15,9 @@
     gap: var(--space-md);
     width: 100%;
     // Keep the 5:3 deck proportions and cap by the available height so keys
-    // never outgrow a short window.
-    max-width: min(100%, calc((100dvh - 150px) * 5 / 3));
+    // never outgrow a short window. The board owns the whole view now that the
+    // page pills are gone, so the freed height goes to the keys.
+    max-width: min(100%, calc((100dvh - 108px) * 5 / 3));
     margin: 0 auto;
 }
 

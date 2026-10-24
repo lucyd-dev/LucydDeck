@@ -4,7 +4,7 @@ import { Search } from "@lucide/vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
-import { useConfirmStore } from "@/stores/confirmStore";
+import { useDeviceStore } from "@/stores/deviceStore";
 import { useIconStore } from "@/stores/iconStore";
 import IconTile from "./IconTile.vue";
 
@@ -16,7 +16,7 @@ const emit = defineEmits<{
 }>();
 
 const icons = useIconStore();
-const confirm = useConfirmStore();
+const device = useDeviceStore();
 const query = ref("");
 
 const visible = computed(() => {
@@ -28,16 +28,7 @@ const visible = computed(() => {
 });
 
 async function remove(name: string): Promise<void> {
-    const confirmed = await confirm.ask({
-        title: "Delete icon",
-        message: `Delete icon "${name}" from the library? Keys that use it will show a missing-icon warning.`,
-        confirmLabel: "Delete icon",
-        danger: true,
-    });
-    if (!confirmed) {
-        return;
-    }
-    await icons.remove(name);
+    await device.deleteIcon(name);
 }
 </script>
 

@@ -201,6 +201,12 @@ export function registerIpcHandlers(services: IpcServices): void {
         true,
     );
 
+    register(
+        channels.storage.scanReferences,
+        (query) => ({ ok: true, data: storage.scanReferences(query) }),
+        true,
+    );
+
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
     register(channels.usb.connect, async () => {
@@ -271,9 +277,13 @@ export function registerIpcHandlers(services: IpcServices): void {
             throw new Error("Device is not connected");
         }
         if (request.kind === "page") {
-            await device.deletePage(request.profile, request.id);
+            await device.deletePage(request.profile, request.id, {
+                allowMissing: request.allowMissing === true,
+            });
         } else {
-            await device.deleteIcon(request.name);
+            await device.deleteIcon(request.name, {
+                allowMissing: request.allowMissing === true,
+            });
         }
         return { ok: true, data: undefined };
     });
