@@ -20,12 +20,12 @@ Single-context: `GLOSSARY.md` at the root, ADRs in `docs/adr/`. See `docs/agents
 
 Work them in order. One workstream's spec is alive at a time, in the tracker, and only while that workstream is open. When it merges, the next one starts and writes its own spec.
 
-1. **Firmware protocol 2 and the delete opcode.** Firmware repo, on the Windows machine, because PlatformIO uploads need it. Tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9). The host half follows here on `main`: protocol constants, `DeviceService.deleteFile`, the `usb:deleteFile` channel, the capability gate, tests.
+1. **Firmware delete opcode.** Firmware repo, on the Windows machine, because PlatformIO uploads need it. Tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9). The host side already exists on `feature/ui-rebuild`: `DeviceService.deleteFile`, the `usb:deleteFile` channel and the Device view cleanup. It works as soon as the deck runs a build with the opcode.
 2. **UI finish.** `feature/ui-rebuild`. The board inspector and the chosen prototype in `prototype/one-action.html` are the starting point. Ends with a review and a merge to `main`.
 3. **Plugin integration.** New branch from `main`. A worker-hosted command handler reached by `CMD:` steps.
 4. **Firmware updater.** Host and firmware bootloader, last because a bad flash bricks a deck.
 
-Steps 2 and 3 can swap if the board is out of reach. The rest follow from dependencies: plugins need the finished inspector, and the updater needs protocol 2.
+Steps 2 and 3 can swap if the board is out of reach. The rest follow from dependencies: plugins need the finished inspector, and the updater comes last.
 
 ## Environment
 
