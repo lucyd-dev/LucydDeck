@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { FilePlus2, PanelRight, Trash2 } from "@lucide/vue";
+import { FilePlus2, PanelRight, Plus, Trash2 } from "@lucide/vue";
 import { BOARD_SIZE } from "@shared/schema";
 import { pageLabel } from "@shared/pages";
 import type { PageConfig } from "@shared/types";
 import { storageClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
-import Button from "@/components/ui/Button.vue";
 import EmptyState from "@/components/ui/EmptyState.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import ScrollArea from "@/components/ui/ScrollArea.vue";
@@ -88,9 +87,8 @@ async function removePage(id: string): Promise<void> {
 
 <template>
     <div class="deck-sidebar">
-        <div class="deck-sidebar__actions">
+        <div v-if="app.narrow" class="deck-sidebar__actions">
             <IconButton
-                v-if="app.narrow"
                 label="Inspector"
                 :active="app.inspectorOpen"
                 variant="ghost"
@@ -98,16 +96,21 @@ async function removePage(id: string): Promise<void> {
             >
                 <PanelRight :size="16" />
             </IconButton>
-            <Button size="sm" :disabled="!profile.hasProfile" @click="createPage">
-                <FilePlus2 :size="14" />
-                <span>New page</span>
-            </Button>
         </div>
 
-        <p id="profile-section-title" class="sidebar__section-title">Profile</p>
         <ProfileMenu />
 
-        <p class="sidebar__section-title">Pages</p>
+        <div class="sidebar__section-head">
+            <p class="sidebar__section-title">Pages</p>
+            <IconButton
+                label="New page"
+                variant="ghost"
+                :disabled="!profile.hasProfile"
+                @click="createPage"
+            >
+                <Plus :size="14" />
+            </IconButton>
+        </div>
         <ScrollArea v-if="profile.pages.length > 0" class="page-list">
             <div
                 v-for="page in profile.pages"

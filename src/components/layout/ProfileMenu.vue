@@ -12,6 +12,7 @@ import {
     Upload,
     X,
 } from "@lucide/vue";
+import IconButton from "@/components/ui/IconButton.vue";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
@@ -75,6 +76,7 @@ function startCreate(): void {
     rowMenu.value = null;
     mode.value = "create";
     draft.value = "";
+    open.value = true;
 }
 
 function cancelEdit(): void {
@@ -134,7 +136,18 @@ async function importProfile(): Promise<void> {
 </script>
 
 <template>
-    <div ref="root" class="profile-menu">
+    <div ref="root" class="profile-menu" :class="{ 'profile-menu--open': open }">
+        <div class="sidebar__section-head">
+            <p id="profile-section-title" class="sidebar__section-title">Profiles</p>
+            <div class="profile-menu__head-actions">
+                <IconButton label="Add profile" variant="ghost" @click="startCreate">
+                    <Plus :size="14" />
+                </IconButton>
+                <IconButton label="Import profile" variant="ghost" @click="importProfile">
+                    <Upload :size="14" />
+                </IconButton>
+            </div>
+        </div>
         <button
             class="profile-menu__trigger"
             type="button"
@@ -231,17 +244,6 @@ async function importProfile(): Promise<void> {
             </ul>
 
             <p v-if="profile.profiles.length === 0" class="profile-menu__empty">No profiles yet.</p>
-
-            <div class="profile-menu__footer">
-                <button class="profile-menu__footer-button" type="button" @click="startCreate">
-                    <Plus :size="14" />
-                    <span>Add Profile</span>
-                </button>
-                <button class="profile-menu__footer-button" type="button" @click="importProfile">
-                    <Upload :size="14" />
-                    <span>Import Profile</span>
-                </button>
-            </div>
         </div>
     </div>
 </template>
