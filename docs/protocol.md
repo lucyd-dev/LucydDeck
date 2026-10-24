@@ -58,11 +58,23 @@ Device to host:
 - `CMD:` events are fire and forget.
 - A key that runs only local actions reports nothing to the host.
 
-## Deletion
+## Page deletion
 
-The host sends `CMD_FILE_DELETE = 0x34` with payload `[pathType][path]`, using the same grammar and validation as `CMD_FILE_START`. A page path is `"<profile>/<id>.json"`, an icon path is `"<name>.png"`. The device answers `RESP_ACK`, and reuses `ERR_INVALID_PATH 0x10`, `ERR_INVALID_PAGE_NAME 0x11` and `ERR_PROFILE_NOT_FOUND 0x12`, plus `ERR_FILE_NOT_FOUND 0x2A` for a missing file.
+The firmware does not implement page deletion yet. It is tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9).
 
-The firmware opcode is not implemented yet. It is tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9). Until the deck runs a build with it, the command is answered with `ERR_UNKNOWN_COMMAND`, and the app shows that error.
+The target command is `CMD_PAGE_DELETE = 0x23`, modelled on `CMD_PROFILE_DELETE`: payload `<profile>/<id>` as one UTF-8 string, no `.json`, split on the first `/`. The device answers `RESP_ACK` on success.
+
+| Failure                           | Error                        |
+| --------------------------------- | ---------------------------- |
+| profile half fails `validateName` | `ERR_INVALID_PATH 0x10`      |
+| profile directory missing         | `ERR_PROFILE_NOT_FOUND 0x12` |
+| page half not 0 to 255            | `ERR_INVALID_PAGE_NAME 0x11` |
+| page file missing                 | `ERR_FILE_NOT_FOUND 0x2A`    |
+| unlink fails                      | `ERR_DELETE 0x16`            |
+
+Deleting the displayed page repaints the first remaining page (lowest id) in the active profile, and a blank page when none remain.
+
+The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. It adapts after the firmware command lands. Icons have no delete command yet, so the Device view will keep page cleanup only until one exists.
 
 ## Versioning
 
