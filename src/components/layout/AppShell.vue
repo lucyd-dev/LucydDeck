@@ -127,7 +127,12 @@ watch(
             <InspectorPanel />
         </aside>
 
-        <div class="app-shell__toasts" aria-live="polite">
+        <TransitionGroup
+            tag="div"
+            name="toast"
+            class="app-shell__toasts"
+            aria-live="polite"
+        >
             <Toast
                 v-for="toast in app.toasts"
                 :key="toast.id"
@@ -135,7 +140,7 @@ watch(
                 :message="toast.message"
                 @dismiss="app.dismissToast(toast.id)"
             />
-        </div>
+        </TransitionGroup>
 
         <ConfirmDialog
             v-if="confirm.request !== null"

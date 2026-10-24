@@ -226,6 +226,10 @@
     color: var(--color-text-faint);
 }
 
+.inventory-row > .badge {
+    justify-self: end;
+}
+
 .inventory-row--profile {
     background-color: var(--color-bg);
     font-weight: 600;
