@@ -29,6 +29,11 @@ class FakeConnection implements HidConnection {
 
     write(report: Uint8Array): Promise<void> {
         this.writes.push(report);
+        // The service clears the device sequence baseline on connect. Answer it
+        // here so tests only drive the commands they are about.
+        if (parseFrame(report).opcode === HostCommand.ResetSequence) {
+            queueMicrotask(() => this.respond(DeviceResponse.Ack));
+        }
         return Promise.resolve();
     }
 
@@ -143,22 +148,26 @@ describe("UsbService.connect", () => {
 });
 
 describe("UsbService command sequencing", () => {
-    it("starts at sequence 1 after connect and increments by one", async () => {
+    it("opens with a sequence reset, then counts up from there", async () => {
         const { usb, connection } = makeService();
         await usb.connect();
 
+        const handshake = connection.lastHostFrame();
+        expect(handshake.opcode).toBe(HostCommand.ResetSequence);
+        expect(handshake.seq).toBe(1);
+
         const first = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
-        expect(connection.lastHostFrame().seq).toBe(1);
+        expect(connection.lastHostFrame().seq).toBe(2);
         connection.respond(DeviceResponse.Ack);
         await first;
 
         const second = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
-        expect(connection.lastHostFrame().seq).toBe(2);
+        expect(connection.lastHostFrame().seq).toBe(3);
         connection.respond(DeviceResponse.Ack);
         await second;
     });
 
-    it("resets the host sequence on reconnect", async () => {
+    it("keeps the host sequence across a reconnect", async () => {
         const { usb, connection } = makeService();
         await usb.connect();
         const first = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
@@ -168,8 +177,12 @@ describe("UsbService command sequencing", () => {
         await usb.disconnect();
         await usb.connect();
 
+        // Opening the HID handle again does not re-enumerate the device. The
+        // reconnect's reset frame clears the deck baseline; the ping after it
+        // continues the host counter.
+        expect(connection.lastHostFrame().opcode).toBe(HostCommand.ResetSequence);
         const next = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
-        expect(connection.lastHostFrame().seq).toBe(1);
+        expect(connection.lastHostFrame().seq).toBe(4);
         connection.respond(DeviceResponse.Ack);
         await next;
     });
@@ -177,17 +190,18 @@ describe("UsbService command sequencing", () => {
     it("serializes commands and only writes one at a time", async () => {
         const { usb, connection } = makeService();
         await usb.connect();
+        const afterConnect = connection.writes.length;
 
         const first = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
         const second = usb.command(HostCommand.Ping, new Uint8Array(), DeviceResponse.Ack);
-        expect(connection.writes).toHaveLength(1);
+        expect(connection.writes).toHaveLength(afterConnect + 1);
 
         connection.respond(DeviceResponse.Ack);
         await first;
-        expect(connection.writes).toHaveLength(2);
+        expect(connection.writes).toHaveLength(afterConnect + 2);
         connection.respond(DeviceResponse.Ack);
         await second;
-        expect(connection.writes).toHaveLength(2);
+        expect(connection.writes).toHaveLength(afterConnect + 2);
     });
 });
 
@@ -275,6 +289,19 @@ describe("UsbService failures", () => {
         );
         expect(error?.firmwareCode).toBe(ErrorCode.Crc);
         expect(error?.code).toBe("ERR_CRC");
+    });
+
+    it("maps ERR_FILE_NOT_FOUND from a delete command", async () => {
+        const { usb, connection } = makeService();
+        await usb.connect();
+        const promise = usb.command(HostCommand.FileDelete, new Uint8Array(), DeviceResponse.Ack);
+        connection.respond(DeviceResponse.Error, Uint8Array.from([ErrorCode.FileNotFound]));
+        const error = await promise.then(
+            () => null,
+            (rejection: UsbError) => rejection,
+        );
+        expect(error?.firmwareCode).toBe(ErrorCode.FileNotFound);
+        expect(error?.code).toBe("ERR_FILE_NOT_FOUND");
     });
 
     it("rejects pending and queued commands on transport error", async () => {

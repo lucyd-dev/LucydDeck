@@ -19,10 +19,43 @@ export const FRAME_SIZE = 63;
 /** Maximum payload bytes carried by one frame. */
 export const PAYLOAD_MAX = 60;
 
+/**
+ * Zero-pad `bytes` to a whole number of HID payloads.
+ *
+ * The USB stack delivers every host→device report at its full 63-byte length,
+ * so the firmware always reads a `PAYLOAD_MAX`-byte payload and computes the
+ * payload length from that fixed size (`wiki/USB-Protocol.md` §2). Trailing
+ * bytes are zero fill. File hashes and the `CMD_FILE_END` CRC must cover this
+ * padded stream, not the unpadded file, or the two sides disagree.
+ */
+export function padToPayload(bytes: Uint8Array, payloadSize: number = PAYLOAD_MAX): Uint8Array {
+    if (!Number.isInteger(payloadSize) || payloadSize <= 0) {
+        throw new RangeError(`Invalid payload size: ${payloadSize}`);
+    }
+    const remainder = bytes.length % payloadSize;
+    if (remainder === 0) {
+        return bytes;
+    }
+    const padded = new Uint8Array(bytes.length + payloadSize - remainder);
+    padded.set(bytes);
+    return padded;
+}
+
 /** M-bit: set on every device→host frame except the last of a stream. */
 export const M_BIT = 0x8000;
 
-/** 15-bit sequence/index mask (`seq & SEQ_MASK`). */
+/**
+ * 15-bit sequence/index mask (`seq & SEQ_MASK`).
+ *
+ * Host→device sequencing uses one counter for the life of the host process,
+ * rising by exactly one per frame and wrapping from `0x7FFF` to `0`, M-bit
+ * clear. The device keeps one baseline per USB session. It clears that baseline
+ * on USB start/resume (re-enumeration) and whenever the host sends
+ * `CMD_RESET_SEQUENCE`, after which it accepts any value as the new baseline.
+ * Between resets it requires exactly `previous + 1`. A HID handle being closed
+ * and reopened raises no such event, so restarting the host counter at 1 on
+ * reconnect makes the device answer `RESP_ERROR ERR_SEQUENCE`.
+ */
 export const SEQ_MASK = 0x7fff;
 
 // --- Timeouts / transfer limits -------------------------------------------
@@ -48,6 +81,23 @@ export const PAGE_ID_PATTERN = /^\d{1,3}$/;
 export function isValidPageId(id: string | number): boolean {
     const value = String(id);
     return PAGE_ID_PATTERN.test(value) && Number(value) <= 255;
+}
+
+/** Canonical page filename: leading digits + `.json` (case-sensitive). */
+export const PAGE_FILENAME_PATTERN = /^(\d+)\.json$/;
+
+/**
+ * Parse a page filename to its canonical id, or `null` when it is not a
+ * `^[0-9]+\.json$` file or the id is outside 0..255. Single source of truth for
+ * `StorageService.listPages` and `SyncService`.
+ */
+export function pageIdFromFilename(filename: string): string | null {
+    const match = PAGE_FILENAME_PATTERN.exec(filename);
+    if (match === null) {
+        return null;
+    }
+    const id = match[1];
+    return isValidPageId(id) ? id : null;
 }
 
 // --- File-transfer path types ---------------------------------------------
@@ -85,6 +135,8 @@ export enum HostCommand {
     GetDeviceInfo = 0x01,
     GetImagesList = 0x02,
     GetProfilesList = 0x03,
+    /** Clears the device's host-sequence baseline; any sequence is accepted. */
+    ResetSequence = 0x04,
     ProfileCreate = 0x20,
     ProfileRename = 0x21,
     ProfileDelete = 0x22,
@@ -92,6 +144,7 @@ export enum HostCommand {
     FileChunk = 0x31,
     FileEnd = 0x32,
     FileCancel = 0x33,
+    FileDelete = 0x34,
     SetActiveProfile = 0x40,
     SetActivePage = 0x41,
 }
@@ -141,6 +194,7 @@ export enum ErrorCode {
     CrcMissing = 0x27,
     Crc = 0x28,
     Finalize = 0x29,
+    FileNotFound = 0x2a,
     UnknownAction = 0x30,
     PageLoad = 0x31,
     ProfileLoad = 0x32,
@@ -168,6 +222,7 @@ const ERROR_CODE_NAMES: Record<number, string> = {
     [ErrorCode.CrcMissing]: "ERR_CRC_MISSING",
     [ErrorCode.Crc]: "ERR_CRC",
     [ErrorCode.Finalize]: "ERR_FINALIZE",
+    [ErrorCode.FileNotFound]: "ERR_FILE_NOT_FOUND",
     [ErrorCode.UnknownAction]: "ERR_UNKNOWN_ACTION",
     [ErrorCode.PageLoad]: "ERR_PAGE_LOAD",
     [ErrorCode.ProfileLoad]: "ERR_PROFILE_LOAD",

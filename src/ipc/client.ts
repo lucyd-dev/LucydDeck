@@ -1,6 +1,8 @@
 import { channels } from "@shared/ipc";
-import type { IpcChannel, RequestFor, ResponseFor } from "@shared/ipc";
+import type { IpcChannel, RequestFor, ResponseFor, UsbDeleteFileRequest } from "@shared/ipc";
+import type { AppSettings } from "@shared/settings";
 import type { PageConfig } from "@shared/types";
+import type { DiffPlan } from "@shared/sync";
 
 /**
  * Typed wrappers over `window.lucyd`. The renderer calls these instead of
@@ -26,6 +28,9 @@ export const storageClient = {
         invoke(channels.storage.savePage, { profile, id, page }),
     exportProfile: (name: string) => invoke(channels.storage.exportProfile, { name }),
     importProfile: () => invoke(channels.storage.importProfile, undefined),
+    getDefaultProfile: () => invoke(channels.storage.getDefaultProfile, undefined),
+    setDefaultProfile: (name: string | null) =>
+        invoke(channels.storage.setDefaultProfile, { name }),
 };
 
 export const usbClient = {
@@ -43,12 +48,31 @@ export const usbClient = {
     setActivePage: (id: string) => invoke(channels.usb.setActivePage, { id }),
     uploadPage: (profile: string, id: string) => invoke(channels.usb.uploadPage, { profile, id }),
     uploadIcon: (name: string) => invoke(channels.usb.uploadIcon, { name }),
+    deleteFile: (request: UsbDeleteFileRequest) => invoke(channels.usb.deleteFile, request),
+};
+
+export const settingsClient = {
+    get: () => invoke(channels.settings.get, undefined),
+    set: (settings: Partial<AppSettings>) => invoke(channels.settings.set, { settings }),
+    revealDataFolder: () => invoke(channels.settings.revealDataFolder, undefined),
+    openLogsFolder: () => invoke(channels.settings.openLogsFolder, undefined),
 };
 
 export const iconsClient = {
     list: () => invoke(channels.icons.list, undefined),
-    import: (paths: string[]) => invoke(channels.icons.import, { paths }),
+    /** Import picked files; omit `paths` to open the native picker. */
+    import: (paths?: string[]) =>
+        invoke(channels.icons.import, paths === undefined ? {} : { paths }),
+    importData: (name: string, dataUrl: string) =>
+        invoke(channels.icons.importData, { name, dataUrl }),
     remove: (name: string) => invoke(channels.icons.remove, { name }),
+    preview: (name: string) => invoke(channels.icons.preview, { name }),
+};
+
+export const syncClient = {
+    reconcile: (activeProfile?: string) =>
+        invoke(channels.sync.reconcile, activeProfile === undefined ? {} : { activeProfile }),
+    execute: (plan: DiffPlan) => invoke(channels.sync.execute, { plan }),
 };
 
 export const pluginsClient = {

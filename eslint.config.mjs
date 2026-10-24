@@ -5,7 +5,7 @@ import pluginVue from "eslint-plugin-vue";
 
 export default tseslint.config(
     {
-        ignores: ["dist/", "dist-electron/", "release/", "node_modules/", "*.bin", ".kilo/"],
+        ignores: ["dist/", "dist-electron/", "release/", "node_modules/", "*.bin", "prototype/"],
     },
     js.configs.recommended,
     ...tseslint.configs.recommended,
@@ -18,6 +18,13 @@ export default tseslint.config(
                 ...globals.browser,
                 ...globals.node,
             },
+        },
+    },
+    {
+        files: ["src/components/ui/*.vue"],
+        rules: {
+            // The UI primitives intentionally use one-word names (Button, Tabs, ...).
+            "vue/multi-word-component-names": "off",
         },
     },
     {
@@ -34,6 +41,7 @@ export default tseslint.config(
             "vue/singleline-html-element-content-newline": "off",
             "vue/html-closing-bracket-newline": "off",
             "vue/html-indent": "off",
+            "vue/html-self-closing": "off",
         },
     },
 );

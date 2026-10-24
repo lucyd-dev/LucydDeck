@@ -1,0 +1,173 @@
+// 3x5 board workspace.
+
+.view--board {
+    display: flex;
+    flex-direction: column;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+}
+
+.board-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-md);
+}
+
+.page-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+}
+
+.page-switcher__pill {
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background-color: var(--color-bg-hover);
+    color: var(--color-text-dim);
+    font-size: 0.78rem;
+}
+
+.page-switcher__pill:hover {
+    border-color: var(--color-text-faint);
+    color: var(--color-text);
+}
+
+.page-switcher__pill--active {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+    color: var(--color-accent);
+}
+
+.page-switcher__add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--color-text-dim);
+}
+
+.page-switcher__add:hover {
+    border-color: var(--color-accent);
+    color: var(--color-text);
+}
+
+.board-canvas {
+    display: grid;
+    grid-template-columns: repeat(var(--board-cols, 5), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--board-rows, 3), minmax(0, 1fr));
+    gap: var(--space-md);
+    width: 100%;
+    // Keep the 5:3 deck proportions and cap by the available height so keys
+    // never outgrow a short window.
+    max-width: min(100%, calc((100dvh - 150px) * 5 / 3));
+    margin: 0 auto;
+}
+
+.key-button {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 0;
+    aspect-ratio: 1 / 1;
+    padding: var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    transition:
+        border-color 100ms ease,
+        box-shadow 100ms ease;
+}
+
+.key-button:hover {
+    border-color: var(--color-text-faint);
+}
+
+.key-button--selected {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.key-button--multi-selected {
+    border-color: var(--color-accent-border);
+    background-color: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
+    box-shadow: inset 0 0 0 1px var(--color-accent-border);
+}
+
+.key-button__check {
+    position: absolute;
+    top: var(--space-xs);
+    right: var(--space-xs);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--color-accent);
+    color: var(--color-accent-contrast);
+}
+
+.key-button--empty {
+    border-style: dashed;
+    background-color: var(--color-bg-elevated);
+}
+
+.key-button__icon {
+    width: 60%;
+    height: 60%;
+    object-fit: contain;
+}
+
+.key-button__missing {
+    color: var(--color-warning);
+}
+
+.key-button__index {
+    position: absolute;
+    top: var(--space-xs);
+    left: var(--space-sm);
+    color: var(--color-text-faint);
+    font-size: 0.72rem;
+}
+
+.key-button__label {
+    max-width: 100%;
+    margin-top: var(--space-xs);
+    overflow: hidden;
+    font-size: 0.78rem;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.key-button__badges {
+    position: absolute;
+    right: var(--space-xs);
+    bottom: var(--space-xs);
+    display: flex;
+    gap: var(--space-2xs);
+}
+
+.key-button__badge {
+    padding: 0 var(--space-2xs);
+    border-radius: var(--radius-sm);
+    background-color: rgb(0 0 0 / 45%);
+    color: var(--color-text-dim);
+    font-size: 0.68rem;
+}

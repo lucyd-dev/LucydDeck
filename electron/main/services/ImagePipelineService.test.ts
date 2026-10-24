@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StorageService } from "./StorageService";
-import { crc32 } from "./usb/Crc32";
+import { crc32Upload } from "./usb/Crc32";
 import {
     ICON_SIZE,
     ImagePipelineError,
@@ -96,7 +96,7 @@ describe("ImagePipelineService", () => {
 
         const stored = fs.readFileSync(result.path);
         expect(result.bytes).toBe(stored.length);
-        expect(result.crc32).toBe(crc32(new Uint8Array(stored)));
+        expect(result.crc32).toBe(crc32Upload(new Uint8Array(stored)));
     });
 
     it("rejects unsupported formats", async () => {

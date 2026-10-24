@@ -1,5 +1,7 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
 import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
+import type { AppSettings } from "./settings";
+import type { DiffPlan, SyncResult } from "./sync";
 
 // ---------------------------------------------------------------------------
 // Result envelope. Every IPC handler resolves to exactly one of these shapes.
@@ -38,11 +40,19 @@ export const channels = {
         savePage: "storage:savePage",
         exportProfile: "storage:exportProfile",
         importProfile: "storage:importProfile",
+        getDefaultProfile: "storage:getDefaultProfile",
+        setDefaultProfile: "storage:setDefaultProfile",
     },
     icons: {
         list: "icons:list",
         import: "icons:import",
+        importData: "icons:importData",
         remove: "icons:remove",
+        preview: "icons:preview",
+    },
+    sync: {
+        reconcile: "sync:reconcile",
+        execute: "sync:execute",
     },
     usb: {
         status: "usb:status",
@@ -58,6 +68,13 @@ export const channels = {
         setActivePage: "usb:setActivePage",
         uploadPage: "usb:uploadPage",
         uploadIcon: "usb:uploadIcon",
+        deleteFile: "usb:deleteFile",
+    },
+    settings: {
+        get: "settings:get",
+        set: "settings:set",
+        revealDataFolder: "settings:revealDataFolder",
+        openLogsFolder: "settings:openLogsFolder",
     },
     plugins: {
         list: "plugins:list",
@@ -113,12 +130,39 @@ export interface ExportProfileRequest {
     name: string;
 }
 
+export interface SetDefaultProfileRequest {
+    /** `null` clears the persisted default. */
+    name: string | null;
+}
+
 export interface IconRemoveRequest {
     name: string;
 }
 
 export interface IconsImportRequest {
-    paths: string[];
+    /** Absolute source paths; when omitted the main process shows a picker. */
+    paths?: string[];
+}
+
+/** Import a cropped/adjusted image supplied as a data URL from the renderer. */
+export interface IconImportDataRequest {
+    /** Desired icon base name (slugified main-side). */
+    name: string;
+    /** `data:image/png;base64,...` payload from the canvas crop tool. */
+    dataUrl: string;
+}
+
+export interface IconPreviewRequest {
+    name: string;
+}
+
+export interface SyncReconcileRequest {
+    /** Profile the user wants active after sync (optional). */
+    activeProfile?: string;
+}
+
+export interface SyncExecuteRequest {
+    plan: DiffPlan;
 }
 
 export interface UsbSetActivePageRequest {
@@ -132,6 +176,24 @@ export interface UsbUploadPageRequest {
 
 export interface UsbUploadIconRequest {
     name: string;
+}
+
+/** Delete one device file when the firmware exposes `CMD_FILE_DELETE`. */
+export type UsbDeleteFileRequest =
+    { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string };
+
+export interface SettingsSetRequest {
+    settings: Partial<AppSettings>;
+}
+
+/** Everything the renderer needs to paint Settings and apply the theme. */
+export interface SettingsSnapshot {
+    settings: AppSettings;
+    dataDir: string;
+    logsDir: string;
+    version: string;
+    repository: string;
+    license: string;
 }
 
 export interface PluginSetEnabledRequest {
@@ -154,11 +216,19 @@ export interface RequestMap {
     [channels.storage.savePage]: SavePageRequest;
     [channels.storage.exportProfile]: ExportProfileRequest;
     [channels.storage.importProfile]: undefined;
+    [channels.storage.getDefaultProfile]: undefined;
+    [channels.storage.setDefaultProfile]: SetDefaultProfileRequest;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
     [channels.icons.import]: IconsImportRequest;
+    [channels.icons.importData]: IconImportDataRequest;
     [channels.icons.remove]: IconRemoveRequest;
+    [channels.icons.preview]: IconPreviewRequest;
+
+    // sync (Step 3 delta-sync engine)
+    [channels.sync.reconcile]: SyncReconcileRequest;
+    [channels.sync.execute]: SyncExecuteRequest;
 
     // usb (Step 2 implements the HID engine)
     [channels.usb.status]: undefined;
@@ -174,6 +244,13 @@ export interface RequestMap {
     [channels.usb.setActivePage]: UsbSetActivePageRequest;
     [channels.usb.uploadPage]: UsbUploadPageRequest;
     [channels.usb.uploadIcon]: UsbUploadIconRequest;
+    [channels.usb.deleteFile]: UsbDeleteFileRequest;
+
+    // settings
+    [channels.settings.get]: undefined;
+    [channels.settings.set]: SettingsSetRequest;
+    [channels.settings.revealDataFolder]: undefined;
+    [channels.settings.openLogsFolder]: undefined;
 
     // plugins (stub — Step 4)
     [channels.plugins.list]: undefined;
@@ -200,11 +277,19 @@ export interface ResponseMap {
     [channels.storage.savePage]: IpcResponse<void>;
     [channels.storage.exportProfile]: IpcResponse<{ path: string } | null>;
     [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
+    [channels.storage.getDefaultProfile]: IpcResponse<string | null>;
+    [channels.storage.setDefaultProfile]: IpcResponse<void>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;
     [channels.icons.import]: IpcResponse<IconMeta[]>;
+    [channels.icons.importData]: IpcResponse<IconMeta>;
     [channels.icons.remove]: IpcResponse<void>;
+    [channels.icons.preview]: IpcResponse<IconPreview | null>;
+
+    // sync
+    [channels.sync.reconcile]: IpcResponse<DiffPlan>;
+    [channels.sync.execute]: IpcResponse<SyncResult>;
 
     // usb
     [channels.usb.status]: IpcResponse<DeviceStatus>;
@@ -220,6 +305,13 @@ export interface ResponseMap {
     [channels.usb.setActivePage]: IpcResponse<void>;
     [channels.usb.uploadPage]: IpcResponse<void>;
     [channels.usb.uploadIcon]: IpcResponse<void>;
+    [channels.usb.deleteFile]: IpcResponse<void>;
+
+    // settings
+    [channels.settings.get]: IpcResponse<SettingsSnapshot>;
+    [channels.settings.set]: IpcResponse<SettingsSnapshot>;
+    [channels.settings.revealDataFolder]: IpcResponse<void>;
+    [channels.settings.openLogsFolder]: IpcResponse<void>;
 
     // plugins
     [channels.plugins.list]: IpcResponse<PluginMeta[]>;
@@ -286,6 +378,12 @@ export interface IconMeta {
     hash: string;
 }
 
+/** `icons:preview` payload: a data URL the renderer can put in an `<img>`. */
+export interface IconPreview {
+    name: string;
+    dataUrl: string;
+}
+
 export interface PluginMeta {
     id: string;
     name: string;
@@ -310,6 +408,11 @@ export interface ToastPayload {
 export interface SyncProgressPayload {
     phase: string;
     percent: number;
+    completed?: number;
+    total?: number;
+    /** Human-readable label of the item being processed. */
+    current?: string;
+    message?: string;
 }
 
 export interface PluginEventPayload {

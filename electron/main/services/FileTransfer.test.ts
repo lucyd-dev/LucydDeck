@@ -5,7 +5,9 @@ import {
     FILE_TRANSFER_MAX_BYTES,
     HostCommand,
     PATH_PAGE,
+    PAYLOAD_MAX,
     PathType,
+    padToPayload,
 } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
 import { crc32BigEndian } from "./usb/Crc32";
@@ -34,6 +36,7 @@ interface Call {
 
 class MockUsb implements UsbCommandClient {
     readonly calls: Call[] = [];
+    connected = true;
     handler: (opcode: HostCommand, payload: Uint8Array) => Promise<Uint8Array> = async () =>
         new Uint8Array();
 
@@ -96,9 +99,11 @@ describe("FileTransfer chunking", () => {
         for (const chunk of usb.payloads(HostCommand.FileChunk)) {
             expect(chunk.length).toBeLessThanOrEqual(60);
         }
+        // 130 bytes become three full payloads; the last 50 bytes are zero fill.
         expect(usb.payloads(HostCommand.FileChunk).map((chunk) => chunk.length)).toEqual([
-            60, 60, 10,
+            60, 60, 60,
         ]);
+        expect(usb.payloads(HostCommand.FileChunk)[2].slice(10)).toEqual(new Uint8Array(50));
     });
 
     it("preserves order and paces on each ACK", async () => {
@@ -118,13 +123,41 @@ describe("FileTransfer chunking", () => {
     });
 });
 
+/**
+ * The firmware's view of a chunk stream. The USB stack delivers every report
+ * at its full 63-byte length (`wiki/USB-Protocol.md` §2), so the device always
+ * receives a 60-byte payload: the chunk bytes followed by zero fill.
+ */
+function firmwareStream(chunks: Uint8Array[]): Uint8Array {
+    const stream = new Uint8Array(chunks.length * PAYLOAD_MAX);
+    chunks.forEach((chunk, index) =>
+        stream.set(chunk.subarray(0, PAYLOAD_MAX), index * PAYLOAD_MAX),
+    );
+    return stream;
+}
+
 describe("FileTransfer CRC", () => {
+    it("hashes the zero-padded stream the firmware receives (test vector 0x41)", async () => {
+        const usb = new MockUsb();
+        // One byte -> one 60-byte payload: 0x41 followed by 59 zero-fill bytes.
+        await new FileTransfer(usb).upload(PATH_PAGE, PATH, Uint8Array.from([0x41]));
+
+        const wire = firmwareStream(usb.payloads(HostCommand.FileChunk));
+        expect(wire).toHaveLength(PAYLOAD_MAX);
+        expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual(
+            Array.from(crc32BigEndian(wire)),
+        );
+        // CRC-32 (IEEE) of 0x41 + 59 * 0x00.
+        expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual([0xa2, 0x4e, 0x47, 0x6b]);
+    });
+
     it("sends the big-endian CRC32 of all bytes in exact order", async () => {
         const usb = new MockUsb();
         const data = bytes(137);
         await new FileTransfer(usb).upload(PATH_PAGE, PATH, data);
+        // 137 file bytes + 43 zero-fill bytes in the final payload.
         expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual(
-            Array.from(crc32BigEndian(data)),
+            Array.from(crc32BigEndian(padToPayload(data))),
         );
     });
 
@@ -216,8 +249,123 @@ describe("FileTransfer control", () => {
         expect(transfer.state).toBe("cancelled");
     });
 
+    it("cancels the transfer the deck still holds after a failed upload", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileChunk) {
+                throw new UsbError("no ack", UsbErrorCodes.Timeout);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: UsbErrorCodes.Timeout,
+        });
+
+        expect(usb.calls.map((call) => call.opcode)).toEqual([
+            HostCommand.FileStart,
+            HostCommand.FileChunk,
+            HostCommand.FileCancel,
+        ]);
+        expect(transfer.state).toBe("idle");
+    });
+
+    it("keeps the original error when the deck has nothing to cancel", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileEnd) {
+                throw new UsbError("crc", "ERR_CRC", ErrorCode.Crc);
+            }
+            if (opcode === HostCommand.FileCancel) {
+                throw new UsbError("nothing open", "ERR_NO_TRANSFER", ErrorCode.NoTransfer);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb, { crcRetries: 0 });
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(10))).rejects.toMatchObject({
+            code: "ERR_CRC",
+            firmwareCode: ErrorCode.Crc,
+        });
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(1);
+    });
+
+    it("does not cancel after a successful upload", async () => {
+        const usb = new MockUsb();
+        await new FileTransfer(usb).upload(PATH_PAGE, PATH, bytes(10));
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(0);
+    });
+
+    it("clears a stale transfer and retries the start once", async () => {
+        const usb = new MockUsb();
+        let startCalls = 0;
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                startCalls++;
+                if (startCalls === 1) {
+                    throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+                }
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await transfer.upload(PATH_PAGE, PATH, bytes(61));
+
+        expect(usb.calls.map((call) => call.opcode)).toEqual([
+            HostCommand.FileStart,
+            HostCommand.FileCancel,
+            HostCommand.FileStart,
+            HostCommand.FileChunk,
+            HostCommand.FileChunk,
+            HostCommand.FileEnd,
+        ]);
+        expect(usb.payloads(HostCommand.FileStart)[1]).toEqual(
+            usb.payloads(HostCommand.FileStart)[0],
+        );
+        expect(transfer.state).toBe("done");
+    });
+
+    it("surfaces ERR_TRANSFER_BUSY when the deck is still busy after the clear", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: "ERR_TRANSFER_BUSY",
+            firmwareCode: ErrorCode.TransferBusy,
+        });
+        expect(usb.payloads(HostCommand.FileStart)).toHaveLength(2);
+    });
+
+    it("keeps the busy error when the cancel itself fails", async () => {
+        const usb = new MockUsb();
+        usb.handler = async (opcode) => {
+            if (opcode === HostCommand.FileStart) {
+                throw new UsbError("busy", "ERR_TRANSFER_BUSY", ErrorCode.TransferBusy);
+            }
+            if (opcode === HostCommand.FileCancel) {
+                throw new UsbError("no ack", UsbErrorCodes.Timeout);
+            }
+            return new Uint8Array();
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.upload(PATH_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+            code: "ERR_TRANSFER_BUSY",
+        });
+        expect(usb.payloads(HostCommand.FileStart)).toHaveLength(1);
+    });
+
     it("aborts when the device disconnects", async () => {
         const usb = new MockUsb();
+        usb.connected = false;
         usb.handler = async (opcode) => {
             if (opcode === HostCommand.FileChunk) {
                 throw new UsbError("gone", UsbErrorCodes.NotConnected);
@@ -229,6 +377,8 @@ describe("FileTransfer control", () => {
             code: UsbErrorCodes.NotConnected,
         });
         expect(transfer.state).toBe("idle");
+        // Nothing to clean up over a dropped link; the deck resets on replug.
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(0);
     });
 });
 

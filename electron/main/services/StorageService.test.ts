@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { serializePageConfig } from "@shared/schema";
 import {
     DATA_DIR_ENV,
     PAGE_FILE_PATTERN,
@@ -10,6 +11,7 @@ import {
     resolveDataDir,
     validateName,
 } from "./StorageService";
+import { crc32Upload } from "./usb/Crc32";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -209,7 +211,6 @@ describe("StorageService profile CRUD", () => {
                 "0": {
                     label: "Launch",
                     click: ["CMD:explorer.exe"],
-                    longPress: [],
                 },
             },
         };
@@ -330,6 +331,110 @@ describe("StorageService export/import", () => {
 
         expect(() => storage.importProfileFrom(src)).toThrow(/already exists/);
         expect(() => storage.importProfileFrom(path.join(dataDir, "missing"))).toThrow();
+    });
+});
+
+describe("StorageService default profile", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("persists, resolves, and surfaces the default flag", () => {
+        storage.createProfile("main");
+        storage.createProfile("work");
+        expect(storage.getDefaultProfile()).toBeNull();
+
+        storage.setDefaultProfile("work");
+        expect(storage.getDefaultProfile()).toBe("work");
+        expect(storage.listProfiles().map((p) => [p.name, p.isDefault])).toEqual([
+            ["main", false],
+            ["work", true],
+        ]);
+
+        // Renaming the default follows the rename.
+        storage.renameProfile("work", "office");
+        expect(storage.getDefaultProfile()).toBe("office");
+
+        // Deleting the default clears it.
+        storage.deleteProfile("office");
+        expect(storage.getDefaultProfile()).toBeNull();
+    });
+
+    it("clears the default with null and rejects missing profiles", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setDefaultProfile(null);
+        expect(storage.getDefaultProfile()).toBeNull();
+        expect(() => storage.setDefaultProfile("ghost")).toThrow(/not found/);
+    });
+});
+
+describe("StorageService app settings", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("defaults when settings.json has no app section", () => {
+        expect(storage.getAppSettings().theme).toBe("system");
+        expect(storage.getAppSettings().accent).toBe("violet");
+    });
+
+    it("persists appearance and window settings beside defaultProfile", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setAppSettings({ theme: "light", accent: "blue" });
+        const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")) as {
+            defaultProfile?: string;
+            app?: { theme?: string; accent?: string };
+        };
+        expect(saved.defaultProfile).toBe("main");
+        expect(saved.app?.theme).toBe("light");
+        expect(saved.app?.accent).toBe("blue");
+        expect(storage.getAppSettings().theme).toBe("light");
+    });
+
+    it("sanitizes hostile settings and clamps window bounds", () => {
+        fs.writeFileSync(
+            path.join(dataDir, "settings.json"),
+            JSON.stringify({ app: { theme: "neon", accent: 42, window: { width: 1 } } }),
+        );
+        const settings = storage.getAppSettings();
+        expect(settings.theme).toBe("system");
+        expect(settings.accent).toBe("violet");
+        expect(settings.window.width).toBe(1024);
+    });
+
+    it("reports the canonical page hash matching the upload bytes", () => {
+        storage.createProfile("main");
+        const page = {
+            buttons: { "1": { label: "Run", click: ["CMD:echo hi"] } },
+        };
+        storage.savePage("main", "0", page);
+        const hash = storage.listPages("main")[0].hash;
+        expect(typeof hash).toBe("number");
+        expect(storage.pageHash("main", "0")).toBe(hash);
+        // The device stores the zero-padded HID payloads, so its list hash is
+        // the CRC of the padded canonical JSON, not the unpadded file.
+        const canonical = new TextEncoder().encode(
+            JSON.stringify(serializePageConfig(page as never)),
+        );
+        expect(hash).toBe(crc32Upload(canonical));
     });
 });
 

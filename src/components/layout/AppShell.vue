@@ -1,112 +1,151 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { useRoute } from "vue-router";
+import { LayoutGrid, Plug, Settings as SettingsIcon, Usb, Zap } from "@lucide/vue";
+import ConfirmDialog from "@/components/ui/ConfirmDialog.vue";
+import Toast from "@/components/ui/Toast.vue";
+import Tooltip from "@/components/ui/Tooltip.vue";
+import InspectorPanel from "@/components/inspector/InspectorPanel.vue";
 import { useAppStore } from "@/stores/appStore";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
-import { Settings, Blocks, Save, Plug, Zap, X } from "@lucide/vue";
+import { NARROW_QUERY } from "@/layout";
 
+const route = useRoute();
 const app = useAppStore();
+const confirm = useConfirmStore();
 const profile = useProfileStore();
 const usb = useUsbStore();
 
-const navItems = [
-    { to: "/", label: "Board", icon: Blocks },
-    { to: "/plugins", label: "Plugins", icon: Plug },
-    { to: "/settings", label: "Settings", icon: Settings },
+const views = [
+    { name: "deck", label: "Deck", icon: LayoutGrid, to: "/" },
+    { name: "plugins", label: "Plugins", icon: Plug, to: "/plugins" },
+    { name: "device", label: "Device", icon: Usb, to: "/device" },
+    { name: "settings", label: "Settings", icon: SettingsIcon, to: "/settings" },
 ];
 
+const showInspector = computed(
+    () => route.meta.inspector === true && (!app.narrow || app.inspectorOpen),
+);
+const inspectorOverlay = computed(() => showInspector.value && app.narrow);
+
+let media: MediaQueryList | null = null;
+
+function onMediaChange(event: MediaQueryListEvent | MediaQueryList): void {
+    app.setNarrow(event.matches);
+}
+
+function onWindowFocus(): void {
+    void profile.checkExternalChanges();
+}
+
 onMounted(() => {
-    void profile.refreshProfiles();
+    void profile.initProfiles();
     void usb.refreshStatus();
+    media = window.matchMedia(NARROW_QUERY);
+    onMediaChange(media);
+    media.addEventListener("change", onMediaChange);
+    window.addEventListener("focus", onWindowFocus);
 });
 
-function changeProfile(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    profile.selectProfile(value);
-}
+onBeforeUnmount(() => {
+    media?.removeEventListener("change", onMediaChange);
+    window.removeEventListener("focus", onWindowFocus);
+});
+
+watch(
+    () => route.fullPath,
+    () => {
+        if (app.narrow) {
+            app.closeInspector();
+        }
+    },
+);
 </script>
 
 <template>
-    <div class="app-shell">
-        <header class="app-shell__topbar app-shell__topbar--bem">
-            <div class="topbar__brand">
-                <span class="topbar__logo">LucydDeck</span>
+    <div
+        class="app-shell"
+        :class="{
+            'app-shell--with-inspector': showInspector,
+            'app-shell--inspector-open': inspectorOverlay,
+        }"
+    >
+        <aside class="sidebar">
+            <div class="sidebar__brand">
+                <span class="sidebar__brand-mark"><Zap :size="16" /></span>
+                <span>LucydDeck</span>
             </div>
 
-            <label class="topbar__profile">
-                <span class="topbar__profile-label">Profile</span>
-                <select
-                    class="topbar__profile-select"
-                    :value="profile.activeProfile"
-                    @change="changeProfile"
-                >
-                    <option value="" disabled>Select profile…</option>
-                    <option v-for="item in profile.profiles" :key="item.name" :value="item.name">
-                        {{ item.name }}
-                    </option>
-                </select>
-            </label>
-
-            <button
-                class="topbar__status"
-                :class="`topbar__status--${app.deviceStatus.state}`"
-                type="button"
-                :disabled="usb.busy"
-                :title="
-                    app.deviceStatus.state === 'connected' ? 'Disconnect device' : 'Connect device'
-                "
-                @click="usb.toggle()"
-            >
-                <Zap :size="14" />
-                <span class="topbar__status-label">{{ app.deviceStatus.label }}</span>
-            </button>
-
-            <button class="topbar__save" type="button" disabled title="Save (Step 3)">
-                <Save :size="14" />
-                <span>Save</span>
-            </button>
-
-            <nav class="topbar__nav">
-                <router-link
-                    v-for="item in navItems"
-                    :key="item.to"
-                    :to="item.to"
-                    class="topbar__nav-link"
-                >
-                    <component :is="item.icon" :size="14" />
-                    <span>{{ item.label }}</span>
-                </router-link>
+            <nav class="sidebar__views" aria-label="Views">
+                <Tooltip v-for="view in views" :key="view.name" :text="view.label">
+                    <RouterLink
+                        class="sidebar__view"
+                        :class="{ 'sidebar__view--active': route.name === view.name }"
+                        :to="view.to"
+                        :aria-label="view.label"
+                        :aria-current="route.name === view.name ? 'page' : undefined"
+                    >
+                        <component :is="view.icon" :size="18" />
+                    </RouterLink>
+                </Tooltip>
             </nav>
-        </header>
+
+            <div class="sidebar__body">
+                <RouterView name="sidebar" />
+            </div>
+
+            <footer class="sidebar__footer">
+                <button
+                    class="device-chip"
+                    :class="`device-chip--${app.deviceStatus.state}`"
+                    type="button"
+                    :disabled="usb.busy"
+                    :title="usb.connected ? 'Disconnect the deck' : 'Connect the deck'"
+                    @click="usb.toggle()"
+                >
+                    <span class="device-chip__dot" aria-hidden="true"></span>
+                    <span class="device-chip__label">{{ app.deviceStatus.label }}</span>
+                </button>
+            </footer>
+        </aside>
 
         <main class="app-shell__content">
-            <router-view />
+            <RouterView />
         </main>
 
-        <aside class="app-shell__inspector">
-            <div class="inspector__header">
-                <h2 class="inspector__title">Inspector</h2>
-            </div>
-            <p class="inspector__placeholder">The action sidebar (Step 3) will live here.</p>
+        <button
+            v-if="inspectorOverlay"
+            class="app-shell__scrim"
+            type="button"
+            aria-label="Close inspector"
+            @click="app.closeInspector()"
+        ></button>
+
+        <aside v-if="showInspector" class="app-shell__inspector">
+            <InspectorPanel />
         </aside>
 
         <div class="app-shell__toasts" aria-live="polite">
-            <div
+            <Toast
                 v-for="toast in app.toasts"
                 :key="toast.id"
-                class="toast"
-                :class="`toast--${toast.level}`"
-            >
-                <span class="toast__message">{{ toast.message }}</span>
-                <button
-                    class="toast__dismiss"
-                    type="button"
-                    aria-label="Dismiss"
-                    @click="app.dismissToast(toast.id)"
-                >
-                    <X :size="12" />
-                </button>
-            </div>
+                :level="toast.level"
+                :message="toast.message"
+                @dismiss="app.dismissToast(toast.id)"
+            />
         </div>
+
+        <ConfirmDialog
+            v-if="confirm.request !== null"
+            :title="confirm.request.title"
+            :message="confirm.request.message"
+            :confirm-label="confirm.request.confirmLabel"
+            :cancel-label="confirm.request.cancelLabel"
+            :danger="confirm.request.danger"
+            @confirm="confirm.answer(true)"
+            @cancel="confirm.answer(false)"
+        />
     </div>
 </template>

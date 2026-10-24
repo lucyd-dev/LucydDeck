@@ -1,0 +1,88 @@
+// Deck view sidebar: profile picker and page thumbnails.
+
+.deck-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.deck-sidebar__actions {
+    display: flex;
+    gap: var(--space-xs);
+}
+
+.deck-sidebar__actions > * {
+    flex: 1;
+}
+
+.page-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.page-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    text-align: left;
+}
+
+.page-card:hover {
+    border-color: var(--color-text-faint);
+}
+
+.page-card--active {
+    border-color: var(--color-accent);
+    background-color: var(--color-accent-soft);
+}
+
+.page-thumb {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 1px;
+    width: 58px;
+    aspect-ratio: 5 / 3;
+    padding: 2px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-bg-hover);
+    overflow: hidden;
+}
+
+.page-thumb__cell {
+    border-radius: 1px;
+    background-color: var(--page-cell, var(--color-bg-elevated));
+}
+
+.page-card__body {
+    min-width: 0;
+}
+
+.page-card__name {
+    overflow: hidden;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.page-card__meta {
+    color: var(--color-text-faint);
+    font-size: 0.7rem;
+}
+
+.deck-sidebar__hint {
+    margin: 0;
+    color: var(--color-text-faint);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}

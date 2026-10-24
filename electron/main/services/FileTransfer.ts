@@ -5,6 +5,7 @@ import {
     FILE_TRANSFER_MAX_BYTES,
     HostCommand,
     PAYLOAD_MAX,
+    padToPayload,
 } from "@shared/protocol";
 import type { PathType } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
@@ -32,10 +33,14 @@ export class FileTransferError extends Error {
 /** Minimal surface `FileTransfer` needs from `UsbService` (mockable in tests). */
 export interface UsbCommandClient {
     command(opcode: HostCommand, payload: Uint8Array, expect: DeviceResponse): Promise<Uint8Array>;
+    /**
+     * False once the HID link is down. Cleanup commands are pointless then, and
+     * the deck resets its transfer state when it re-enumerates.
+     */
+    readonly connected?: boolean;
 }
 
 export interface FileTransferOptions {
-    chunkSize?: number;
     /** How many times to retry the whole file after `ERR_CRC` on END. */
     crcRetries?: number;
     crc?: (bytes: Uint8Array) => Uint8Array;
@@ -59,14 +64,37 @@ function isCrcError(error: unknown): boolean {
     );
 }
 
+/** True when the deck answered `CMD_FILE_CANCEL` with "nothing to cancel". */
+function isNoTransferError(error: unknown): boolean {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "firmwareCode" in error &&
+        (error as UsbError).firmwareCode === ErrorCode.NoTransfer
+    );
+}
+
+/** True when the deck refused `CMD_FILE_START` because a transfer is open. */
+function isBusyError(error: unknown): boolean {
+    return (
+        typeof error === "object" &&
+        error !== null &&
+        "firmwareCode" in error &&
+        (error as UsbError).firmwareCode === ErrorCode.TransferBusy
+    );
+}
+
 /**
  * Three-phase `CMD_FILE_*` uploader: START → ACK-paced chunks → END with a
  * big-endian CRC32. One transfer at a time; `ERR_CRC` on END retries the file
  * once (the device keeps the last-good file until a rename succeeds).
+ *
+ * Every chunk payload is exactly `PAYLOAD_MAX` bytes: the final chunk is
+ * zero-padded and the CRC covers the padded stream, matching what the fixed
+ * 63-byte USB report delivers to the firmware.
  */
 export class FileTransfer {
     private readonly usb: UsbCommandClient;
-    private readonly chunkSize: number;
     private readonly crcRetries: number;
     private readonly crc: (bytes: Uint8Array) => Uint8Array;
     private readonly progressIntervalMs: number;
@@ -75,13 +103,14 @@ export class FileTransfer {
 
     private statusValue: TransferState = "idle";
     private cancelled = false;
+    /** True between an ACKed `CMD_FILE_START` and `CMD_FILE_END`. */
+    private transferOpen = false;
     private currentPath = "";
     private currentPathType: number = 0;
     private lastProgressAt = 0;
 
     constructor(usb: UsbCommandClient, options: FileTransferOptions = {}) {
         this.usb = usb;
-        this.chunkSize = options.chunkSize ?? PAYLOAD_MAX;
         this.crcRetries = options.crcRetries ?? 1;
         this.crc = options.crc ?? crc32BigEndian;
         this.progressIntervalMs = options.progressIntervalMs ?? 100;
@@ -129,9 +158,18 @@ export class FileTransfer {
                 FileTransferErrorCodes.TooLarge,
             );
         }
+        // The firmware counts the padded bytes it receives against its budget.
+        const wire = padToPayload(bytes);
+        if (wire.length > FILE_TRANSFER_MAX_BYTES) {
+            throw new FileTransferError(
+                `File too large after HID padding: ${wire.length} > ${FILE_TRANSFER_MAX_BYTES} bytes`,
+                FileTransferErrorCodes.TooLarge,
+            );
+        }
 
         this.statusValue = "active";
         this.cancelled = false;
+        this.transferOpen = false;
         this.currentPath = path;
         this.currentPathType = pathType;
         this.lastProgressAt = 0;
@@ -139,7 +177,7 @@ export class FileTransfer {
         try {
             for (let attempt = 0; ; attempt++) {
                 try {
-                    await this.runTransfer(pathType, path, bytes);
+                    await this.runTransfer(pathType, path, bytes, wire);
                     break;
                 } catch (error) {
                     if (attempt < this.crcRetries && !this.cancelled && isCrcError(error)) {
@@ -158,6 +196,7 @@ export class FileTransfer {
             if (this.cancelled) {
                 throw new FileTransferError("Transfer cancelled", FileTransferErrorCodes.Cancelled);
             }
+            await this.clearOpenTransfer();
             throw error;
         } finally {
             this.currentPath = "";
@@ -182,10 +221,60 @@ export class FileTransfer {
         }
     }
 
+    /**
+     * Clear a transfer the deck still has open after a failed upload. Without
+     * this the deck keeps the staging transfer and answers the next
+     * `CMD_FILE_START` with `ERR_TRANSFER_BUSY`. Best effort: `ERR_NO_TRANSFER`
+     * means the deck already closed it, and a dropped link needs no cleanup.
+     */
+    private async clearOpenTransfer(): Promise<void> {
+        if (!this.transferOpen) {
+            return;
+        }
+        this.transferOpen = false;
+        if (this.usb.connected === false) {
+            return;
+        }
+        try {
+            await this.usb.command(HostCommand.FileCancel, new Uint8Array(), DeviceResponse.Ack);
+        } catch (error) {
+            if (isNoTransferError(error)) {
+                return;
+            }
+            log.warn(`[transfer] could not clear the failed transfer: ${String(error)}`);
+        }
+    }
+
+    /**
+     * Start a transfer, clearing a staging transfer the deck still holds after
+     * an interrupted session (app crash, dropped link). One retry only: the
+     * second `ERR_TRANSFER_BUSY` is real and belongs to the caller.
+     */
+    private async startTransfer(payload: Uint8Array): Promise<void> {
+        try {
+            await this.send(HostCommand.FileStart, payload);
+            return;
+        } catch (error) {
+            if (!isBusyError(error)) {
+                throw error;
+            }
+            log.warn("[transfer] deck still holds a transfer; cancelling it before retrying");
+            try {
+                await this.send(HostCommand.FileCancel, new Uint8Array());
+            } catch (cancelError) {
+                if (!isNoTransferError(cancelError)) {
+                    throw error;
+                }
+            }
+            await this.send(HostCommand.FileStart, payload);
+        }
+    }
+
     private async runTransfer(
         pathType: PathType | number,
         path: string,
         bytes: Uint8Array,
+        wire: Uint8Array,
     ): Promise<void> {
         const encodedPath = textBytes(path);
         const startPayload = new Uint8Array(1 + encodedPath.length);
@@ -193,20 +282,22 @@ export class FileTransfer {
         startPayload.set(encodedPath, 1);
 
         this.assertNotCancelled();
-        await this.send(HostCommand.FileStart, startPayload);
+        await this.startTransfer(startPayload);
+        this.transferOpen = true;
         this.emit("start", 0, bytes.length);
 
         let sent = 0;
-        while (sent < bytes.length) {
+        while (sent < wire.length) {
             this.assertNotCancelled();
-            const end = Math.min(sent + this.chunkSize, bytes.length);
-            await this.send(HostCommand.FileChunk, bytes.subarray(sent, end));
+            const end = Math.min(sent + PAYLOAD_MAX, wire.length);
+            await this.send(HostCommand.FileChunk, wire.subarray(sent, end));
             sent = end;
-            this.maybeEmitChunkProgress(sent, bytes.length);
+            this.maybeEmitChunkProgress(Math.min(sent, bytes.length), bytes.length);
         }
 
         this.assertNotCancelled();
-        await this.send(HostCommand.FileEnd, this.crc(bytes));
+        await this.send(HostCommand.FileEnd, this.crc(wire));
+        this.transferOpen = false;
         this.emit("end", bytes.length, bytes.length);
     }
 
