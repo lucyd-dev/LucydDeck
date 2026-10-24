@@ -67,6 +67,31 @@
     min-width: 0;
 }
 
+.page-card__select {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.page-card__delete {
+    flex: 0 0 auto;
+    opacity: 0;
+}
+
+.page-card:hover .page-card__delete,
+.page-card:focus-within .page-card__delete {
+    opacity: 1;
+}
+
 .page-card__name {
     overflow: hidden;
     font-size: 0.82rem;

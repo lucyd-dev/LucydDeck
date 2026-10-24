@@ -26,6 +26,8 @@ export const storageClient = {
     loadPage: (profile: string, id: string) => invoke(channels.storage.loadPage, { profile, id }),
     savePage: (profile: string, id: string, page: PageConfig) =>
         invoke(channels.storage.savePage, { profile, id, page }),
+    deletePage: (profile: string, id: string) =>
+        invoke(channels.storage.deletePage, { profile, id }),
     exportProfile: (name: string) => invoke(channels.storage.exportProfile, { name }),
     importProfile: () => invoke(channels.storage.importProfile, undefined),
     getDefaultProfile: () => invoke(channels.storage.getDefaultProfile, undefined),

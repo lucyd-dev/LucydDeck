@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { FilePlus2, PanelRight } from "@lucide/vue";
+import { FilePlus2, PanelRight, Trash2 } from "@lucide/vue";
 import { BOARD_SIZE } from "@shared/schema";
 import { pageLabel } from "@shared/pages";
 import type { PageConfig } from "@shared/types";
@@ -11,10 +11,13 @@ import EmptyState from "@/components/ui/EmptyState.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import ScrollArea from "@/components/ui/ScrollArea.vue";
 import ProfileMenu from "@/components/layout/ProfileMenu.vue";
+import { useConfirmStore } from "@/stores/confirmStore";
 import { useProfileStore } from "@/stores/profileStore";
 
 const app = useAppStore();
 const profile = useProfileStore();
+const confirm = useConfirmStore();
+const deletingPageId = ref<string | null>(null);
 
 const previews = ref<Record<string, PageConfig>>({});
 let previewSeq = 0;
@@ -72,6 +75,24 @@ function selectPage(id: string): void {
 function createPage(): void {
     void profile.createPage();
 }
+
+async function removePage(id: string): Promise<void> {
+    const confirmed = await confirm.ask({
+        title: "Delete page",
+        message: `Delete ${pageLabel(id)} from the library? The deck keeps its copy until you delete it in Device → Files.`,
+        confirmLabel: "Delete page",
+        danger: true,
+    });
+    if (!confirmed) {
+        return;
+    }
+    deletingPageId.value = id;
+    try {
+        await profile.removePage(id);
+    } finally {
+        deletingPageId.value = null;
+    }
+}
 </script>
 
 <template>
@@ -97,28 +118,41 @@ function createPage(): void {
 
         <p class="sidebar__section-title">Pages</p>
         <ScrollArea v-if="profile.pages.length > 0" class="page-list">
-            <button
+            <div
                 v-for="page in profile.pages"
                 :key="page.id"
                 class="page-card"
                 :class="{ 'page-card--active': page.id === profile.currentPageId }"
-                type="button"
-                :aria-current="page.id === profile.currentPageId ? 'page' : undefined"
-                @click="selectPage(page.id)"
             >
-                <span class="page-thumb" aria-hidden="true">
-                    <span
-                        v-for="(background, cell) in cells(page.id)"
-                        :key="cell"
-                        class="page-thumb__cell"
-                        :style="background ? { '--page-cell': background } : undefined"
-                    ></span>
-                </span>
-                <span class="page-card__body">
-                    <span class="page-card__name">{{ pageLabel(page.id) }}</span>
-                    <span class="page-card__meta">id {{ page.id }}</span>
-                </span>
-            </button>
+                <button
+                    class="page-card__select"
+                    type="button"
+                    :aria-current="page.id === profile.currentPageId ? 'page' : undefined"
+                    @click="selectPage(page.id)"
+                >
+                    <span class="page-thumb" aria-hidden="true">
+                        <span
+                            v-for="(background, cell) in cells(page.id)"
+                            :key="cell"
+                            class="page-thumb__cell"
+                            :style="background ? { '--page-cell': background } : undefined"
+                        ></span>
+                    </span>
+                    <span class="page-card__body">
+                        <span class="page-card__name">{{ pageLabel(page.id) }}</span>
+                        <span class="page-card__meta">id {{ page.id }}</span>
+                    </span>
+                </button>
+                <IconButton
+                    class="page-card__delete"
+                    :label="`Delete ${pageLabel(page.id)}`"
+                    variant="ghost"
+                    :disabled="deletingPageId === page.id"
+                    @click="removePage(page.id)"
+                >
+                    <Trash2 :size="14" />
+                </IconButton>
+            </div>
         </ScrollArea>
 
         <EmptyState

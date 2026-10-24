@@ -204,6 +204,20 @@ describe("StorageService profile CRUD", () => {
         expect(() => storage.loadPage("main", "abc")).toThrow();
     });
 
+    it("deletes a page and refuses a missing one", () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", { buttons: {} });
+        storage.savePage("main", "1", { buttons: {} });
+
+        storage.deletePage("main", "0");
+        expect(storage.listPages("main").map((p) => p.id)).toEqual(["1"]);
+        expect(() => storage.loadPage("main", "0")).toThrow();
+
+        expect(() => storage.deletePage("main", "0")).toThrow();
+        expect(() => storage.deletePage("missing", "1")).toThrow();
+        expect(() => storage.deletePage("main", "../x")).toThrow();
+    });
+
     it("loads what it saved, pretty-printed with a trailing newline", () => {
         storage.createProfile("main");
         const page = {

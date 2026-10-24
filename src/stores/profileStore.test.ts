@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from "pinia";
 
 const mocks = vi.hoisted(() => ({
     savePage: vi.fn(),
+    deletePage: vi.fn(),
     loadPage: vi.fn(),
     listPages: vi.fn(),
     listProfiles: vi.fn(),
@@ -51,6 +52,7 @@ describe("profileStore autosave and history", () => {
             ],
         });
         mocks.listProfiles.mockReset().mockResolvedValue({ ok: true, data: [] });
+        mocks.deletePage.mockReset().mockResolvedValue({ ok: true, data: undefined });
     });
 
     afterEach(() => {
@@ -166,5 +168,51 @@ describe("profileStore autosave and history", () => {
         store.keepLocalPage();
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.savePage).toHaveBeenCalledTimes(1);
+    });
+
+    it("deletes the open page and opens the lowest remaining one", async () => {
+        const store = setupStore();
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "1", mtimeMs: 2000 }] });
+
+        expect(await store.removePage("0")).toBe(true);
+        expect(mocks.deletePage).toHaveBeenCalledWith("main", "0");
+        expect(store.currentPageId).toBe("1");
+        expect(mocks.loadPage).toHaveBeenLastCalledWith("main", "1");
+    });
+
+    it("leaves the editor empty when the last page is deleted", async () => {
+        const store = setupStore();
+        mocks.listPages.mockResolvedValue({ ok: true, data: [] });
+
+        expect(await store.removePage("0")).toBe(true);
+        expect(store.currentPageId).toBeNull();
+        expect(store.currentPage).toEqual({ buttons: {} });
+        expect(store.dirty).toBe(false);
+    });
+
+    it("keeps the open page when another one is deleted", async () => {
+        const store = setupStore();
+
+        expect(await store.removePage("1")).toBe(true);
+        expect(store.currentPageId).toBe("0");
+        expect(mocks.loadPage).not.toHaveBeenCalled();
+    });
+
+    it("does not autosave a deleted page back into the library", async () => {
+        const store = setupStore();
+        store.setLabel("A");
+
+        await store.removePage("0");
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(mocks.savePage).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed delete and keeps the page open", async () => {
+        const store = setupStore();
+        mocks.deletePage.mockResolvedValue({ ok: false, error: "Page not found" });
+
+        expect(await store.removePage("0")).toBe(false);
+        expect(store.currentPageId).toBe("0");
     });
 });

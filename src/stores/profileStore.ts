@@ -6,6 +6,7 @@ import { PageDocumentHistory, clonePageConfig } from "@/editor/pageDocument";
 import { validateActionString } from "@shared/actions";
 import { emptyButtonConfig, emptyPageConfig, isValidBoardIndex } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
+import { pageLabel } from "@shared/pages";
 import type { ButtonConfig, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 
 /** Delay between the last edit and the autosave write. */
@@ -430,6 +431,53 @@ export const useProfileStore = defineStore("profile", () => {
         }
         await refreshPages();
         await loadPage(id);
+    }
+
+    /** Delete a page file; the deck keeps its own copy, deleted from the Device view. */
+    async function removePage(id: string): Promise<boolean> {
+        const profile = activeProfile.value;
+        if (profile === "" || !pages.value.some((page) => page.id === id)) {
+            return false;
+        }
+        const isCurrent = id === currentPageId.value;
+        if (isCurrent) {
+            // Autosave would write the page back the moment the delete lands.
+            clearAutosaveTimer();
+        }
+        const result = await storageClient.deletePage(profile, id);
+        if (!result.ok) {
+            useAppStore().pushToast("error", result.error);
+            return false;
+        }
+
+        const key = pageHistoryKey(profile, id);
+        history.clear(key);
+        historyVersion.value++;
+        deferredPages.delete(key);
+        useAppStore().pushToast("success", `Deleted ${pageLabel(id)}`);
+
+        if (activeProfile.value !== profile) {
+            return true;
+        }
+        await refreshPages(profile);
+        if (!isCurrent || activeProfile.value !== profile) {
+            return true;
+        }
+
+        const next = pages.value[0]?.id ?? null;
+        if (next !== null) {
+            await loadPage(next, { fromDisk: true });
+        } else {
+            currentPage.value = emptyPageConfig();
+            currentPageId.value = null;
+            currentPageMtime.value = null;
+            selectedKeys.value = [];
+            dirty.value = false;
+            saveState.value = "saved";
+            externalChange.value = null;
+            changeRevision++;
+        }
+        return true;
     }
 
     function selectKey(index: string | null, extend = false): void {
@@ -879,6 +927,7 @@ export const useProfileStore = defineStore("profile", () => {
         initProfiles,
         selectPage,
         createPage,
+        removePage,
         selectKey,
         isKeySelected,
         setLabel,

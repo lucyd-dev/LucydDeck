@@ -38,6 +38,7 @@ export const channels = {
         listPages: "storage:listPages",
         loadPage: "storage:loadPage",
         savePage: "storage:savePage",
+        deletePage: "storage:deletePage",
         exportProfile: "storage:exportProfile",
         importProfile: "storage:importProfile",
         getDefaultProfile: "storage:getDefaultProfile",
@@ -214,6 +215,7 @@ export interface RequestMap {
     [channels.storage.listPages]: ProfileNameRequest;
     [channels.storage.loadPage]: PageRefRequest;
     [channels.storage.savePage]: SavePageRequest;
+    [channels.storage.deletePage]: PageRefRequest;
     [channels.storage.exportProfile]: ExportProfileRequest;
     [channels.storage.importProfile]: undefined;
     [channels.storage.getDefaultProfile]: undefined;
@@ -275,6 +277,7 @@ export interface ResponseMap {
     [channels.storage.listPages]: IpcResponse<PageMeta[]>;
     [channels.storage.loadPage]: IpcResponse<PageConfig>;
     [channels.storage.savePage]: IpcResponse<void>;
+    [channels.storage.deletePage]: IpcResponse<void>;
     [channels.storage.exportProfile]: IpcResponse<{ path: string } | null>;
     [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
     [channels.storage.getDefaultProfile]: IpcResponse<string | null>;

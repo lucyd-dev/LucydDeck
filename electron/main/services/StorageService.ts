@@ -389,6 +389,17 @@ export class StorageService {
         log.info(`[storage] page saved: ${profile}/${id}`);
     }
 
+    deletePage(profile: string, id: string): void {
+        this.assertProfileExists(profile);
+        this.assertPageId(id);
+        const file = this.pageFile(profile, id);
+        if (!fs.existsSync(file)) {
+            throw new StorageError(`Page not found: "${profile}/${id}"`);
+        }
+        fs.rmSync(file);
+        log.info(`[storage] page deleted: ${profile}/${id}`);
+    }
+
     /**
      * CRC-32 of the canonical upload bytes for a page (the same bytes
      * `SyncService` hashes), or `null` when the page is missing/invalid.

@@ -160,6 +160,15 @@ export function registerIpcHandlers(services: IpcServices): void {
     );
 
     register(
+        channels.storage.deletePage,
+        ({ profile, id }) => {
+            storage.deletePage(profile, id);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
+
+    register(
         channels.storage.exportProfile,
         async ({ name }) => ({
             ok: true,
