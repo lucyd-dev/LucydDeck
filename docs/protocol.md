@@ -58,11 +58,18 @@ Device to host:
 - `CMD:` events are fire and forget.
 - A key that runs only local actions reports nothing to the host.
 
-## Page deletion
+## Deletion
 
-The firmware does not implement page deletion yet. It is tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9).
+The firmware does not implement page or icon deletion yet. Both are tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9).
 
-The target command is `CMD_PAGE_DELETE = 0x23`, modelled on `CMD_PROFILE_DELETE`: payload `<profile>/<id>` as one UTF-8 string, no `.json`, split on the first `/`. The device answers `RESP_ACK` on success.
+Both commands are modelled on `CMD_PROFILE_DELETE`: one identity string, `RESP_ACK` on success.
+
+| Opcode | Command           | Payload                      |
+| ------ | ----------------- | ---------------------------- |
+| `0x23` | `CMD_PAGE_DELETE` | `<profile>/<id>`, no `.json` |
+| `0x24` | `CMD_ICON_DELETE` | `<name>`, no `.png`          |
+
+Page failures:
 
 | Failure                           | Error                        |
 | --------------------------------- | ---------------------------- |
@@ -72,9 +79,11 @@ The target command is `CMD_PAGE_DELETE = 0x23`, modelled on `CMD_PROFILE_DELETE`
 | page file missing                 | `ERR_FILE_NOT_FOUND 0x2A`    |
 | unlink fails                      | `ERR_DELETE 0x16`            |
 
+Icon failures: `ERR_INVALID_PATH` for a bad name, `ERR_FILE_NOT_FOUND` for a missing file, `ERR_DELETE` when the unlink fails. The image list is scanned on request, so it needs no refresh. The current page keeps the pixmap it loaded.
+
 Deleting the displayed page repaints the first remaining page (lowest id) in the active profile, and a blank page when none remain.
 
-The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. It adapts after the firmware command lands. Icons have no delete command yet, so the Device view will keep page cleanup only until one exists.
+The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. It adapts after the firmware commands land.
 
 ## Versioning
 

@@ -6,7 +6,7 @@ The desktop host for the LucydDeck, an ESP32-S3 stream deck. Vue 3 renderer, Ele
 
 ### Issue tracker
 
-This repo keeps issues as local markdown under `.scratch/`; the firmware repo uses GitHub Issues. See `docs/agents/issue-tracker.md`.
+GitHub Issues in this repo and in `lucyd-dev/LucydDeck-firmware`, so a host ticket and the firmware change it waits on share one system. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -20,7 +20,7 @@ Single-context: `GLOSSARY.md` at the root, ADRs in `docs/adr/`. See `docs/agents
 
 Work them in order. One workstream's spec is alive at a time, in the tracker, and only while that workstream is open. When it merges, the next one starts and writes its own spec.
 
-1. **Firmware page delete.** Firmware repo, on the Windows machine, because PlatformIO uploads need it. Tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9): `CMD_PAGE_DELETE = 0x23`, payload `<profile>/<id>`, first remaining page repainted when the displayed page goes. The host draft on `feature/ui-rebuild` still sends the old file-path command and adapts once this lands.
+1. **Firmware page and icon delete.** Firmware repo, on the Windows machine, because PlatformIO uploads need it. Tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9): `CMD_PAGE_DELETE = 0x23` with `<profile>/<id>`, `CMD_ICON_DELETE = 0x24` with `<name>`, and the first remaining page repainted when the displayed page goes. The host draft on `feature/ui-rebuild` still sends the old file-path command and adapts once this lands.
 2. **UI finish.** `feature/ui-rebuild`. The board inspector and the chosen prototype in `prototype/one-action.html` are the starting point. Ends with a review and a merge to `main`.
 3. **Plugin integration.** New branch from `main`. A worker-hosted command handler reached by `CMD:` steps.
 4. **Firmware updater.** Host and firmware bootloader, last because a bad flash bricks a deck.
