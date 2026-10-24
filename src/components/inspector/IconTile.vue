@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import { Trash2 } from "@lucide/vue";
+import IconButton from "@/components/ui/IconButton.vue";
 import { useIconStore } from "@/stores/iconStore";
 
 const props = withDefaults(
@@ -48,17 +50,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <button
-        ref="root"
-        class="icon-tile"
-        :class="{ 'icon-tile--selected': props.selected }"
-        type="button"
-        :title="props.name"
-        :aria-pressed="props.selected"
-        @click="emit('select', props.name)"
-        @contextmenu.prevent="props.removable && emit('remove', props.name)"
-    >
-        <img v-if="dataUrl" class="icon-tile__image" :src="dataUrl" :alt="props.name" />
-        <span v-else class="icon-tile__placeholder">{{ props.name.slice(0, 2) }}</span>
-    </button>
+    <div ref="root" class="icon-tile" :class="{ 'icon-tile--selected': props.selected }">
+        <button
+            class="icon-tile__select"
+            type="button"
+            :title="props.name"
+            :aria-pressed="props.selected"
+            @click="emit('select', props.name)"
+            @contextmenu.prevent="props.removable && emit('remove', props.name)"
+        >
+            <img v-if="dataUrl" class="icon-tile__image" :src="dataUrl" :alt="props.name" />
+            <span v-else class="icon-tile__placeholder">{{ props.name.slice(0, 2) }}</span>
+        </button>
+        <IconButton
+            v-if="props.removable"
+            class="icon-tile__remove"
+            :label="`Delete ${props.name}`"
+            variant="ghost"
+            @click.stop="emit('remove', props.name)"
+        >
+            <Trash2 :size="12" />
+        </IconButton>
+    </div>
 </template>

@@ -125,15 +125,12 @@
 
 .device-sync {
     display: flex;
-    flex: 0 0 auto;
+    flex: 0 0 260px;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-sm);
+    width: 260px;
     min-width: 0;
-    max-width: 340px;
-}
-
-.device-sync--running {
-    flex: 1 1 220px;
 }
 
 .device-sync .progress {
@@ -143,6 +140,7 @@
 
 .device-sync .progress-label {
     overflow: hidden;
+    font-size: 0.76rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -182,6 +180,10 @@
     margin-top: var(--space-md);
 }
 
+.inventory-row--head + .inventory-group {
+    margin-top: var(--space-sm);
+}
+
 .inventory-group__title {
     display: flex;
     align-items: center;
@@ -196,7 +198,9 @@
 
 .inventory-row {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1.5fr) minmax(90px, 1fr) minmax(90px, 1fr) auto auto;
+    // Fixed trailing columns so the header row and the data rows share one
+    // column line; auto-sized badge and action cells collapse in the head.
+    grid-template-columns: 22px minmax(0, 1.5fr) minmax(90px, 1fr) minmax(90px, 1fr) 112px 36px;
     align-items: center;
     gap: var(--space-sm);
     padding: var(--space-xs) var(--space-sm);

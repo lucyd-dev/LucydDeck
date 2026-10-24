@@ -165,7 +165,11 @@ export const useDeviceStore = defineStore("device", () => {
             inventory.value = buildInventory(local, device);
             lastDevice.value = device;
 
-            const planResult = await syncClient.reconcile(profile.activeProfile || undefined);
+            // No active-profile request: device info carries no current profile,
+            // so asking for one made every refresh plan a change the deck could
+            // not be compared against, and the header then promised a sync that
+            // never went away. The deck keeps its own active profile.
+            const planResult = await syncClient.reconcile();
             if (planResult.ok) {
                 plan.value = planResult.data;
             } else {

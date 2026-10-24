@@ -139,7 +139,7 @@ watch(
                     <RefreshCw :size="14" />
                     <span>Refresh</span>
                 </Button>
-                <div class="device-sync" :class="{ 'device-sync--running': usb.syncing }">
+                <div class="device-sync">
                     <template v-if="usb.syncing">
                         <span
                             class="progress"
@@ -158,7 +158,12 @@ watch(
                             {{ usb.syncProgress?.message ?? usb.syncProgress?.phase ?? "Syncing…" }}
                         </span>
                     </template>
-                    <Tooltip v-else :text="device.syncAction.hint">
+                    <Tooltip
+                        v-else
+                        :text="device.syncAction.hint"
+                        placement="bottom"
+                        align="end"
+                    >
                         <Button
                             variant="primary"
                             :disabled="device.syncAction.disabled"

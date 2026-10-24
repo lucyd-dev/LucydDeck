@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-defineProps<{ text: string }>();
+withDefaults(
+    defineProps<{ text: string; placement?: "top" | "bottom"; align?: "center" | "end" }>(),
+    {
+        placement: "top",
+        align: "center",
+    },
+);
 
 const visible = ref(false);
 </script>
@@ -15,7 +21,17 @@ const visible = ref(false);
         @focusout="visible = false"
     >
         <slot />
-        <span v-if="visible" class="ui-tooltip__bubble" role="tooltip">{{ text }}</span>
+        <span
+            v-if="visible"
+            class="ui-tooltip__bubble"
+            :class="{
+                'ui-tooltip__bubble--bottom': placement === 'bottom',
+                'ui-tooltip__bubble--end': align === 'end',
+            }"
+            role="tooltip"
+        >
+            {{ text }}
+        </span>
     </span>
 </template>
 
@@ -43,5 +59,16 @@ const visible = ref(false);
     transform: translateX(-50%);
     white-space: normal;
     width: max-content;
+}
+
+.ui-tooltip__bubble--bottom {
+    top: calc(100% + var(--space-xs));
+    bottom: auto;
+}
+
+.ui-tooltip__bubble--end {
+    right: 0;
+    left: auto;
+    transform: none;
 }
 </style>
