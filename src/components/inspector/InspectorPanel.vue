@@ -477,7 +477,10 @@ function onDragEnd(): void {
                     </div>
 
                     <div class="key-head__appearance">
-                        <div class="appearance-control appearance-control--color" title="Background color">
+                        <div
+                            class="appearance-control appearance-control--color"
+                            title="Background color"
+                        >
                             <label class="appearance-control__pick">
                                 <span
                                     class="appearance-control__swatch"

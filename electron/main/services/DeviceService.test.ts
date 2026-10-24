@@ -215,8 +215,8 @@ describe("DeviceService file deletion", () => {
             ErrorCode.Delete,
         );
 
-        await expect(
-            device.deletePage("gaming", 3, { allowMissing: true }),
-        ).rejects.toMatchObject({ code: "ERR_DELETE" });
+        await expect(device.deletePage("gaming", 3, { allowMissing: true })).rejects.toMatchObject({
+            code: "ERR_DELETE",
+        });
     });
 });

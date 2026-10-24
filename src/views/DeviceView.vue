@@ -158,12 +158,7 @@ watch(
                             {{ usb.syncProgress?.message ?? usb.syncProgress?.phase ?? "Syncing…" }}
                         </span>
                     </template>
-                    <Tooltip
-                        v-else
-                        :text="device.syncAction.hint"
-                        placement="bottom"
-                        align="end"
-                    >
+                    <Tooltip v-else :text="device.syncAction.hint" placement="bottom" align="end">
                         <Button
                             variant="primary"
                             :disabled="device.syncAction.disabled"

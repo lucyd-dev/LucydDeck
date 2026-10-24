@@ -127,12 +127,7 @@ watch(
             <InspectorPanel />
         </aside>
 
-        <TransitionGroup
-            tag="div"
-            name="toast"
-            class="app-shell__toasts"
-            aria-live="polite"
-        >
+        <TransitionGroup tag="div" name="toast" class="app-shell__toasts" aria-live="polite">
             <Toast
                 v-for="toast in app.toasts"
                 :key="toast.id"
