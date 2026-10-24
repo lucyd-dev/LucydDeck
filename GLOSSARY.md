@@ -41,12 +41,8 @@ A local page or icon whose CRC32 matches the copy on the device.
 _Avoid_: Clean, up to date
 
 **Device-only file**:
-A page or icon that exists on the device with no local copy. It cannot be deleted unless the device supports file deletion.
+A page or icon that exists on the device with no local copy.
 _Avoid_: Orphan, stale file
-
-**Capability**:
-A device feature the app detects from the firmware or protocol version and enables only when present.
-_Avoid_: Feature flag, feature
 
 **Plugin**:
 A host-side command handler that runs on the PC when a key runs a `CMD:` step.

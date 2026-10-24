@@ -60,14 +60,10 @@ Device to host:
 
 ## Deletion
 
-The firmware has no delete opcode yet. The app treats deletion as a capability: it enables cleanup only when `protocol_version` is 2 or higher, and keeps the current warning on protocol 1.
+The host sends `CMD_FILE_DELETE = 0x34` with payload `[pathType][path]`, using the same grammar and validation as `CMD_FILE_START`. A page path is `"<profile>/<id>.json"`, an icon path is `"<name>.png"`. The device answers `RESP_ACK`, and reuses `ERR_INVALID_PATH 0x10`, `ERR_INVALID_PAGE_NAME 0x11` and `ERR_PROFILE_NOT_FOUND 0x12`, plus `ERR_FILE_NOT_FOUND 0x2A` for a missing file.
 
-The firmware change is tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9):
+The firmware opcode is not implemented yet. It is tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9). Until the deck runs a build with it, the command is answered with `ERR_UNKNOWN_COMMAND`, and the app shows that error.
 
-- `CMD_FILE_DELETE = 0x34`, payload `[pathType][path]`, same grammar and validation as `CMD_FILE_START`.
-- Page path `"<profile>/<id>.json"`, icon path `"<name>.png"`.
-- Reuse `ERR_INVALID_PATH 0x10`, `ERR_INVALID_PAGE_NAME 0x11`, `ERR_PROFILE_NOT_FOUND 0x12`, and add `ERR_FILE_NOT_FOUND 0x2A`.
-- Answer `RESP_ACK`.
-- `protocol_version` becomes 2.
+## Versioning
 
-When it lands, the host work is in `shared/protocol.ts`, `DeviceService.deleteFile`, the `usb:deleteFile` channel, the capability record, and the Device view cleanup action.
+The project is a prototype until the 1.0.0 release. The wire changes without a `protocol_version` bump before that release, so the host never uses the version to decide which commands a deck supports. A command the firmware does not implement answers `ERR_UNKNOWN_COMMAND`.
