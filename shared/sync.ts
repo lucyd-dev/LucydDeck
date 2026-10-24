@@ -5,10 +5,9 @@
 // `DiffPlan` is the reconciler output: local profile/page/icon files compared
 // against `CMD_GET_PROFILES_LIST` / `CMD_GET_IMAGES_LIST` by CRC-32.
 //
-// Note: protocol v1 exposes no file-delete opcode (host commands are create /
-// rename / delete-profile / file transfer / set-active only). The delete sets
-// are therefore planned and surfaced (so the UI can warn) but cannot be
-// executed; `executePlan` reports them as `pendingDeletions`.
+// Note: sync uploads and creates only. Device-only files are planned and
+// surfaced (so the Device view can offer a delete), but `executePlan` leaves
+// them on the deck and reports them as `pendingDeletions`.
 // ---------------------------------------------------------------------------
 
 export interface SyncPageRef {
@@ -27,9 +26,9 @@ export interface DiffPlan {
     pagesToUpload: SyncPageRef[];
     /** Icons whose local CRC-32 differs from the device list (or are missing). */
     iconsToUpload: SyncIconRef[];
-    /** Device pages with no matching local file (not deletable on protocol v1). */
+    /** Device pages with no matching local file (the Device view deletes them). */
     pagesToDelete: SyncPageRef[];
-    /** Device icons with no matching local file (not deletable on protocol v1). */
+    /** Device icons with no matching local file (the Device view deletes them). */
     iconsToDelete: SyncIconRef[];
     /** Icons referenced by local pages but present neither locally nor on-device. */
     missingIcons: SyncIconRef[];
@@ -42,7 +41,7 @@ export interface SyncResult {
     uploadedPages: SyncPageRef[];
     uploadedIcons: SyncIconRef[];
     activeProfile: string | null;
-    /** Planned deletions that protocol v1 cannot execute. */
+    /** Planned deletions left for the Device view; `executePlan` does not touch them. */
     pendingDeletions: number;
 }
 

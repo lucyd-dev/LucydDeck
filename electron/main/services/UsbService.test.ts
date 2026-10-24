@@ -294,7 +294,7 @@ describe("UsbService failures", () => {
     it("maps ERR_FILE_NOT_FOUND from a delete command", async () => {
         const { usb, connection } = makeService();
         await usb.connect();
-        const promise = usb.command(HostCommand.FileDelete, new Uint8Array(), DeviceResponse.Ack);
+        const promise = usb.command(HostCommand.PageDelete, new Uint8Array(), DeviceResponse.Ack);
         connection.respond(DeviceResponse.Error, Uint8Array.from([ErrorCode.FileNotFound]));
         const error = await promise.then(
             () => null,

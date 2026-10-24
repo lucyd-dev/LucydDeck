@@ -100,16 +100,20 @@ export function pageIdFromFilename(filename: string): string | null {
     return isValidPageId(id) ? id : null;
 }
 
-// --- File-transfer path types ---------------------------------------------
+// --- File-transfer target types -------------------------------------------
 
-export enum PathType {
+/**
+ * `CMD_FILE_START` target kinds. The host names the entity; the firmware builds
+ * the storage path and appends `.json` (page) or `.png` (icon).
+ */
+export enum TargetType {
     Page = 0x01,
     Icon = 0x02,
 }
 
-/** Wire constants for `CMD_FILE_START` path types (mirrors `PathType`). */
-export const PATH_PAGE = PathType.Page;
-export const PATH_ICON = PathType.Icon;
+/** Wire constants for `CMD_FILE_START` target kinds (mirrors `TargetType`). */
+export const TARGET_PAGE = TargetType.Page;
+export const TARGET_ICON = TargetType.Icon;
 
 // --- Device detection ------------------------------------------------------
 
@@ -140,11 +144,14 @@ export enum HostCommand {
     ProfileCreate = 0x20,
     ProfileRename = 0x21,
     ProfileDelete = 0x22,
+    /** Removes `<profile>/<id>.json`; payload is the identity `<profile>/<id>`. */
+    PageDelete = 0x23,
+    /** Removes `<name>.png`; payload is the identity `<name>`. */
+    IconDelete = 0x24,
     FileStart = 0x30,
     FileChunk = 0x31,
     FileEnd = 0x32,
     FileCancel = 0x33,
-    FileDelete = 0x34,
     SetActiveProfile = 0x40,
     SetActivePage = 0x41,
 }
@@ -185,7 +192,7 @@ export enum ErrorCode {
     Rename = 0x15,
     Delete = 0x16,
     TransferBusy = 0x20,
-    InvalidPathType = 0x21,
+    InvalidTargetType = 0x21,
     FileOpen = 0x22,
     ChunkTooLarge = 0x23,
     FileNotOpen = 0x24,
@@ -213,7 +220,7 @@ const ERROR_CODE_NAMES: Record<number, string> = {
     [ErrorCode.Rename]: "ERR_RENAME",
     [ErrorCode.Delete]: "ERR_DELETE",
     [ErrorCode.TransferBusy]: "ERR_TRANSFER_BUSY",
-    [ErrorCode.InvalidPathType]: "ERR_INVALID_PATH_TYPE",
+    [ErrorCode.InvalidTargetType]: "ERR_INVALID_TARGET_TYPE",
     [ErrorCode.FileOpen]: "ERR_FILE_OPEN",
     [ErrorCode.ChunkTooLarge]: "ERR_CHUNK_TOO_LARGE",
     [ErrorCode.FileNotOpen]: "ERR_FILE_NOT_OPEN",

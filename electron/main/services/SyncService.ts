@@ -282,8 +282,8 @@ export class SyncService {
                 percent: event.percent,
                 completed,
                 total,
-                current: event.path,
-                message: `${event.path} ${event.percent}%`,
+                current: event.identity,
+                message: `${event.identity} ${event.percent}%`,
             });
         });
 
@@ -331,7 +331,7 @@ export class SyncService {
                     JSON.stringify(serializePageConfig(validation.page)),
                 );
                 result.uploadedPages.push(page);
-                tick("page", `${page.profile}/${page.id}.json`);
+                tick("page", `${page.profile}/${page.id}`);
             }
 
             if (plan.setActiveProfile !== null) {
@@ -343,7 +343,7 @@ export class SyncService {
             if (result.pendingDeletions > 0) {
                 log.warn(
                     `[sync] ${result.pendingDeletions} device file(s) have no local copy; ` +
-                        "protocol v1 exposes no delete opcode, leaving them untouched",
+                        "leaving them for the Device view to delete",
                 );
             }
 

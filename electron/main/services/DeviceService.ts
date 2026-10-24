@@ -1,10 +1,9 @@
 import {
     DeviceResponse,
     HostCommand,
-    PATH_ICON,
-    PATH_PAGE,
     PAYLOAD_MAX,
-    PathType,
+    TARGET_ICON,
+    TARGET_PAGE,
     isValidPageId,
     type DeviceImageEntry,
     type DeviceInfoPayload,
@@ -17,6 +16,7 @@ import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 export const DeviceErrorCodes = {
     InvalidName: "DEVICE_INVALID_NAME",
     InvalidPageId: "DEVICE_INVALID_PAGE_ID",
+    InvalidIdentity: "DEVICE_INVALID_IDENTITY",
     BadResponse: "DEVICE_BAD_RESPONSE",
 } as const;
 
@@ -52,9 +52,9 @@ function parseJson<T>(payload: Uint8Array, what: string): T {
 
 /**
  * Typed device operations over `UsbService.command`. Owns the wire encodings
- * for profile/page commands and delegates byte transfer to `FileTransfer`.
- * Icon names are exposed/stored without the `.png` extension; the wire path
- * carries the extension because the firmware target is `/icons/<path>`.
+ * for profile, page and icon commands and delegates byte transfer to
+ * `FileTransfer`. Icon names are exposed/stored without the `.png` extension;
+ * the wire carries the identity only and the firmware appends the extension.
  */
 export class DeviceService {
     private readonly usb: UsbCommandClient;
@@ -135,7 +135,10 @@ export class DeviceService {
         await this.usb.command(HostCommand.SetActivePage, textBytes(pageId), DeviceResponse.Ack);
     }
 
-    /** Upload a serialized page config to `/profiles/<profile>/<id>.json`. */
+    /**
+     * Upload a serialized page config as `<profile>/<id>`; the firmware
+     * appends `.json` and commits `/profiles/<profile>/<id>.json`.
+     */
     async uploadPage(
         profile: string,
         id: string | number,
@@ -145,47 +148,50 @@ export class DeviceService {
         const pageId = String(id);
         this.assertPageId(pageId);
         const bytes = typeof json === "string" ? textBytes(json) : json;
-        await this.transfer.upload(PATH_PAGE, `${profile}/${pageId}.json`, bytes);
+        await this.transfer.upload(TARGET_PAGE, `${profile}/${pageId}`, bytes);
     }
 
     /**
-     * Upload a PNG icon to `/icons/<name>.png`. `name` may be given with or
-     * without the extension; the stored/returned name is the base name.
+     * Upload a PNG icon as `<name>`; the firmware appends `.png` and commits
+     * `/icons/<name>.png`. `name` may be given with or without the extension.
      */
     async uploadIcon(name: string, pngBytes: Uint8Array): Promise<void> {
         const base = name.replace(PNG_EXTENSION, "");
         this.assertName(base);
-        await this.transfer.upload(PATH_ICON, `${base}.png`, pngBytes);
+        await this.transfer.upload(TARGET_ICON, base, pngBytes);
     }
 
-    /**
-     * Delete one file (`CMD_FILE_DELETE = 0x34`). Payload is
-     * `[pathType][path]`, same path grammar as `CMD_FILE_START`.
-     */
-    async deleteFile(pathType: PathType, path: string): Promise<void> {
-        const pathBytes = textBytes(path);
-        if (path === "" || pathBytes.length + 1 > PAYLOAD_MAX) {
-            throw new DeviceError(`Invalid file path: "${path}"`, DeviceErrorCodes.InvalidName);
-        }
-        const payload = new Uint8Array(pathBytes.length + 1);
-        payload[0] = pathType;
-        payload.set(pathBytes, 1);
-        await this.usb.command(HostCommand.FileDelete, payload, DeviceResponse.Ack);
-    }
-
-    /** Delete `/profiles/<profile>/<id>.json` on the device. */
+    /** Delete `/profiles/<profile>/<id>.json` on the device (`CMD_PAGE_DELETE`). */
     async deletePage(profile: string, id: string | number): Promise<void> {
         this.assertName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
-        await this.deleteFile(PathType.Page, `${profile}/${pageId}.json`);
+        await this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`);
     }
 
-    /** Delete `/icons/<name>.png` on the device (base name, with or without extension). */
+    /**
+     * Delete `/icons/<name>.png` on the device (`CMD_ICON_DELETE`). `name` may
+     * be given with or without the extension.
+     */
     async deleteIcon(name: string): Promise<void> {
         const base = name.replace(PNG_EXTENSION, "");
         this.assertName(base);
-        await this.deleteFile(PathType.Icon, `${base}.png`);
+        await this.deleteIdentity(HostCommand.IconDelete, base);
+    }
+
+    /** One identity string, no target byte: it must fit a single frame. */
+    private async deleteIdentity(
+        opcode: HostCommand.PageDelete | HostCommand.IconDelete,
+        identity: string,
+    ): Promise<void> {
+        const identityBytes = textBytes(identity);
+        if (identity === "" || identityBytes.length > PAYLOAD_MAX) {
+            throw new DeviceError(
+                `Identity too long for one frame: "${identity}" (${identityBytes.length} > ${PAYLOAD_MAX} bytes)`,
+                DeviceErrorCodes.InvalidIdentity,
+            );
+        }
+        await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
     }
 
     private assertName(name: string): void {

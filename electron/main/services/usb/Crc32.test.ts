@@ -26,7 +26,7 @@ describe("Crc32", () => {
     });
 
     it("emits big-endian wire bytes", () => {
-        expect(Array.from(crc32ToBigEndian(0x12345678))).toEqual([0x12, 0x34, 0x56, 0x78]);
+        expect(Array.from(crc32ToBigEndian(0xdeadbeef))).toEqual([0xde, 0xad, 0xbe, 0xef]);
         expect(Array.from(crc32BigEndian(bytes("123456789")))).toEqual([0xcb, 0xf4, 0x39, 0x26]);
     });
 

@@ -178,7 +178,7 @@ export interface UsbUploadIconRequest {
     name: string;
 }
 
-/** Delete one device file when the firmware exposes `CMD_FILE_DELETE`. */
+/** Delete one device page or icon by identity (`0x23` / `0x24`). */
 export type UsbDeleteFileRequest =
     { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string };
 
@@ -357,8 +357,8 @@ export interface ActionTriggeredEvent {
 export interface TransferProgressEvent {
     type: "transfer-progress";
     phase: "start" | "chunk" | "end" | "retry" | "cancelled";
-    pathType: number;
-    path: string;
+    targetType: number;
+    identity: string;
     sent: number;
     total: number;
     percent: number;

@@ -7,7 +7,7 @@ import {
     PAYLOAD_MAX,
     padToPayload,
 } from "@shared/protocol";
-import type { PathType } from "@shared/protocol";
+import type { TargetType } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
 import { crc32BigEndian } from "./usb/Crc32";
 import type { UsbError } from "./UsbService";
@@ -18,6 +18,7 @@ export const FileTransferErrorCodes = {
     Busy: "TRANSFER_BUSY",
     Cancelled: "TRANSFER_CANCELLED",
     TooLarge: "TRANSFER_TOO_LARGE",
+    InvalidIdentity: "TRANSFER_INVALID_IDENTITY",
 } as const;
 
 export class FileTransferError extends Error {
@@ -105,8 +106,8 @@ export class FileTransfer {
     private cancelled = false;
     /** True between an ACKed `CMD_FILE_START` and `CMD_FILE_END`. */
     private transferOpen = false;
-    private currentPath = "";
-    private currentPathType: number = 0;
+    private currentIdentity = "";
+    private currentTargetType: number = 0;
     private lastProgressAt = 0;
 
     constructor(usb: UsbCommandClient, options: FileTransferOptions = {}) {
@@ -136,20 +137,24 @@ export class FileTransfer {
     }
 
     /**
-     * Upload `bytes` to `path` (`pathType` selects page vs icon grammar).
-     * Resolves after the device ACKs `CMD_FILE_END`.
+     * Upload `bytes` to the entity named by `identity` (`targetType` selects
+     * page vs icon grammar). Resolves after the device ACKs `CMD_FILE_END`.
      */
-    async upload(pathType: PathType | number, path: string, bytes: Uint8Array): Promise<void> {
+    async upload(
+        targetType: TargetType | number,
+        identity: string,
+        bytes: Uint8Array,
+    ): Promise<void> {
         if (this.statusValue === "active") {
             throw new FileTransferError(
                 "A file transfer is already active",
                 FileTransferErrorCodes.Busy,
             );
         }
-        if (path === "" || textBytes(path).length + 1 > PAYLOAD_MAX) {
+        if (identity === "" || textBytes(identity).length + 1 > PAYLOAD_MAX) {
             throw new FileTransferError(
-                `Invalid transfer path: "${path}"`,
-                "TRANSFER_INVALID_PATH",
+                `Invalid transfer identity: "${identity}"`,
+                FileTransferErrorCodes.InvalidIdentity,
             );
         }
         if (bytes.length > FILE_TRANSFER_MAX_BYTES) {
@@ -170,18 +175,18 @@ export class FileTransfer {
         this.statusValue = "active";
         this.cancelled = false;
         this.transferOpen = false;
-        this.currentPath = path;
-        this.currentPathType = pathType;
+        this.currentIdentity = identity;
+        this.currentTargetType = targetType;
         this.lastProgressAt = 0;
 
         try {
             for (let attempt = 0; ; attempt++) {
                 try {
-                    await this.runTransfer(pathType, path, bytes, wire);
+                    await this.runTransfer(targetType, identity, bytes, wire);
                     break;
                 } catch (error) {
                     if (attempt < this.crcRetries && !this.cancelled && isCrcError(error)) {
-                        log.warn(`[transfer] CRC mismatch for ${path}; retrying the file once`);
+                        log.warn(`[transfer] CRC mismatch for ${identity}; retrying the file once`);
                         this.emit("retry", 0, bytes.length);
                         continue;
                     }
@@ -199,7 +204,7 @@ export class FileTransfer {
             await this.clearOpenTransfer();
             throw error;
         } finally {
-            this.currentPath = "";
+            this.currentIdentity = "";
         }
     }
 
@@ -271,15 +276,15 @@ export class FileTransfer {
     }
 
     private async runTransfer(
-        pathType: PathType | number,
-        path: string,
+        targetType: TargetType | number,
+        identity: string,
         bytes: Uint8Array,
         wire: Uint8Array,
     ): Promise<void> {
-        const encodedPath = textBytes(path);
-        const startPayload = new Uint8Array(1 + encodedPath.length);
-        startPayload[0] = pathType;
-        startPayload.set(encodedPath, 1);
+        const encodedIdentity = textBytes(identity);
+        const startPayload = new Uint8Array(1 + encodedIdentity.length);
+        startPayload[0] = targetType;
+        startPayload.set(encodedIdentity, 1);
 
         this.assertNotCancelled();
         await this.startTransfer(startPayload);
@@ -327,8 +332,8 @@ export class FileTransfer {
         const event: TransferProgressEvent = {
             type: "transfer-progress",
             phase,
-            pathType: this.currentPathType,
-            path: this.currentPath,
+            targetType: this.currentTargetType,
+            identity: this.currentIdentity,
             sent,
             total,
             percent: total === 0 ? 100 : Math.round((sent / total) * 100),

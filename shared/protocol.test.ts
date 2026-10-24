@@ -11,8 +11,8 @@ import {
     FRAME_SIZE,
     HostCommand,
     M_BIT,
-    PATH_ICON,
-    PATH_PAGE,
+    TARGET_ICON,
+    TARGET_PAGE,
     PAYLOAD_MAX,
     PAGE_FILENAME_PATTERN,
     REPORT_ID,
@@ -44,9 +44,9 @@ describe("shared/protocol constants", () => {
         expect(STREAM_TIMEOUT_MS).toBe(3000);
     });
 
-    it("maps path types", () => {
-        expect(PATH_PAGE).toBe(0x01);
-        expect(PATH_ICON).toBe(0x02);
+    it("maps transfer target types", () => {
+        expect(TARGET_PAGE).toBe(0x01);
+        expect(TARGET_ICON).toBe(0x02);
     });
 });
 
@@ -80,11 +80,12 @@ describe("shared/protocol opcodes", () => {
         expect(HostCommand.ProfileCreate).toBe(0x20);
         expect(HostCommand.ProfileRename).toBe(0x21);
         expect(HostCommand.ProfileDelete).toBe(0x22);
+        expect(HostCommand.PageDelete).toBe(0x23);
+        expect(HostCommand.IconDelete).toBe(0x24);
         expect(HostCommand.FileStart).toBe(0x30);
         expect(HostCommand.FileChunk).toBe(0x31);
         expect(HostCommand.FileEnd).toBe(0x32);
         expect(HostCommand.FileCancel).toBe(0x33);
-        expect(HostCommand.FileDelete).toBe(0x34);
         expect(HostCommand.SetActiveProfile).toBe(0x40);
         expect(HostCommand.SetActivePage).toBe(0x41);
     });
@@ -120,7 +121,7 @@ describe("shared/protocol error codes", () => {
         expect(ErrorCode.Rename).toBe(0x15);
         expect(ErrorCode.Delete).toBe(0x16);
         expect(ErrorCode.TransferBusy).toBe(0x20);
-        expect(ErrorCode.InvalidPathType).toBe(0x21);
+        expect(ErrorCode.InvalidTargetType).toBe(0x21);
         expect(ErrorCode.FileOpen).toBe(0x22);
         expect(ErrorCode.ChunkTooLarge).toBe(0x23);
         expect(ErrorCode.FileNotOpen).toBe(0x24);
@@ -137,6 +138,7 @@ describe("shared/protocol error codes", () => {
 
     it("describes known and unknown codes", () => {
         expect(describeErrorCode(ErrorCode.Crc)).toBe("ERR_CRC");
+        expect(describeErrorCode(ErrorCode.InvalidTargetType)).toBe("ERR_INVALID_TARGET_TYPE");
         expect(describeErrorCode(ErrorCode.FileNotFound)).toBe("ERR_FILE_NOT_FOUND");
         expect(isErrorCode(ErrorCode.Crc)).toBe(true);
         expect(isErrorCode(ErrorCode.FileNotFound)).toBe(true);

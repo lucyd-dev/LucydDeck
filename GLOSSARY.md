@@ -44,6 +44,14 @@ _Avoid_: Clean, up to date
 A page or icon that exists on the device with no local copy.
 _Avoid_: Orphan, stale file
 
+**Identity**:
+The string that names a device file without its extension: `gaming/3` for a page, `github` for an icon. The firmware builds the path from it.
+_Avoid_: Path, filename, target
+
+**Target type**:
+The one-byte kind at the start of a file transfer: `0x01` for a page, `0x02` for an icon.
+_Avoid_: Path type, file type
+
 **Plugin**:
 A host-side command handler that runs on the PC when a key runs a `CMD:` step.
 _Avoid_: Extension, add-on, integration
