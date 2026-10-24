@@ -34,6 +34,7 @@ describe("shared/ipc contract", () => {
         expect(channels.storage.savePage).toBe("storage:savePage");
         expect(channels.storage.exportProfile).toBe("storage:exportProfile");
         expect(channels.storage.importProfile).toBe("storage:importProfile");
+        expect(channels.storage.scanReferences).toBe("storage:scanReferences");
     });
 
     it("exposes every main-to-renderer event channel", () => {
@@ -43,5 +44,19 @@ describe("shared/ipc contract", () => {
         expect(eventChannels.plugin).toBe("plugin:event");
         expect(eventChannels.firmwareState).toBe("firmware:state");
         expect(eventChannels.flashProgress).toBe("flash:progress");
+    });
+
+    it("exposes the icon-preview and sync channels", () => {
+        expect(channels.icons.preview).toBe("icons:preview");
+        expect(channels.sync.reconcile).toBe("sync:reconcile");
+        expect(channels.sync.execute).toBe("sync:execute");
+    });
+
+    it("exposes settings and the device-delete channels", () => {
+        expect(channels.settings.get).toBe("settings:get");
+        expect(channels.settings.set).toBe("settings:set");
+        expect(channels.settings.revealDataFolder).toBe("settings:revealDataFolder");
+        expect(channels.settings.openLogsFolder).toBe("settings:openLogsFolder");
+        expect(channels.usb.deleteFile).toBe("usb:deleteFile");
     });
 });

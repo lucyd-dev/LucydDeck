@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { HostCommand, PATH_ICON, PATH_PAGE } from "@shared/protocol";
+import { ErrorCode, HostCommand, TARGET_ICON, TARGET_PAGE } from "@shared/protocol";
 import { DeviceError, DeviceService } from "./DeviceService";
+import { UsbError } from "./UsbService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 
 vi.mock("electron-log/main", () => ({
@@ -15,9 +16,13 @@ vi.mock("electron-log/main", () => ({
 class MockUsb implements UsbCommandClient {
     readonly calls: Array<{ opcode: HostCommand; payload: Uint8Array }> = [];
     response: Uint8Array = new Uint8Array();
+    failError: Error | null = null;
 
     command(opcode: HostCommand, payload: Uint8Array): Promise<Uint8Array> {
         this.calls.push({ opcode, payload });
+        if (this.failError !== null) {
+            return Promise.reject(this.failError);
+        }
         return Promise.resolve(this.response);
     }
 
@@ -114,26 +119,104 @@ describe("DeviceService mutations", () => {
         });
     });
 
-    it("uploads a page with the canonical <id>.json path", async () => {
+    it("uploads a page by identity so the firmware appends .json", async () => {
         const { upload, device } = makeService();
         await device.uploadPage("gaming", 3, '{"buttons":{}}');
         expect(upload).toHaveBeenCalledWith(
-            PATH_PAGE,
-            "gaming/3.json",
+            TARGET_PAGE,
+            "gaming/3",
             new TextEncoder().encode('{"buttons":{}}'),
         );
     });
 
-    it("stores icons as <name>.png but exposes the base name", async () => {
+    it("uploads an icon by base name so the firmware appends .png", async () => {
         const { upload, device } = makeService();
         await device.uploadIcon("github.png", Uint8Array.from([1, 2, 3]));
-        expect(upload).toHaveBeenCalledWith(PATH_ICON, "github.png", Uint8Array.from([1, 2, 3]));
+        expect(upload).toHaveBeenCalledWith(TARGET_ICON, "github", Uint8Array.from([1, 2, 3]));
     });
 
     it("rejects invalid icon names", async () => {
         const { device } = makeService();
         await expect(device.uploadIcon("bad/name", new Uint8Array())).rejects.toMatchObject({
             code: "DEVICE_INVALID_NAME",
+        });
+    });
+});
+
+describe("DeviceService file deletion", () => {
+    it("encodes CMD_PAGE_DELETE and CMD_ICON_DELETE with an identity payload", async () => {
+        const { usb, device } = makeService();
+
+        await device.deletePage("gaming", 3);
+        expect(usb.calls.at(-1)?.opcode).toBe(HostCommand.PageDelete);
+        expect(new TextDecoder().decode(usb.lastPayload())).toBe("gaming/3");
+
+        await device.deleteIcon("github.png");
+        expect(usb.calls.at(-1)?.opcode).toBe(HostCommand.IconDelete);
+        expect(new TextDecoder().decode(usb.lastPayload())).toBe("github");
+    });
+
+    it("validates page ids, names and the one-frame identity limit", async () => {
+        const { device } = makeService();
+        await expect(device.deletePage("gaming", "300")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_PAGE_ID",
+        });
+        await expect(device.deleteIcon("bad/name")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+        await expect(device.deleteIcon("x".repeat(61))).rejects.toMatchObject({
+            code: "DEVICE_INVALID_IDENTITY",
+        });
+        await expect(device.deletePage("x".repeat(61), 3)).rejects.toMatchObject({
+            code: "DEVICE_INVALID_IDENTITY",
+        });
+    });
+
+    it("treats a missing deck file as success when asked", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_ICON_DELETE failed: ERR_FILE_NOT_FOUND",
+            "ERR_FILE_NOT_FOUND",
+            ErrorCode.FileNotFound,
+        );
+
+        await expect(device.deleteIcon("github", { allowMissing: true })).resolves.toBeUndefined();
+        await expect(
+            device.deletePage("gaming", 3, { allowMissing: true }),
+        ).resolves.toBeUndefined();
+
+        // Without the flag the same answer stays an error.
+        await expect(device.deleteIcon("github")).rejects.toMatchObject({
+            code: "ERR_FILE_NOT_FOUND",
+        });
+    });
+
+    it("treats a page in a profile the deck never received as already gone", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_PAGE_DELETE failed: ERR_PROFILE_NOT_FOUND",
+            "ERR_PROFILE_NOT_FOUND",
+            ErrorCode.ProfileNotFound,
+        );
+
+        await expect(
+            device.deletePage("draft", 0, { allowMissing: true }),
+        ).resolves.toBeUndefined();
+        await expect(device.deletePage("draft", 0)).rejects.toMatchObject({
+            code: "ERR_PROFILE_NOT_FOUND",
+        });
+    });
+
+    it("still reports other deck errors when missing files are allowed", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_PAGE_DELETE failed: ERR_DELETE",
+            "ERR_DELETE",
+            ErrorCode.Delete,
+        );
+
+        await expect(device.deletePage("gaming", 3, { allowMissing: true })).rejects.toMatchObject({
+            code: "ERR_DELETE",
         });
     });
 });

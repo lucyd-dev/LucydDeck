@@ -11,9 +11,10 @@ import {
     FRAME_SIZE,
     HostCommand,
     M_BIT,
-    PATH_ICON,
-    PATH_PAGE,
+    TARGET_ICON,
+    TARGET_PAGE,
     PAYLOAD_MAX,
+    PAGE_FILENAME_PATTERN,
     REPORT_ID,
     SEQ_MASK,
     STREAM_TIMEOUT_MS,
@@ -24,6 +25,8 @@ import {
     isHostOpcode,
     isValidPageId,
     matchDevice,
+    padToPayload,
+    pageIdFromFilename,
 } from "./protocol";
 import { buildFrame, parseFrame } from "../electron/main/services/usb/Framer";
 
@@ -41,9 +44,30 @@ describe("shared/protocol constants", () => {
         expect(STREAM_TIMEOUT_MS).toBe(3000);
     });
 
-    it("maps path types", () => {
-        expect(PATH_PAGE).toBe(0x01);
-        expect(PATH_ICON).toBe(0x02);
+    it("maps transfer target types", () => {
+        expect(TARGET_PAGE).toBe(0x01);
+        expect(TARGET_ICON).toBe(0x02);
+    });
+});
+
+describe("padToPayload", () => {
+    it("fills the last HID payload with zeros", () => {
+        const padded = padToPayload(Uint8Array.from([0x41]));
+        expect(padded).toHaveLength(PAYLOAD_MAX);
+        expect(padded[0]).toBe(0x41);
+        expect(padded.subarray(1)).toEqual(new Uint8Array(PAYLOAD_MAX - 1));
+    });
+
+    it("leaves whole payloads (and empty files) untouched", () => {
+        const whole = new Uint8Array(PAYLOAD_MAX * 2);
+        expect(padToPayload(whole)).toBe(whole);
+        const empty = new Uint8Array(0);
+        expect(padToPayload(empty)).toBe(empty);
+    });
+
+    it("pads to a caller-chosen payload size", () => {
+        expect(padToPayload(Uint8Array.from([1, 2, 3]), 4)).toEqual(Uint8Array.from([1, 2, 3, 0]));
+        expect(() => padToPayload(new Uint8Array(), 0)).toThrow(RangeError);
     });
 });
 
@@ -56,6 +80,8 @@ describe("shared/protocol opcodes", () => {
         expect(HostCommand.ProfileCreate).toBe(0x20);
         expect(HostCommand.ProfileRename).toBe(0x21);
         expect(HostCommand.ProfileDelete).toBe(0x22);
+        expect(HostCommand.PageDelete).toBe(0x23);
+        expect(HostCommand.IconDelete).toBe(0x24);
         expect(HostCommand.FileStart).toBe(0x30);
         expect(HostCommand.FileChunk).toBe(0x31);
         expect(HostCommand.FileEnd).toBe(0x32);
@@ -95,7 +121,7 @@ describe("shared/protocol error codes", () => {
         expect(ErrorCode.Rename).toBe(0x15);
         expect(ErrorCode.Delete).toBe(0x16);
         expect(ErrorCode.TransferBusy).toBe(0x20);
-        expect(ErrorCode.InvalidPathType).toBe(0x21);
+        expect(ErrorCode.InvalidTargetType).toBe(0x21);
         expect(ErrorCode.FileOpen).toBe(0x22);
         expect(ErrorCode.ChunkTooLarge).toBe(0x23);
         expect(ErrorCode.FileNotOpen).toBe(0x24);
@@ -104,6 +130,7 @@ describe("shared/protocol error codes", () => {
         expect(ErrorCode.CrcMissing).toBe(0x27);
         expect(ErrorCode.Crc).toBe(0x28);
         expect(ErrorCode.Finalize).toBe(0x29);
+        expect(ErrorCode.FileNotFound).toBe(0x2a);
         expect(ErrorCode.UnknownAction).toBe(0x30);
         expect(ErrorCode.PageLoad).toBe(0x31);
         expect(ErrorCode.ProfileLoad).toBe(0x32);
@@ -111,7 +138,10 @@ describe("shared/protocol error codes", () => {
 
     it("describes known and unknown codes", () => {
         expect(describeErrorCode(ErrorCode.Crc)).toBe("ERR_CRC");
+        expect(describeErrorCode(ErrorCode.InvalidTargetType)).toBe("ERR_INVALID_TARGET_TYPE");
+        expect(describeErrorCode(ErrorCode.FileNotFound)).toBe("ERR_FILE_NOT_FOUND");
         expect(isErrorCode(ErrorCode.Crc)).toBe(true);
+        expect(isErrorCode(ErrorCode.FileNotFound)).toBe(true);
         expect(isErrorCode(0x99)).toBe(false);
         expect(describeErrorCode(0x99)).toBe("ERR_UNKNOWN(0x99)");
     });
@@ -199,5 +229,25 @@ describe("shared/protocol ↔ Framer interop", () => {
         expect(() =>
             buildFrame(HostCommand.FileChunk, 1, new Uint8Array(PAYLOAD_MAX)),
         ).not.toThrow();
+    });
+});
+
+describe("pageIdFromFilename", () => {
+    it("extracts valid leading-digit ids, including leading zeros", () => {
+        expect(pageIdFromFilename("0.json")).toBe("0");
+        expect(pageIdFromFilename("12.json")).toBe("12");
+        expect(pageIdFromFilename("007.json")).toBe("007");
+    });
+
+    it("rejects non-page files, wrong case, and out-of-range ids", () => {
+        expect(pageIdFromFilename("page.json")).toBeNull();
+        expect(pageIdFromFilename(".json")).toBeNull();
+        expect(pageIdFromFilename("5.JSON")).toBeNull();
+        expect(pageIdFromFilename("300.json")).toBeNull();
+    });
+
+    it("keeps the canonical pattern shared with storage/sync", () => {
+        expect(PAGE_FILENAME_PATTERN.exec("12.json")?.[1]).toBe("12");
+        expect(PAGE_FILENAME_PATTERN.exec("12.JSON")).toBeNull();
     });
 });

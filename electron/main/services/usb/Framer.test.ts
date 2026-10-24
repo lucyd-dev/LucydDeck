@@ -16,20 +16,19 @@ describe("Framer.buildFrame", () => {
     });
 
     it("matches the wiki worked-example page-upload frame", () => {
-        const path = new TextEncoder().encode("gaming/3.json");
-        const report = buildFrame(0x30, 10, Uint8Array.from([0x01, ...path]));
+        const identity = new TextEncoder().encode("gaming/3");
+        const report = buildFrame(0x30, 10, Uint8Array.from([0x01, ...identity]));
         const expectedHead = [
-            0x06, 0x30, 0x00, 0x0a, 0x01, 0x67, 0x61, 0x6d, 0x69, 0x6e, 0x67, 0x2f, 0x33, 0x2e,
-            0x6a, 0x73, 0x6f, 0x6e,
+            0x06, 0x30, 0x00, 0x0a, 0x01, 0x67, 0x61, 0x6d, 0x69, 0x6e, 0x67, 0x2f, 0x33,
         ];
         expect(Array.from(report.slice(0, expectedHead.length))).toEqual(expectedHead);
         expect(report[report.length - 1]).toBe(0x00);
     });
 
     it("writes the sequence big-endian", () => {
-        const report = buildFrame(0x31, 0x1234, Uint8Array.from([0xaa]));
+        const report = buildFrame(0x31, 0x12ab, Uint8Array.from([0xaa]));
         expect(report[2]).toBe(0x12);
-        expect(report[3]).toBe(0x34);
+        expect(report[3]).toBe(0xab);
     });
 
     it("rejects oversized payloads and bad inputs", () => {

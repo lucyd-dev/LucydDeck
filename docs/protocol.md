@@ -22,6 +22,7 @@ Host to device:
 | `0x03`         | profiles list                  |
 | `0x04`         | reset sequence                 |
 | `0x20`-`0x22`  | profile create, rename, delete |
+| `0x23`, `0x24` | page delete, icon delete       |
 | `0x30`-`0x33`  | file start, chunk, end, cancel |
 | `0x40`, `0x41` | set active profile and page    |
 
@@ -38,12 +39,10 @@ Device to host:
 
 ## Upload
 
-- Payload is `[pathType][path]`. `0x01` is a page at `"<profile>/<id>.json"`, `0x02` is an icon at `"<name>.png"`.
+- Payload is `[kind][identity]`. `0x01` is a page identity `"<profile>/<id>"`, `0x02` is an icon identity `"<name>"`. The host never names a file or an extension; the firmware appends `.json` or `.png` and rejects an identity that carries one.
 - Chunks are 60 bytes, paced by the ack. The end frame carries a CRC32 in IEEE form, big-endian.
 - The firmware stages `.tmp` and keeps the old file on failure. A failed or aborted upload sends `CMD_FILE_CANCEL`, so the deck does not keep the staging transfer.
 - If an earlier session left a transfer open, `CMD_FILE_START` is answered with `ERR_TRANSFER_BUSY`. The app cancels and retries the start once.
-
-Planned change: [LucydDeck-firmware#10](https://github.com/lucyd-dev/LucydDeck-firmware/issues/10) replaces the path with `[kind][identity]`, page `<profile>/<id>` and icon `<name>`, and the firmware appends `.json` or `.png`. Until it lands, the payload above is what the host sends.
 
 ## Pages and profiles
 
@@ -62,9 +61,7 @@ Planned change: [LucydDeck-firmware#10](https://github.com/lucyd-dev/LucydDeck-f
 
 ## Deletion
 
-The firmware does not implement page or icon deletion yet. Both are tracked in [LucydDeck-firmware#9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9).
-
-Both commands are modelled on `CMD_PROFILE_DELETE`: one identity string, `RESP_ACK` on success.
+Both commands take one identity string with no extension and answer `RESP_ACK` on success. The firmware appends `.json` or `.png` and rejects an identity that carries an extension.
 
 | Opcode | Command           | Payload                      |
 | ------ | ----------------- | ---------------------------- |
@@ -84,8 +81,6 @@ Page failures:
 Icon failures: `ERR_INVALID_PATH` for a bad name, `ERR_FILE_NOT_FOUND` for a missing file, `ERR_DELETE` when the unlink fails. The image list is scanned on request, so it needs no refresh. The current page keeps the pixmap it loaded.
 
 Deleting the displayed page repaints the first remaining page (lowest id) in the active profile, and a blank page when none remain.
-
-The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. [LucydDeck#6](https://github.com/lucyd-dev/LucydDeck/issues/6) adapts the host to the identity payloads for both upload and delete.
 
 ## Versioning
 

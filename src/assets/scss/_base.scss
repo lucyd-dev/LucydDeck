@@ -1,6 +1,5 @@
-@use "variables" as v;
+// Base resets + global element styles. Colours come from `_tokens.scss`.
 
-// Base resets + global element styles (dark theme).
 *,
 *::before,
 *::after {
@@ -8,14 +7,15 @@
 }
 
 html {
-    font-size: v.$font-size-root;
+    font-size: var(--font-size-root);
+    background-color: var(--color-bg);
 }
 
 body {
     margin: 0;
-    background-color: v.$color-bg;
-    color: v.$color-text;
-    font-family: v.$font-sans;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
     line-height: 1.45;
     overflow: hidden;
 }
@@ -24,39 +24,82 @@ body {
     position: absolute;
     inset: 0;
     display: flex;
-    min-width: 720px;
-    min-height: 480px;
+    min-width: 1024px;
+    min-height: 680px;
+}
+
+* {
+    scrollbar-color: var(--color-scroll-thumb) var(--color-scroll-track);
+    scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-scroll-track);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-scroll-thumb);
+    border: 2px solid var(--color-scroll-track);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scroll-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+    background: var(--color-scroll-track);
 }
 
 ::selection {
-    background-color: rgba(124, 108, 240, 0.3);
+    background-color: var(--color-accent-soft);
+}
+
+button,
+input,
+select,
+textarea {
+    font-family: inherit;
+    color: var(--color-text);
 }
 
 button {
-    font-family: inherit;
     cursor: pointer;
 }
 
-select,
-input,
-textarea {
-    font-family: inherit;
-    color: v.$color-text;
-    background-color: v.$color-surface;
-    border: 1px solid v.$color-border;
+a {
+    color: var(--color-accent);
+    text-decoration: none;
 }
 
-a {
-    color: v.$color-text;
-    text-decoration: none;
+a:hover {
+    text-decoration: underline;
 }
 
 code,
 kbd {
-    font-family: v.$font-mono;
+    font-family: var(--font-mono);
 }
 
 :focus-visible {
-    outline: 2px solid v.$color-accent;
+    outline: 2px solid var(--color-accent);
     outline-offset: 1px;
+}
+
+// Readable by a screen reader, invisible on screen.
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }

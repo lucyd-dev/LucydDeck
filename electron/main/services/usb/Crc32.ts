@@ -4,6 +4,8 @@
 // this matches byte-for-byte — required for `CMD_FILE_END` and the list hashes.
 // ---------------------------------------------------------------------------
 
+import { padToPayload } from "@shared/protocol";
+
 const TABLE: Uint32Array = (() => {
     const table = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -33,6 +35,15 @@ export function crc32ToBigEndian(value: number): Uint8Array {
         (value >>> 8) & 0xff,
         value & 0xff,
     ]);
+}
+
+/**
+ * CRC-32 of the bytes the device receives for `bytes`: the file zero-padded to
+ * whole 60-byte HID payloads. This is both the `CMD_FILE_END` check value and
+ * the list hash of the file the firmware stores.
+ */
+export function crc32Upload(bytes: Uint8Array): number {
+    return crc32(padToPayload(bytes));
 }
 
 /** CRC-32 of `bytes`, emitted big-endian (the `CMD_FILE_END` payload). */

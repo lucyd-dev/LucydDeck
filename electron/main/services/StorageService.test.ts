@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { serializePageConfig } from "@shared/schema";
 import {
     DATA_DIR_ENV,
     PAGE_FILE_PATTERN,
@@ -10,6 +11,7 @@ import {
     resolveDataDir,
     validateName,
 } from "./StorageService";
+import { crc32Upload } from "./usb/Crc32";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -202,6 +204,20 @@ describe("StorageService profile CRUD", () => {
         expect(() => storage.loadPage("main", "abc")).toThrow();
     });
 
+    it("deletes a page and refuses a missing one", () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", { buttons: {} });
+        storage.savePage("main", "1", { buttons: {} });
+
+        storage.deletePage("main", "0");
+        expect(storage.listPages("main").map((p) => p.id)).toEqual(["1"]);
+        expect(() => storage.loadPage("main", "0")).toThrow();
+
+        expect(() => storage.deletePage("main", "0")).toThrow();
+        expect(() => storage.deletePage("missing", "1")).toThrow();
+        expect(() => storage.deletePage("main", "../x")).toThrow();
+    });
+
     it("loads what it saved, pretty-printed with a trailing newline", () => {
         storage.createProfile("main");
         const page = {
@@ -209,7 +225,6 @@ describe("StorageService profile CRUD", () => {
                 "0": {
                     label: "Launch",
                     click: ["CMD:explorer.exe"],
-                    longPress: [],
                 },
             },
         };
@@ -330,6 +345,215 @@ describe("StorageService export/import", () => {
 
         expect(() => storage.importProfileFrom(src)).toThrow(/already exists/);
         expect(() => storage.importProfileFrom(path.join(dataDir, "missing"))).toThrow();
+    });
+});
+
+describe("StorageService default profile", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("persists, resolves, and surfaces the default flag", () => {
+        storage.createProfile("main");
+        storage.createProfile("work");
+        expect(storage.getDefaultProfile()).toBeNull();
+
+        storage.setDefaultProfile("work");
+        expect(storage.getDefaultProfile()).toBe("work");
+        expect(storage.listProfiles().map((p) => [p.name, p.isDefault])).toEqual([
+            ["main", false],
+            ["work", true],
+        ]);
+
+        // Renaming the default follows the rename.
+        storage.renameProfile("work", "office");
+        expect(storage.getDefaultProfile()).toBe("office");
+
+        // Deleting the default clears it.
+        storage.deleteProfile("office");
+        expect(storage.getDefaultProfile()).toBeNull();
+    });
+
+    it("clears the default with null and rejects missing profiles", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setDefaultProfile(null);
+        expect(storage.getDefaultProfile()).toBeNull();
+        expect(() => storage.setDefaultProfile("ghost")).toThrow(/not found/);
+    });
+});
+
+describe("StorageService app settings", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("defaults when settings.json has no app section", () => {
+        expect(storage.getAppSettings().theme).toBe("system");
+        expect(storage.getAppSettings().accent).toBe("violet");
+    });
+
+    it("persists appearance and window settings beside defaultProfile", () => {
+        storage.createProfile("main");
+        storage.setDefaultProfile("main");
+        storage.setAppSettings({ theme: "light", accent: "blue" });
+        const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")) as {
+            defaultProfile?: string;
+            app?: { theme?: string; accent?: string };
+        };
+        expect(saved.defaultProfile).toBe("main");
+        expect(saved.app?.theme).toBe("light");
+        expect(saved.app?.accent).toBe("blue");
+        expect(storage.getAppSettings().theme).toBe("light");
+    });
+
+    it("sanitizes hostile settings and clamps window bounds", () => {
+        fs.writeFileSync(
+            path.join(dataDir, "settings.json"),
+            JSON.stringify({ app: { theme: "neon", accent: 42, window: { width: 1 } } }),
+        );
+        const settings = storage.getAppSettings();
+        expect(settings.theme).toBe("system");
+        expect(settings.accent).toBe("violet");
+        expect(settings.window.width).toBe(1024);
+    });
+
+    it("reports the canonical page hash matching the upload bytes", () => {
+        storage.createProfile("main");
+        const page = {
+            buttons: { "1": { label: "Run", click: ["CMD:echo hi"] } },
+        };
+        storage.savePage("main", "0", page);
+        const hash = storage.listPages("main")[0].hash;
+        expect(typeof hash).toBe("number");
+        expect(storage.pageHash("main", "0")).toBe(hash);
+        // The device stores the zero-padded HID payloads, so its list hash is
+        // the CRC of the padded canonical JSON, not the unpadded file.
+        const canonical = new TextEncoder().encode(
+            JSON.stringify(serializePageConfig(page as never)),
+        );
+        expect(hash).toBe(crc32Upload(canonical));
+    });
+});
+
+describe("StorageService reference scan", () => {
+    let dataDir = "";
+    let storage: StorageService;
+
+    beforeEach(() => {
+        dataDir = tempDataDir();
+        storage = new StorageService({ dataDir });
+        storage.createProfile("main");
+        storage.createProfile("work");
+        storage.createProfile("gaming");
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    function saveSteps(profile: string, id: string, steps: string[], imageName?: string): void {
+        storage.savePage(profile, id, {
+            buttons: {
+                "0": {
+                    click: steps,
+                    ...(imageName === undefined ? {} : { imageName }),
+                },
+            },
+        });
+    }
+
+    it("returns one hit per page that uses an icon, across profiles", () => {
+        saveSteps("main", "0", [], "github");
+        saveSteps("main", "1", [], "github");
+        saveSteps("work", "3", [], "github");
+        saveSteps("work", "4", [], "other");
+
+        expect(storage.scanReferences({ kind: "icon", name: "github" })).toEqual({
+            hits: [
+                { profile: "main", pageId: "0" },
+                { profile: "main", pageId: "1" },
+                { profile: "work", pageId: "3" },
+            ],
+            partial: false,
+        });
+    });
+
+    it("reports icon references even when the icon exists on neither side", () => {
+        saveSteps("main", "2", [], "missing-everywhere");
+
+        expect(storage.scanReferences({ kind: "icon", name: "missing-everywhere" }).hits).toEqual([
+            { profile: "main", pageId: "2" },
+        ]);
+    });
+
+    it("finds pages stepped to from the same profile only", () => {
+        saveSteps("main", "0", ["PAGE:3"]);
+        saveSteps("main", "3", []);
+        saveSteps("main", "4", ["PAGE:3"]);
+        saveSteps("work", "0", ["PAGE:3"]);
+
+        expect(storage.scanReferences({ kind: "page", profile: "main", id: "3" }).hits).toEqual([
+            { profile: "main", pageId: "0" },
+            { profile: "main", pageId: "4" },
+        ]);
+    });
+
+    it("does not count the page being deleted as its own reference", () => {
+        saveSteps("main", "3", ["PAGE:3"]);
+        saveSteps("main", "0", ["PAGE:3"]);
+
+        expect(storage.scanReferences({ kind: "page", profile: "main", id: "3" }).hits).toEqual([
+            { profile: "main", pageId: "0" },
+        ]);
+    });
+
+    it("finds PROFILE steps from pages outside the profile only", () => {
+        saveSteps("main", "0", ["PROFILE:work"]);
+        saveSteps("work", "0", ["PROFILE:work"]);
+        saveSteps("gaming", "1", ["PROFILE:work"]);
+
+        expect(storage.scanReferences({ kind: "profile", name: "work" }).hits).toEqual([
+            { profile: "gaming", pageId: "1" },
+            { profile: "main", pageId: "0" },
+        ]);
+    });
+
+    it("skips an unreadable page, keeps the other hits and reports partial", () => {
+        saveSteps("main", "0", [], "github");
+        saveSteps("main", "1", [], "github");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "2.json"), "{not json");
+        saveSteps("work", "5", [], "github");
+
+        expect(storage.scanReferences({ kind: "icon", name: "github" })).toEqual({
+            hits: [
+                { profile: "main", pageId: "0" },
+                { profile: "main", pageId: "1" },
+                { profile: "work", pageId: "5" },
+            ],
+            partial: true,
+        });
+    });
+
+    it("reports itself whole when every page reads", () => {
+        saveSteps("main", "0", [], "github");
+        expect(storage.scanReferences({ kind: "icon", name: "github" }).partial).toBe(false);
     });
 });
 
