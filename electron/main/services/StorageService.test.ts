@@ -515,6 +515,15 @@ describe("StorageService reference scan", () => {
         ]);
     });
 
+    it("does not count the page being deleted as its own reference", () => {
+        saveSteps("main", "3", ["PAGE:3"]);
+        saveSteps("main", "0", ["PAGE:3"]);
+
+        expect(storage.scanReferences({ kind: "page", profile: "main", id: "3" }).hits).toEqual([
+            { profile: "main", pageId: "0" },
+        ]);
+    });
+
     it("finds PROFILE steps from pages outside the profile only", () => {
         saveSteps("main", "0", ["PROFILE:work"]);
         saveSteps("work", "0", ["PROFILE:work"]);

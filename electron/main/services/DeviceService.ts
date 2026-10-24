@@ -207,8 +207,14 @@ export class DeviceService {
             await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
         } catch (error) {
             // The postcondition of a delete is that the file is gone, and it
-            // already holds when the deck answers that it never had it.
-            if (options.allowMissing === true && isFirmwareError(error, ErrorCode.FileNotFound)) {
+            // already holds when the deck answers that it never had it. A page
+            // in a profile the deck never received is the common case: the
+            // firmware reports the missing profile before it looks for the file.
+            if (
+                options.allowMissing === true &&
+                (isFirmwareError(error, ErrorCode.FileNotFound) ||
+                    isFirmwareError(error, ErrorCode.ProfileNotFound))
+            ) {
                 return;
             }
             throw error;

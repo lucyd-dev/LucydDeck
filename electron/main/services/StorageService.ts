@@ -379,6 +379,11 @@ export class StorageService {
                 continue;
             }
             for (const page of this.listPages(profile.name)) {
+                // The page being deleted is not a reference to itself; naming it
+                // would be noise in the confirmation.
+                if (query.kind === "page" && page.id === query.id) {
+                    continue;
+                }
                 let config: PageConfig;
                 try {
                     config = this.loadPage(profile.name, page.id);

@@ -140,7 +140,6 @@ async function importProfile(): Promise<void> {
             type="button"
             :aria-expanded="open"
             aria-labelledby="profile-section-title"
-            title="Profile"
             @click="toggleOpen"
         >
             <span class="profile-menu__value">{{ profile.activeProfile || "Select…" }}</span>
