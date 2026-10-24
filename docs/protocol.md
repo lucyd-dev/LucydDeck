@@ -43,6 +43,8 @@ Device to host:
 - The firmware stages `.tmp` and keeps the old file on failure. A failed or aborted upload sends `CMD_FILE_CANCEL`, so the deck does not keep the staging transfer.
 - If an earlier session left a transfer open, `CMD_FILE_START` is answered with `ERR_TRANSFER_BUSY`. The app cancels and retries the start once.
 
+Planned change: [LucydDeck-firmware#10](https://github.com/lucyd-dev/LucydDeck-firmware/issues/10) replaces the path with `[kind][identity]`, page `<profile>/<id>` and icon `<name>`, and the firmware appends `.json` or `.png`. Until it lands, the payload above is what the host sends.
+
 ## Pages and profiles
 
 - Page JSON has a `buttons` object keyed `"0"` to `"14"`, row major. A button holds `imageName` without the extension, `backgroundColor` as `#RRGGBB`, `label`, and `click[]`. Unknown top-level keys are ignored. There is no `longPress`.
@@ -83,7 +85,7 @@ Icon failures: `ERR_INVALID_PATH` for a bad name, `ERR_FILE_NOT_FOUND` for a mis
 
 Deleting the displayed page repaints the first remaining page (lowest id) in the active profile, and a blank page when none remain.
 
-The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. It adapts after the firmware commands land.
+The host branch still carries a draft that sends `CMD_FILE_DELETE 0x34` with a `[pathType][path]` payload. [LucydDeck#6](https://github.com/lucyd-dev/LucydDeck/issues/6) adapts the host to the identity payloads for both upload and delete.
 
 ## Versioning
 
