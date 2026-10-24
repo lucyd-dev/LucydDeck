@@ -1,4 +1,4 @@
-import { computed, ref, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
 import type { DeviceInfo } from "@shared/ipc";
 import { diffPlanOperations } from "@shared/sync";
@@ -26,7 +26,9 @@ export const useDeviceStore = defineStore("device", () => {
 
     const info = ref<DeviceInfo | null>(null);
     const inventory = ref<InventoryRow[]>([]);
-    const plan = ref<DiffPlan | null>(null);
+    // Shallow on purpose: the plan is replaced wholesale and goes straight over
+    // IPC, and a deep ref would make it a Proxy that Electron cannot clone.
+    const plan = shallowRef<DiffPlan | null>(null);
     const loading = ref(false);
     const stale = ref(false);
     const deletingKey = ref<string | null>(null);
