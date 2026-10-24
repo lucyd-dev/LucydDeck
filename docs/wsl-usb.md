@@ -65,5 +65,6 @@ npm run dev
 
 - **No `ttyACM` or `hidraw` node.** Check `lsusb -d 303a:`. If the device is there but the nodes have the wrong owner, the udev rule did not apply. Replug, rerun `udevadm trigger`, or temporarily `sudo chmod -R a+rw /dev/bus/usb`.
 - **The port vanishes after a flash.** The ESP32 re-enumerated. Auto-attach should bring it back in a second or two. Without auto-attach, run the attach command again.
+- **The port vanishes at the start of an upload and never returns.** The flash reset the deck into its ROM bootloader, which is a second USB device on the same port (`USB JTAG/serial debug unit`, a different COM port). usbipd shares devices individually, so bind that one too while it is visible: `usbipd bind --busid <busid>` as administrator. With both the app device and the bootloader device shared, auto-attach follows the deck through a flash. A power cycle boots the old firmware and brings the app device back.
 - **Upload times out at 921600.** Lower `upload_speed` to `460800` in a local override. The virtual USB hop is less forgiving than the native one.
 - **`/dev/ttyACM0` keeps disappearing.** Ubuntu's `brltty` grabs ESP32 CDC ports as Braille displays. Remove or mask it.
