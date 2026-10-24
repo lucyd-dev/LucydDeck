@@ -159,7 +159,7 @@ export class DeviceService {
     }
 
     /**
-     * Delete one file (`CMD_FILE_DELETE = 0x34`, protocol 2+). Payload is
+     * Delete one file (`CMD_FILE_DELETE = 0x34`). Payload is
      * `[pathType][path]`, same path grammar as `CMD_FILE_START`.
      */
     async deleteFile(pathType: PathType, path: string): Promise<void> {

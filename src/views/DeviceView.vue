@@ -188,12 +188,6 @@ watch(
                                 {{ formatSpace(device.info.freeSpaceKb) }}
                             </p>
                         </div>
-                        <div class="info-item">
-                            <p class="info-item__label">File deletion</p>
-                            <p class="info-item__value">
-                                {{ device.capabilities.deleteFile ? "Supported" : "Not available" }}
-                            </p>
-                        </div>
                     </div>
 
                     <div class="settings-row">

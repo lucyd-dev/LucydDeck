@@ -1,7 +1,5 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import { fileDeleteUnsupportedReason } from "@shared/protocol";
-import type { DeviceCapabilities } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
 import { diffPlanOperations } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
@@ -17,19 +15,16 @@ import type {
     LocalProfileSummary,
 } from "@/device/inventory";
 
-const NO_CAPABILITIES: DeviceCapabilities = { deleteFile: false, protocolVersion: null };
-
 /**
  * Device view state: the last device info and inventory, the sync review plan,
- * and the delete-capability gate. A disconnect keeps the last inventory and
- * marks it stale (sync and cleanup are disabled) instead of blanking the view.
+ * and a stale marker. A disconnect keeps the last inventory and marks it stale
+ * (sync and cleanup are disabled) instead of blanking the view.
  */
 export const useDeviceStore = defineStore("device", () => {
     const usb = useUsbStore();
     const profile = useProfileStore();
 
     const info = ref<DeviceInfo | null>(null);
-    const capabilities = ref<DeviceCapabilities>(NO_CAPABILITIES);
     const inventory = ref<InventoryRow[]>([]);
     const plan = ref<DiffPlan | null>(null);
     const loading = ref(false);
@@ -38,9 +33,7 @@ export const useDeviceStore = defineStore("device", () => {
 
     const summary = computed(() => summarizeInventory(inventory.value));
     const operations = computed(() => (plan.value === null ? 0 : diffPlanOperations(plan.value)));
-    const canDelete = computed(
-        () => usb.connected && !stale.value && capabilities.value.deleteFile,
-    );
+    const canDelete = computed(() => usb.connected && !stale.value);
     const deleteDisabledReason = computed<string | undefined>(() => {
         if (!usb.connected) {
             return "Connect the deck to delete device files";
@@ -48,11 +41,7 @@ export const useDeviceStore = defineStore("device", () => {
         if (stale.value) {
             return "Reconnect and refresh the inventory first";
         }
-        return (
-            fileDeleteUnsupportedReason({
-                protocolVersion: capabilities.value.protocolVersion,
-            }) ?? undefined
-        );
+        return undefined;
     });
     const syncDisabledReason = computed<string | undefined>(() => {
         if (!usb.connected) {
@@ -120,39 +109,29 @@ export const useDeviceStore = defineStore("device", () => {
         }
         loading.value = true;
         try {
-            const [infoResult, capabilitiesResult, profilesResult, imagesResult, local] =
-                await Promise.all([
-                    usbClient.deviceInfo(),
-                    usbClient.capabilities(),
-                    usbClient.listProfiles(),
-                    usbClient.listImages(),
-                    loadLocalInventory(),
-                ]);
+            const [infoResult, profilesResult, imagesResult, local] = await Promise.all([
+                usbClient.deviceInfo(),
+                usbClient.listProfiles(),
+                usbClient.listImages(),
+                loadLocalInventory(),
+            ]);
             if (!usb.connected) {
                 stale.value = inventory.value.length > 0;
                 return;
             }
-            const failure = [infoResult, capabilitiesResult, profilesResult, imagesResult].find(
-                (result) => !result.ok,
-            );
+            const failure = [infoResult, profilesResult, imagesResult].find((result) => !result.ok);
             if (failure !== undefined && !failure.ok) {
                 useAppStore().pushToast("error", failure.error);
                 stale.value = inventory.value.length > 0;
                 return;
             }
-            if (
-                !infoResult.ok ||
-                !capabilitiesResult.ok ||
-                !profilesResult.ok ||
-                !imagesResult.ok
-            ) {
+            if (!infoResult.ok || !profilesResult.ok || !imagesResult.ok) {
                 return;
             }
             if (local === null) {
                 return;
             }
             info.value = infoResult.data;
-            capabilities.value = capabilitiesResult.data;
 
             const device: DeviceInventory = {
                 profiles: profilesResult.data.map((entry) => ({
@@ -195,8 +174,7 @@ export const useDeviceStore = defineStore("device", () => {
     }
 
     /**
-     * Delete one device-only file when the firmware supports it. Returns false
-     * when the capability is missing or the call failed.
+     * Delete one device-only file. Returns false when the call failed.
      */
     async function remove(row: InventoryRow): Promise<boolean> {
         if (!canDelete.value || (row.kind !== "page" && row.kind !== "icon")) {
@@ -223,7 +201,6 @@ export const useDeviceStore = defineStore("device", () => {
 
     return {
         info,
-        capabilities,
         inventory,
         plan,
         loading,

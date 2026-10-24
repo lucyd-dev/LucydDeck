@@ -1,5 +1,5 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
-import type { DeviceCapabilities, DeviceImageEntry, DeviceProfileEntry } from "./protocol";
+import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 import type { AppSettings } from "./settings";
 import type { DiffPlan, SyncResult } from "./sync";
 
@@ -59,7 +59,6 @@ export const channels = {
         connect: "usb:connect",
         disconnect: "usb:disconnect",
         deviceInfo: "usb:deviceInfo",
-        capabilities: "usb:capabilities",
         listImages: "usb:listImages",
         listProfiles: "usb:listProfiles",
         createProfile: "usb:createProfile",
@@ -236,7 +235,6 @@ export interface RequestMap {
     [channels.usb.connect]: undefined;
     [channels.usb.disconnect]: undefined;
     [channels.usb.deviceInfo]: undefined;
-    [channels.usb.capabilities]: undefined;
     [channels.usb.listImages]: undefined;
     [channels.usb.listProfiles]: undefined;
     [channels.usb.createProfile]: ProfileNameRequest;
@@ -298,7 +296,6 @@ export interface ResponseMap {
     [channels.usb.connect]: IpcResponse<void>;
     [channels.usb.disconnect]: IpcResponse<void>;
     [channels.usb.deviceInfo]: IpcResponse<DeviceInfo | null>;
-    [channels.usb.capabilities]: IpcResponse<DeviceCapabilities>;
     [channels.usb.listImages]: IpcResponse<DeviceImageEntry[]>;
     [channels.usb.listProfiles]: IpcResponse<DeviceProfileEntry[]>;
     [channels.usb.createProfile]: IpcResponse<void>;

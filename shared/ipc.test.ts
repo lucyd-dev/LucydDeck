@@ -51,12 +51,11 @@ describe("shared/ipc contract", () => {
         expect(channels.sync.execute).toBe("sync:execute");
     });
 
-    it("exposes settings and the device-delete capability channels", () => {
+    it("exposes settings and the device-delete channels", () => {
         expect(channels.settings.get).toBe("settings:get");
         expect(channels.settings.set).toBe("settings:set");
         expect(channels.settings.revealDataFolder).toBe("settings:revealDataFolder");
         expect(channels.settings.openLogsFolder).toBe("settings:openLogsFolder");
-        expect(channels.usb.capabilities).toBe("usb:capabilities");
         expect(channels.usb.deleteFile).toBe("usb:deleteFile");
     });
 });

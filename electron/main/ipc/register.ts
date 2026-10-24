@@ -13,7 +13,6 @@ import type {
     SettingsSnapshot,
 } from "@shared/ipc";
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
-import { capabilitiesFromDeviceInfo, fileDeleteUnsupportedReason } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
 import type { StorageService } from "../services/StorageService";
 import type { UsbService } from "../services/UsbService";
@@ -209,12 +208,6 @@ export function registerIpcHandlers(services: IpcServices): void {
         }
         return { ok: true, data: await device.getDeviceInfo() };
     });
-    register(channels.usb.capabilities, async () => {
-        if (!usb.connected) {
-            return { ok: true, data: { deleteFile: false, protocolVersion: null } };
-        }
-        return { ok: true, data: capabilitiesFromDeviceInfo(await device.getDeviceInfo()) };
-    });
     register(channels.usb.listImages, async () => ({
         ok: true,
         data: await device.listImages(),
@@ -267,10 +260,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     register(channels.usb.deleteFile, async (request) => {
         if (!usb.connected) {
             throw new Error("Device is not connected");
-        }
-        const unsupported = fileDeleteUnsupportedReason(await device.getDeviceInfo());
-        if (unsupported !== null) {
-            throw new Error(unsupported);
         }
         if (request.kind === "page") {
             await device.deletePage(request.profile, request.id);

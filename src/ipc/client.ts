@@ -38,7 +38,6 @@ export const usbClient = {
     connect: () => invoke(channels.usb.connect, undefined),
     disconnect: () => invoke(channels.usb.disconnect, undefined),
     deviceInfo: () => invoke(channels.usb.deviceInfo, undefined),
-    capabilities: () => invoke(channels.usb.capabilities, undefined),
     listImages: () => invoke(channels.usb.listImages, undefined),
     listProfiles: () => invoke(channels.usb.listProfiles, undefined),
     createProfile: (name: string) => invoke(channels.usb.createProfile, { name }),
