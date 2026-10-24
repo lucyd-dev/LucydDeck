@@ -112,9 +112,16 @@ function resetPicked(): void {
 function pick(type: ActionTypeDef): void {
     picked.value = type;
     provider.value = providerForType(type);
+    const profileNames = [
+        ...(profile.activeProfile === "" ? [] : [profile.activeProfile]),
+        ...profile.profiles
+            .map((item) => item.name)
+            .filter((name) => name !== profile.activeProfile),
+    ];
     values.value = defaultFieldValues(
         type,
         profile.pages.map((page) => page.id),
+        profileNames,
     );
     void nextTick(() => {
         root.value

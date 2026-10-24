@@ -5,10 +5,13 @@ withDefaults(
     defineProps<{
         align?: "start" | "end";
         ariaLabel?: string;
+        /** Span the nearest positioned ancestor instead of the trigger. */
+        wide?: boolean;
     }>(),
     {
         align: "start",
         ariaLabel: undefined,
+        wide: false,
     },
 );
 
@@ -80,12 +83,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="root" class="ui-menu">
+    <div ref="root" class="ui-menu" :class="{ 'ui-menu--wide': wide }">
         <slot name="trigger" :open="open" :toggle="toggle" />
         <div
             v-if="open"
             class="ui-menu__panel"
-            :class="`ui-menu__panel--${align}`"
+            :class="[`ui-menu__panel--${align}`, { 'ui-menu__panel--wide': wide }]"
             role="menu"
             :aria-label="ariaLabel"
         >
@@ -98,6 +101,11 @@ onBeforeUnmount(() => {
 .ui-menu {
     position: relative;
     min-width: 0;
+}
+
+/* Anchor to the positioned ancestor so a panel can span a whole panel row. */
+.ui-menu--wide {
+    position: static;
 }
 
 .ui-menu__panel {
@@ -118,5 +126,11 @@ onBeforeUnmount(() => {
 
 .ui-menu__panel--end {
     right: 0;
+}
+
+.ui-menu__panel--wide {
+    right: 0;
+    left: 0;
+    min-width: 0;
 }
 </style>

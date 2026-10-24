@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { Ban } from "@lucide/vue";
 import Menu from "@/components/ui/Menu.vue";
 import { useIconStore } from "@/stores/iconStore";
 import IconTile from "./IconTile.vue";
@@ -20,7 +21,7 @@ const recent = computed(() => {
 </script>
 
 <template>
-    <Menu align="start" aria-label="Choose icon">
+    <Menu wide align="end" aria-label="Choose icon">
         <template #trigger="{ toggle, open }">
             <slot name="trigger" :toggle="toggle" :open="open" />
         </template>
@@ -39,7 +40,20 @@ const recent = computed(() => {
                         Browse all
                     </button>
                 </div>
-                <div v-if="recent.length > 0" class="icon-popover__grid">
+                <div class="icon-popover__grid">
+                    <button
+                        class="icon-tile icon-tile--none"
+                        :class="{ 'icon-tile--selected': props.selected === '' }"
+                        type="button"
+                        title="No image"
+                        :aria-pressed="props.selected === ''"
+                        @click="
+                            emit('select', '');
+                            close();
+                        "
+                    >
+                        <Ban :size="18" />
+                    </button>
                     <IconTile
                         v-for="name in recent"
                         :key="name"
@@ -51,7 +65,7 @@ const recent = computed(() => {
                         "
                     />
                 </div>
-                <p v-else class="icon-popover__empty">
+                <p v-if="recent.length === 0" class="icon-popover__empty">
                     No icons yet — import one from the library.
                 </p>
             </div>

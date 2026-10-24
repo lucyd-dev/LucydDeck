@@ -69,7 +69,7 @@ onBeforeUnmount(() => {
             variant="ghost"
             @click.stop="emit('remove', props.name)"
         >
-            <Trash2 :size="12" />
+            <Trash2 :size="14" />
         </IconButton>
     </div>
 </template>

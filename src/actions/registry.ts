@@ -23,7 +23,7 @@ export interface ActionFieldDef {
     placeholder?: string;
     options?: Array<{ value: string; label: string }>;
     /** Resolve the options from the active profile at render time. */
-    optionsSource?: "profilePages";
+    optionsSource?: "profilePages" | "profiles";
     optional?: boolean;
     default?: string;
     /** Span both columns in the inspector field grid. */
@@ -83,8 +83,16 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
     PROFILE: {
         label: "Switch profile",
         section: "lucyddeck",
-        fields: [{ key: "name", label: "Profile name", kind: "text", placeholder: "main" }],
-        build: (values) => buildActionString("PROFILE", values.name ?? ""),
+        fields: [
+            {
+                key: "name",
+                label: "Profile",
+                kind: "select",
+                optionsSource: "profiles",
+                default: "",
+            },
+        ],
+        build: (values) => buildActionString("PROFILE", (values.name ?? "").trim()),
     },
     HID_KEY: {
         label: "Keyboard shortcut",
@@ -248,11 +256,14 @@ export async function loadPluginRegistrations(): Promise<PluginRegistration[]> {
 export function defaultFieldValues(
     type: ActionTypeDef,
     pageIds: readonly string[] = [],
+    profileNames: readonly string[] = [],
 ): Record<string, string> {
     const values: Record<string, string> = {};
     for (const field of type.fields) {
         if (field.optionsSource === "profilePages" && pageIds.length > 0) {
             values[field.key] = pageIds[0];
+        } else if (field.optionsSource === "profiles" && profileNames.length > 0) {
+            values[field.key] = profileNames[0];
         } else {
             values[field.key] = field.default ?? field.options?.[0]?.value ?? "";
         }

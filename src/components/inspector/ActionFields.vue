@@ -17,6 +17,17 @@ const emit = defineEmits<{ (event: "change", key: string, value: string): void }
 const profile = useProfileStore();
 
 function optionsFor(field: ActionFieldDef): Array<{ value: string; label: string }> {
+    const current = props.values[field.key] ?? "";
+    if (field.optionsSource === "profiles") {
+        const options = profile.profiles.map((item) => ({
+            value: item.name,
+            label: item.name,
+        }));
+        if (current !== "" && !options.some((option) => option.value === current)) {
+            options.push({ value: current, label: `${current} (not found)` });
+        }
+        return options;
+    }
     if (field.optionsSource !== "profilePages") {
         return field.options ?? [];
     }
@@ -24,7 +35,6 @@ function optionsFor(field: ActionFieldDef): Array<{ value: string; label: string
         value: page.id,
         label: pageLabel(page.id),
     }));
-    const current = props.values[field.key] ?? "";
     if (current !== "" && !options.some((option) => option.value === current)) {
         options.push({
             value: current,

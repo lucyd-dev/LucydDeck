@@ -9,6 +9,7 @@ import {
     LayoutGrid,
     Plus,
     Trash2,
+    X,
     Zap,
 } from "@lucide/vue";
 import type { ActionTypeDef, PluginRegistration } from "@/actions/registry";
@@ -79,6 +80,12 @@ const bulkColor = computed(() => {
     }
     return profile.currentPage.buttons[first]?.backgroundColor ?? fallbackBackground();
 });
+
+const bulkHasColor = computed(() =>
+    profile.selectedKeys.some(
+        (key) => profile.currentPage.buttons[key]?.backgroundColor !== undefined,
+    ),
+);
 
 const bulkStepCount = computed(() =>
     profile.selectedKeys.reduce(
@@ -354,23 +361,35 @@ function onDragEnd(): void {
                         Shift-click keys to extend the selection
                     </p>
                     <div class="key-head__appearance">
-                        <label
+                        <div
                             class="appearance-control appearance-control--color"
                             title="Background color for all selected keys"
                         >
-                            <span
-                                class="appearance-control__swatch"
-                                :style="{ backgroundColor: bulkColor }"
-                            ></span>
-                            <span>Color</span>
-                            <input
-                                class="appearance-control__input"
-                                type="color"
-                                :value="bulkColor"
-                                aria-label="Background color for selected keys"
-                                @input="onBulkColorInput"
-                            />
-                        </label>
+                            <label class="appearance-control__pick">
+                                <span
+                                    class="appearance-control__swatch"
+                                    :style="{ backgroundColor: bulkColor }"
+                                ></span>
+                                <span>Color</span>
+                                <input
+                                    class="appearance-control__input"
+                                    type="color"
+                                    :value="bulkColor"
+                                    aria-label="Background color for selected keys"
+                                    @input="onBulkColorInput"
+                                />
+                            </label>
+                            <button
+                                class="appearance-reset"
+                                type="button"
+                                title="Clear background color for selected keys"
+                                aria-label="Clear background color for selected keys"
+                                :disabled="!bulkHasColor"
+                                @click="profile.setSelectedBackgroundColor('')"
+                            >
+                                <X :size="11" />
+                            </button>
+                        </div>
                         <IconQuickMenu
                             :selected="''"
                             @select="selectBulkIcon"
@@ -458,23 +477,32 @@ function onDragEnd(): void {
                     </div>
 
                     <div class="key-head__appearance">
-                        <label
-                            class="appearance-control appearance-control--color"
-                            title="Background color"
-                        >
-                            <span
-                                class="appearance-control__swatch"
-                                :style="{ backgroundColor }"
-                            ></span>
-                            <span>Color</span>
-                            <input
-                                class="appearance-control__input"
-                                type="color"
-                                :value="backgroundColor"
-                                aria-label="Background color"
-                                @input="onColorInput"
-                            />
-                        </label>
+                        <div class="appearance-control appearance-control--color" title="Background color">
+                            <label class="appearance-control__pick">
+                                <span
+                                    class="appearance-control__swatch"
+                                    :style="{ backgroundColor }"
+                                ></span>
+                                <span>Color</span>
+                                <input
+                                    class="appearance-control__input"
+                                    type="color"
+                                    :value="backgroundColor"
+                                    aria-label="Background color"
+                                    @input="onColorInput"
+                                />
+                            </label>
+                            <button
+                                class="appearance-reset"
+                                type="button"
+                                title="Clear background color"
+                                aria-label="Clear background color"
+                                :disabled="!profile.selectedButton?.backgroundColor"
+                                @click="profile.setBackgroundColor('')"
+                            >
+                                <X :size="11" />
+                            </button>
+                        </div>
                         <IconQuickMenu
                             :selected="currentImageName"
                             @select="selectIcon"

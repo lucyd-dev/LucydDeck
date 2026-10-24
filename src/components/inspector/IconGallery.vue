@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Search } from "@lucide/vue";
+import { Ban, ImagePlus, Search } from "@lucide/vue";
 import Button from "@/components/ui/Button.vue";
 import Dialog from "@/components/ui/Dialog.vue";
 import Input from "@/components/ui/Input.vue";
@@ -50,6 +50,16 @@ async function remove(name: string): Promise<void> {
         </label>
 
         <div v-if="visible.length > 0" class="icon-library__grid">
+            <button
+                class="icon-tile icon-tile--none"
+                :class="{ 'icon-tile--selected': props.selected === '' }"
+                type="button"
+                title="No image"
+                :aria-pressed="props.selected === ''"
+                @click="emit('select', '')"
+            >
+                <Ban :size="18" />
+            </button>
             <IconTile
                 v-for="icon in visible"
                 :key="icon.name"
@@ -66,11 +76,11 @@ async function remove(name: string): Promise<void> {
         <p v-else class="icon-library__empty">No icons match “{{ query }}”.</p>
 
         <template #footer>
-            <Button variant="ghost" :disabled="props.selected === ''" @click="emit('select', '')">
-                Clear selection
-            </Button>
             <span class="icon-library__spacer"></span>
-            <Button @click="emit('import')">Import PNG</Button>
+            <Button variant="ghost" @click="emit('import')">
+                <ImagePlus :size="14" />
+                <span>Import PNG</span>
+            </Button>
             <Button variant="primary" @click="emit('close')">Done</Button>
         </template>
     </Dialog>
