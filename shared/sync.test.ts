@@ -24,6 +24,7 @@ describe("emptyDiffPlan", () => {
             iconsToDelete: [],
             profilesToDelete: [],
             missingIcons: [],
+            missingPluginCommands: [],
             setActiveProfile: null,
         });
         expect(isDiffPlanEmpty(emptyDiffPlan())).toBe(true);

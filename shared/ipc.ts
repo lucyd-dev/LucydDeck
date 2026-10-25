@@ -2,6 +2,13 @@ import type { PageConfig, PageMeta, ProfileMeta } from "./types";
 import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 import type { AppSettings } from "./settings";
 import type { DiffPlan, SyncResult } from "./sync";
+import type {
+    PluginCommand,
+    PluginConfigField,
+    PluginConfigValues,
+    PluginManifest,
+    PluginStatus,
+} from "./plugins";
 
 // ---------------------------------------------------------------------------
 // Result envelope. Every IPC handler resolves to exactly one of these shapes.
@@ -80,8 +87,14 @@ export const channels = {
     },
     plugins: {
         list: "plugins:list",
+        inspect: "plugins:inspect",
+        install: "plugins:install",
         setEnabled: "plugins:setEnabled",
+        restart: "plugins:restart",
         remove: "plugins:remove",
+        getConfig: "plugins:getConfig",
+        setConfig: "plugins:setConfig",
+        invoke: "plugins:invoke",
     },
     updater: {
         state: "updater:state",
@@ -199,12 +212,13 @@ export interface ReferenceHit {
     pageId: string;
 }
 
-export type ReferenceKind = "icon" | "page" | "profile";
+export type ReferenceKind = "icon" | "page" | "profile" | "plugin";
 
 export type ReferenceQuery =
     | { kind: "icon"; name: string }
     | { kind: "page"; profile: string; id: string }
-    | { kind: "profile"; name: string };
+    | { kind: "profile"; name: string }
+    | { kind: "plugin"; handle: string };
 
 export interface ReferenceScanResult {
     hits: ReferenceHit[];
@@ -227,12 +241,52 @@ export interface SettingsSnapshot {
 }
 
 export interface PluginSetEnabledRequest {
-    id: string;
+    handle: string;
     enabled: boolean;
 }
 
 export interface PluginRemoveRequest {
-    id: string;
+    handle: string;
+}
+
+export interface PluginInspectRequest {
+    /** Omitted opens the native folder picker. */
+    path?: string;
+}
+
+export interface PluginInstallRequest {
+    path: string;
+    replace?: boolean;
+}
+
+export interface PluginHandleRequest {
+    handle: string;
+}
+
+export interface PluginSetConfigRequest {
+    handle: string;
+    values: PluginConfigValues;
+}
+
+export interface PluginInvokeRequest {
+    handle: string;
+    command: string;
+}
+
+export interface PluginConfigSnapshot {
+    handle: string;
+    fields: PluginConfigField[];
+    values: PluginConfigValues;
+}
+
+/** What the install confirmation shows before anything is copied. */
+export interface PluginInspectResult {
+    path: string;
+    manifest: PluginManifest | null;
+    valid: boolean;
+    error: string | null;
+    installedVersion: string | null;
+    iconDataUrl: string | null;
 }
 
 export interface RequestMap {
@@ -284,10 +338,16 @@ export interface RequestMap {
     [channels.settings.revealDataFolder]: undefined;
     [channels.settings.openLogsFolder]: undefined;
 
-    // plugins (stub — Step 4)
+    // plugins
     [channels.plugins.list]: undefined;
+    [channels.plugins.inspect]: PluginInspectRequest;
+    [channels.plugins.install]: PluginInstallRequest;
     [channels.plugins.setEnabled]: PluginSetEnabledRequest;
+    [channels.plugins.restart]: PluginHandleRequest;
     [channels.plugins.remove]: PluginRemoveRequest;
+    [channels.plugins.getConfig]: PluginHandleRequest;
+    [channels.plugins.setConfig]: PluginSetConfigRequest;
+    [channels.plugins.invoke]: PluginInvokeRequest;
 
     // updater (stub — Step 5)
     [channels.updater.state]: undefined;
@@ -349,8 +409,14 @@ export interface ResponseMap {
 
     // plugins
     [channels.plugins.list]: IpcResponse<PluginMeta[]>;
+    [channels.plugins.inspect]: IpcResponse<PluginInspectResult | null>;
+    [channels.plugins.install]: IpcResponse<PluginMeta>;
     [channels.plugins.setEnabled]: IpcResponse<void>;
+    [channels.plugins.restart]: IpcResponse<void>;
     [channels.plugins.remove]: IpcResponse<void>;
+    [channels.plugins.getConfig]: IpcResponse<PluginConfigSnapshot>;
+    [channels.plugins.setConfig]: IpcResponse<PluginConfigSnapshot>;
+    [channels.plugins.invoke]: IpcResponse<void>;
 
     // updater
     [channels.updater.state]: IpcResponse<UpdaterState>;
@@ -419,9 +485,17 @@ export interface IconPreview {
 }
 
 export interface PluginMeta {
-    id: string;
+    handle: string;
     name: string;
+    description: string;
+    version: string;
+    apiVersion: number;
+    iconDataUrl: string | null;
     enabled: boolean;
+    status: PluginStatus;
+    error: string | null;
+    commands: PluginCommand[];
+    hasConfig: boolean;
 }
 
 export interface UpdaterState {
@@ -449,11 +523,12 @@ export interface SyncProgressPayload {
     message?: string;
 }
 
-export interface PluginEventPayload {
-    pluginId: string;
-    event: string;
-    payload?: unknown;
-}
+export type PluginLogLevel = "debug" | "info" | "warn" | "error";
+
+export type PluginEventPayload =
+    | { type: "status"; handle: string; status: PluginStatus; error: string | null }
+    | { type: "registrations" }
+    | { type: "log"; handle: string; level: PluginLogLevel; message: string };
 
 export interface FirmwareStatePayload {
     state: FirmwareState["state"];

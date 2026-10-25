@@ -1,5 +1,6 @@
 import { ACTION_NAMESPACES, CONTROL_KEYS, MOUSE_BUTTONS, buildActionString } from "@shared/actions";
 import type { ActionNamespace } from "@shared/actions";
+import { humanizePluginCommandName } from "@shared/plugins";
 
 /**
  * Action-picker registry.
@@ -37,6 +38,8 @@ export interface ActionTypeDef {
     label: string;
     section: ActionSection;
     fields: ActionFieldDef[];
+    /** Kept for editing old steps, never offered in the picker. */
+    hidden?: boolean;
     /** Build the canonical action string from the dynamic field values. */
     build: (values: Record<string, string>) => string;
 }
@@ -46,10 +49,12 @@ export interface PluginCommandRegistration {
     title?: string;
 }
 
-/** One installed plugin: its handle, the label it supplies and its commands. */
+/** One installed plugin: its handle, its label, icon and commands. */
 export interface PluginRegistration {
     handle: string;
     label: string;
+    /** Manifest icon as a data URL, or null when the plugin has none. */
+    iconDataUrl: string | null;
     commands: PluginCommandRegistration[];
 }
 
@@ -183,6 +188,9 @@ const ACTION_TYPE_BY_NAMESPACE: Record<ActionNamespace, ActionTypeSpec> = {
     CMD: {
         label: "Command",
         section: "system",
+        // The picker shows one row per plugin. The CMD namespace stays for
+        // parsing and editing steps saved before plugins existed.
+        hidden: true,
         fields: [
             {
                 key: "command",
@@ -224,7 +232,7 @@ export function pluginCommandToType(
     return {
         id: `CMD:${action}`,
         namespace: "CMD",
-        label: command.title ?? action,
+        label: command.title ?? humanizePluginCommandName(command.command),
         section: "plugins",
         fields: [],
         build: () => buildActionString("CMD", action),

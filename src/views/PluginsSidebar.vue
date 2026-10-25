@@ -1,3 +1,11 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import { usePluginStore } from "@/stores/pluginStore";
+
+const plugins = usePluginStore();
+const count = computed(() => plugins.plugins.length);
+</script>
+
 <template>
     <div class="deck-sidebar">
         <p class="sidebar__section-title">Plugins</p>
@@ -7,11 +15,8 @@
                 :to="{ name: 'plugins' }"
             >
                 <span>Installed</span>
-                <span class="sidebar__nav-count">0</span>
+                <span class="sidebar__nav-count">{{ count }}</span>
             </RouterLink>
         </nav>
-        <p class="sidebar__hint">
-            Plugin installation, worker isolation and published state arrive in a later step.
-        </p>
     </div>
 </template>

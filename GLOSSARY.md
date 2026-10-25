@@ -104,6 +104,10 @@ _Avoid_: Path type, file type
 A host-side command handler that runs on the PC when a key runs a `CMD:` step.
 _Avoid_: Extension, add-on, integration
 
+**Plugin manifest**:
+The `plugin.json` at the root of a plugin folder. It gives the host API version, handle, name, version, entry file and config fields, and the host validates it at install.
+_Avoid_: Descriptor, plugin file, metadata
+
 **Plugin handle**:
 The plugin id that appears as the first part of a plugin command, as in `CMD:obs:scene`.
 _Avoid_: Namespace, prefix
@@ -113,12 +117,24 @@ A plugin the host has registered, whether or not it offers any commands.
 _Avoid_: Loaded plugin, active plugin
 
 **Plugin label**:
-The name a plugin supplies when it registers, shown in the action picker.
+The manifest `name` shown in the action picker and the Plugins view. It does not come from a registration call.
 _Avoid_: Title, display name
 
 **Plugin command**:
 One command a plugin registers, writable as a `CMD:` action step.
 _Avoid_: Action, endpoint
+
+**Plugin config**:
+The values a user sets for the config fields a plugin declares, stored in `plugins/<handle>/config.json` and read through `getConfig()`.
+_Avoid_: Settings, preferences, options
+
+**Plugin status**:
+Where a plugin's process is: stopped, starting, running or failed. A failed plugin stays installed and enabled.
+_Avoid_: State (when the meaning is status), health
+
+**Plugin data folder**:
+The `data/` folder the host creates inside a plugin folder for files the plugin keeps. Removing the plugin removes it too.
+_Avoid_: Storage, workspace, cache
 
 **Plugin state**:
 A value a plugin publishes to describe what it is doing, such as muted or live. The app shows it. The deck does not.

@@ -13,6 +13,7 @@ import {
     X,
 } from "@lucide/vue";
 import { validateActionString } from "@shared/actions";
+import { pluginRowId } from "@shared/plugins";
 import type { ActionTypeDef, PluginRegistration } from "@/actions/registry";
 import { defaultFieldValues } from "@/actions/registry";
 import type { ProviderRow } from "@/actions/providers";
@@ -93,7 +94,8 @@ function providerForType(type: ActionTypeDef): string {
     if (type.section === "system") {
         return "system";
     }
-    return pluginHandleOf(type) ?? "deck";
+    const handle = pluginHandleOf(type);
+    return handle === null ? "deck" : pluginRowId(handle);
 }
 
 function categoryOf(type: ActionTypeDef): keyof typeof CATEGORY_ICONS {
@@ -248,7 +250,13 @@ watch(
                         @click="provider = item.id"
                     >
                         <span class="provider-row__icon">
-                            <component :is="providerIcon(item)" :size="13" />
+                            <img
+                                v-if="item.iconDataUrl"
+                                class="provider-row__icon-image"
+                                :src="item.iconDataUrl"
+                                alt=""
+                            />
+                            <component :is="providerIcon(item)" v-else :size="13" />
                         </span>
                         <span class="provider-row__label">{{ item.label }}</span>
                         <span class="provider-row__count">

@@ -12,3 +12,7 @@ The picker carried four hardcoded plugin rows (Discord, OBS, Spotify, Other plug
 
 - Grouping by handle stays, but the label no longer comes from the handle.
 - A provider with no actions reads "No actions in this provider." and its count cell shows `—`.
+
+## Amendment
+
+ADR 0007 moves the label to the plugin manifest's `name`. A plugin no longer supplies it when it registers, because a disabled plugin never runs `setup` and the picker still needs a label for its row.

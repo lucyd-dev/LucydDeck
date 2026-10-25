@@ -6,6 +6,7 @@ import type {
     ResponseFor,
     UsbDeleteFileRequest,
 } from "@shared/ipc";
+import type { PluginConfigValues } from "@shared/plugins";
 import type { AppSettings } from "@shared/settings";
 import type { PageConfig } from "@shared/types";
 import type { DiffPlan } from "@shared/sync";
@@ -94,9 +95,20 @@ export const syncClient = {
 
 export const pluginsClient = {
     list: () => invoke(channels.plugins.list, undefined),
-    setEnabled: (id: string, enabled: boolean) =>
-        invoke(channels.plugins.setEnabled, { id, enabled }),
-    remove: (id: string) => invoke(channels.plugins.remove, { id }),
+    /** Omit `path` to open the native folder picker. */
+    inspect: (path?: string) =>
+        invoke(channels.plugins.inspect, path === undefined ? {} : { path }),
+    install: (path: string, replace = false) =>
+        invoke(channels.plugins.install, replace ? { path, replace: true } : { path }),
+    setEnabled: (handle: string, enabled: boolean) =>
+        invoke(channels.plugins.setEnabled, { handle, enabled }),
+    restart: (handle: string) => invoke(channels.plugins.restart, { handle }),
+    remove: (handle: string) => invoke(channels.plugins.remove, { handle }),
+    getConfig: (handle: string) => invoke(channels.plugins.getConfig, { handle }),
+    setConfig: (handle: string, values: PluginConfigValues) =>
+        invoke(channels.plugins.setConfig, { handle, values }),
+    invoke: (handle: string, command: string) =>
+        invoke(channels.plugins.invoke, { handle, command }),
 };
 
 export const updaterClient = {

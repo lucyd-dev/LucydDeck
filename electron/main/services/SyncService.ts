@@ -9,6 +9,7 @@ import {
 } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
 import { isValidEntityName, sanitizeEntityName } from "@shared/names";
+import { isPluginHandle } from "@shared/plugins";
 import type { SyncProgressPayload, TransferProgressEvent } from "@shared/ipc";
 import {
     type DiffPlan,
@@ -80,6 +81,11 @@ export interface ExecutePlanOptions {
 
 export interface SyncServiceOptions {
     onProgress?: (payload: SyncProgressPayload) => void;
+    /**
+     * `handle:command` values the enabled plugins register. Anything a local
+     * page runs that is absent from this list is reported, never blocked.
+     */
+    pluginCommands?: () => readonly string[];
 }
 
 const encoder = new TextEncoder();
@@ -99,6 +105,8 @@ interface DeviceProfileScan {
 interface LocalScan {
     profiles: LocalProfileScan[];
     referencedIcons: Set<string>;
+    /** `handle:command` bodies every local CMD step runs. */
+    pluginCommands: Set<string>;
 }
 
 /**
@@ -145,6 +153,7 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
     }
 
     const referencedIcons = new Set<string>();
+    const pluginCommands = new Set<string>();
     const profiles: LocalProfileScan[] = [];
     for (const name of names) {
         let metas;
@@ -176,13 +185,24 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
                 if (button.imageName) {
                     referencedIcons.add(button.imageName);
                 }
+                for (const step of button.click) {
+                    if (step.startsWith("CMD:")) {
+                        const body = step.slice("CMD:".length);
+                        const separator = body.indexOf(":");
+                        // Only a well-formed handle:command is a plugin step;
+                        // a legacy `CMD:explorer.exe` has no plugin to miss.
+                        if (separator > 0 && isPluginHandle(body.slice(0, separator))) {
+                            pluginCommands.add(body);
+                        }
+                    }
+                }
             }
             const canonical = serializePageConfig(validation.page);
             pages.set(meta.id, crc32Upload(encoder.encode(JSON.stringify(canonical))));
         }
         profiles.push({ name, pages });
     }
-    return { profiles, referencedIcons };
+    return { profiles, referencedIcons, pluginCommands };
 }
 
 function scanDeviceProfiles(entries: readonly DeviceProfileEntry[]): DeviceProfileScan[] {
@@ -292,6 +312,7 @@ export class SyncService {
     private readonly storage: StorageService;
     private readonly device: SyncDeviceClient;
     private readonly transfer: SyncTransferClient;
+    private readonly pluginCommands: () => readonly string[];
     private readonly listeners = new Set<(payload: SyncProgressPayload) => void>();
 
     constructor(
@@ -303,6 +324,7 @@ export class SyncService {
         this.storage = storage;
         this.device = device;
         this.transfer = transfer;
+        this.pluginCommands = options.pluginCommands ?? (() => []);
         if (options.onProgress) {
             this.listeners.add(options.onProgress);
         }
@@ -337,6 +359,13 @@ export class SyncService {
 
         const plan = emptyDiffPlan();
         const local = scanLocalProfiles(this.storage);
+        const enabledPluginCommands = new Set(this.pluginCommands());
+        for (const command of local.pluginCommands) {
+            if (!enabledPluginCommands.has(command)) {
+                plan.missingPluginCommands.push(command);
+            }
+        }
+        plan.missingPluginCommands.sort();
         const device = scanDeviceProfiles(deviceProfiles);
         const localNames = new Set(local.profiles.map((profile) => profile.name));
         const deviceByName = new Map(device.map((profile) => [profile.name, profile]));

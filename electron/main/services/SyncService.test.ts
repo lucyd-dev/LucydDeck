@@ -589,3 +589,53 @@ describe("SyncService.executePlan", () => {
         expect(device.calls).toEqual([]);
     });
 });
+
+describe("SyncService plugin commands", () => {
+    let dataDir = "";
+    let storage: StorageService;
+    let device: MockDevice;
+
+    beforeEach(() => {
+        dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lucyddeck-sync-plugin-test-"));
+        storage = new StorageService({ dataDir });
+        storage.ensureLayout();
+        device = new MockDevice();
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    function pageWithCommands(): { buttons: Record<string, unknown> } {
+        return {
+            buttons: {
+                "0": {
+                    label: "Go",
+                    click: ["CMD:hello:greet", "CMD:hello:other", "DELAY:5"],
+                },
+            },
+        };
+    }
+
+    it("reports only commands no enabled plugin registers", async () => {
+        storage.createProfile("main");
+        const page = pageWithCommands();
+        storage.savePage("main", "0", page as never);
+        device.profiles = [deviceProfile("main", [{ id: 0, hash: pageHash(page as never) }])];
+
+        const sync = new SyncService(storage, device, transfer, {
+            pluginCommands: () => ["hello:greet"],
+        });
+        const plan = await sync.reconcile();
+        expect(plan.missingPluginCommands).toEqual(["hello:other"]);
+    });
+
+    it("reports every command when the plugin is disabled", async () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", pageWithCommands() as never);
+
+        const sync = new SyncService(storage, device, transfer, { pluginCommands: () => [] });
+        const plan = await sync.reconcile();
+        expect(plan.missingPluginCommands).toEqual(["hello:greet", "hello:other"]);
+    });
+});

@@ -18,11 +18,12 @@ import {
     loadPluginRegistrations,
     pluginRegistrationsToTypes,
 } from "@/actions/registry";
-import { describeStep } from "@/editor/actionSteps";
+import { describeStep, parseStep } from "@/editor/actionSteps";
 import type { StepDescription } from "@/editor/actionSteps";
 import Button from "@/components/ui/Button.vue";
 import { useAppStore } from "@/stores/appStore";
 import { useIconStore } from "@/stores/iconStore";
+import { usePluginStore } from "@/stores/pluginStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { readCssToken } from "@/theme/cssTokens";
@@ -37,6 +38,7 @@ const profile = useProfileStore();
 const icons = useIconStore();
 const settings = useSettingsStore();
 const app = useAppStore();
+const pluginState = usePluginStore();
 
 const pluginRegistrations = ref<PluginRegistration[]>([]);
 const types = computed<ActionTypeDef[]>(() => [
@@ -57,6 +59,24 @@ const listScroll = ref<HTMLElement | null>(null);
 
 const steps = computed(() => profile.selectedButton?.click ?? []);
 const describedSteps = computed<StepDescription[]>(() => steps.value.map(describeStep));
+
+/** Advisory lines for `CMD:` steps no enabled plugin can serve. */
+const stepAdvisories = computed<Array<string | null>>(() =>
+    steps.value.map((raw) => {
+        const step = parseStep(raw);
+        if (step === null || step.namespace !== "CMD") {
+            return null;
+        }
+        const separator = step.args.indexOf(":");
+        if (separator <= 0) {
+            return null;
+        }
+        return pluginState.commandProblem(
+            step.args.slice(0, separator),
+            step.args.slice(separator + 1),
+        );
+    }),
+);
 const currentImageName = computed(() => profile.selectedButton?.imageName ?? "");
 const missingIcon = computed(
     () => currentImageName.value !== "" && previewResolved.value && previewDataUrl.value === null,
@@ -175,8 +195,17 @@ watch(
 
 onMounted(async () => {
     await icons.refresh();
+    // Follow the shared list so a reload or HMR still sees running plugins.
+    await pluginState.init();
     pluginRegistrations.value = await loadPluginRegistrations();
 });
+
+watch(
+    () => pluginState.registrationRevision,
+    async () => {
+        pluginRegistrations.value = await loadPluginRegistrations();
+    },
+);
 
 function onLabelInput(event: Event): void {
     profile.setLabel((event.target as HTMLInputElement).value);
@@ -604,6 +633,10 @@ function onDragEnd(): void {
                                     </button>
                                 </span>
                             </div>
+                            <p v-if="stepAdvisories[0]" class="step-advisory">
+                                <AlertTriangle :size="12" />
+                                <span>{{ stepAdvisories[0] }}</span>
+                            </p>
                             <ActionStepEditor
                                 v-if="openStep === 0"
                                 :raw="steps[0] ?? ''"
@@ -709,6 +742,10 @@ function onDragEnd(): void {
                                     </button>
                                 </span>
                             </div>
+                            <p v-if="stepAdvisories[index]" class="step-advisory">
+                                <AlertTriangle :size="12" />
+                                <span>{{ stepAdvisories[index] }}</span>
+                            </p>
                             <ActionStepEditor
                                 v-if="openStep === index"
                                 :raw="raw"

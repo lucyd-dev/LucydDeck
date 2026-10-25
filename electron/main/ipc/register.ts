@@ -20,6 +20,8 @@ import type { DeviceService } from "../services/DeviceService";
 import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
 import type { SyncService } from "../services/SyncService";
+import type { PluginService } from "../plugins/PluginService";
+import type { CommandRouter } from "../plugins/CommandRouter";
 
 /** Broadcast a typed main-process event to all renderer windows. */
 export function broadcastEvent<E extends EventChannel>(
@@ -40,6 +42,8 @@ export interface IpcServices {
     fileTransfer: FileTransfer;
     imagePipeline: ImagePipelineService;
     sync: SyncService;
+    plugins: PluginService;
+    commands: CommandRouter;
 }
 
 /**
@@ -48,12 +52,20 @@ export interface IpcServices {
  * with a stable code where available.
  */
 export function registerIpcHandlers(services: IpcServices): void {
-    const { storage, usb, device, fileTransfer, imagePipeline, sync } = services;
+    const { storage, usb, device, fileTransfer, imagePipeline, sync, plugins, commands } = services;
 
     // Bridge service events to every renderer window.
     usb.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
     fileTransfer.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
     sync.onProgress((payload) => broadcastEvent(eventChannels.syncProgress, payload));
+    plugins.onEvent((payload) => {
+        broadcastEvent(eventChannels.plugin, payload);
+        if (payload.type === "status") {
+            // A queue waiting on `starting` resumes when the plugin is ready;
+            // a failed or stopped plugin drains its queue with a warning.
+            commands.resume(payload.handle);
+        }
+    });
 
     const register = <C extends IpcChannel>(
         channel: C,
@@ -374,10 +386,63 @@ export function registerIpcHandlers(services: IpcServices): void {
         data: await sync.executePlan(plan, { allowRemovals: allowRemovals === true }),
     }));
 
+    // --- plugins (utility process per enabled plugin) -------------------
+    register(channels.plugins.list, () => ({ ok: true, data: plugins.list() }));
+    register(
+        channels.plugins.inspect,
+        async ({ path: folderPath }) => ({ ok: true, data: await plugins.inspect(folderPath) }),
+        true,
+    );
+    register(
+        channels.plugins.install,
+        async ({ path, replace }) => ({
+            ok: true,
+            data: await plugins.install({ path, replace: replace === true }),
+        }),
+        true,
+    );
+    register(
+        channels.plugins.setEnabled,
+        async ({ handle, enabled }) => {
+            await plugins.setEnabled(handle, enabled);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
+    register(
+        channels.plugins.restart,
+        async ({ handle }) => {
+            await plugins.restart(handle);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
+    register(
+        channels.plugins.remove,
+        async ({ handle }) => {
+            await plugins.remove(handle);
+            return { ok: true, data: undefined };
+        },
+        true,
+    );
+    register(channels.plugins.getConfig, ({ handle }) => ({
+        ok: true,
+        data: plugins.getConfig(handle),
+    }));
+    register(
+        channels.plugins.setConfig,
+        async ({ handle, values }) => ({
+            ok: true,
+            data: await plugins.setConfig(handle, values),
+        }),
+        true,
+    );
+    register(channels.plugins.invoke, async ({ handle, command }) => {
+        await commands.invoke(handle, command);
+        return { ok: true, data: undefined };
+    });
+
     // --- stubs for later steps -----------------------------------------
-    notImplemented(channels.plugins.list, "4");
-    notImplemented(channels.plugins.setEnabled, "4");
-    notImplemented(channels.plugins.remove, "4");
     notImplemented(channels.updater.state, "5");
     notImplemented(channels.updater.check, "5");
     notImplemented(channels.firmware.getState, "5");

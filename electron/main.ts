@@ -1,18 +1,22 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, utilityProcess } from "electron";
 import log from "electron-log/main";
 // import { createRequire } from 'node:module'
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { AppSettings } from "@shared/settings";
 import { WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from "@shared/settings";
+import { eventChannels } from "@shared/ipc";
 import { StorageService } from "./main/services/StorageService";
 import { UsbService } from "./main/services/UsbService";
 import { FileTransfer } from "./main/services/FileTransfer";
 import { DeviceService } from "./main/services/DeviceService";
 import { ImagePipelineService } from "./main/services/ImagePipelineService";
 import { SyncService } from "./main/services/SyncService";
+import { PluginHost } from "./main/plugins/PluginHost";
+import { PluginService } from "./main/plugins/PluginService";
+import { CommandRouter } from "./main/plugins/CommandRouter";
 import { createStorageDialogs } from "./main/ipc/dialogs";
-import { registerIpcHandlers } from "./main/ipc/register";
+import { broadcastEvent, registerIpcHandlers } from "./main/ipc/register";
 
 // const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,8 +35,21 @@ process.env.APP_ROOT = path.join(__dirname, "..");
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 
+/**
+ * `utilityProcess.fork` cannot read a file from `app.asar`, so the worker
+ * entry and the chunk it shares with the app are unpacked; see
+ * `config/electron-builder.json`.
+ */
+function pluginRuntimePath(): string {
+    if (app.isPackaged) {
+        return path.join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "runtime.js");
+    }
+    return path.join(__dirname, "runtime.js");
+}
+
 let win: BrowserWindow | null;
 let storageService: StorageService | null = null;
+let pluginService: PluginService | null = null;
 let quitting = false;
 
 /** Ask the renderer to flush a pending autosave; timeout keeps quit responsive. */
@@ -53,19 +70,34 @@ async function flushEditor(window: BrowserWindow): Promise<boolean> {
 }
 
 app.on("before-quit", (event) => {
-    const window = win;
-    if (quitting || window === null || window.isDestroyed()) {
+    if (quitting) {
         return;
     }
-    event.preventDefault();
+    const window = win;
     quitting = true;
-    void flushEditor(window)
-        .then((flushed) => {
-            if (!flushed) {
-                log.warn("[app] quitting before the editor finished saving");
-            }
-        })
-        .finally(() => app.quit());
+    // Hold the quit until the editor is flushed and every plugin has had its
+    // teardown deadline. The queued `app.quit()` re-enters with quitting set.
+    event.preventDefault();
+
+    const finish = (): void => {
+        const plugins = pluginService;
+        if (plugins === null) {
+            app.quit();
+            return;
+        }
+        void plugins.stopAll().finally(() => app.quit());
+    };
+
+    const flush =
+        window === null || window.isDestroyed()
+            ? Promise.resolve(true)
+            : flushEditor(window).then((flushed) => {
+                  if (!flushed) {
+                      log.warn("[app] quitting before the editor finished saving");
+                  }
+                  return flushed;
+              });
+    void flush.finally(finish);
 });
 
 async function createWindow(settings: AppSettings, storage: StorageService) {
@@ -184,8 +216,50 @@ app.whenReady().then(async () => {
     const fileTransfer = new FileTransfer(usb);
     const device = new DeviceService(usb, fileTransfer);
     const imagePipeline = new ImagePipelineService(storage);
-    const sync = new SyncService(storage, device, fileTransfer);
-    registerIpcHandlers({ storage, usb, device, fileTransfer, imagePipeline, sync });
+    const host = new PluginHost({
+        launcher: () =>
+            utilityProcess.fork(pluginRuntimePath(), [], {
+                serviceName: "LucydDeck Plugin",
+            }),
+    });
+    const plugins = new PluginService({
+        storage,
+        host,
+        dialogs: {
+            async pickPluginFolder() {
+                const result = await dialog.showOpenDialog({
+                    title: "Install plugin",
+                    properties: ["openDirectory"],
+                });
+                return result.canceled || result.filePaths.length === 0
+                    ? null
+                    : result.filePaths[0];
+            },
+        },
+    });
+    pluginService = plugins;
+    const commands = new CommandRouter({
+        usb,
+        target: host,
+        notify: (level, message) => broadcastEvent(eventChannels.toast, { level, message }),
+    });
+    const sync = new SyncService(storage, device, fileTransfer, {
+        pluginCommands: () => plugins.registeredCommands(),
+    });
+    registerIpcHandlers({
+        storage,
+        usb,
+        device,
+        fileTransfer,
+        imagePipeline,
+        sync,
+        plugins,
+        commands,
+    });
+    commands.start();
 
     await createWindow(storage.getAppSettings(), storage);
+    // Start after the window exists so a plugin log line reaches a live log
+    // file and a status event reaches the renderer.
+    void plugins.startAll();
 });

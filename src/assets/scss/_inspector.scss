@@ -608,6 +608,22 @@
 
 // --- Step editor -----------------------------------------------------------
 
+.step-advisory {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: var(--space-xs) var(--space-md);
+    border-top: 1px solid color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+    color: var(--color-warning);
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
+.sequence-item .step-advisory {
+    padding: var(--space-xs) var(--space-sm);
+}
+
 .step-editor {
     padding: var(--space-sm) var(--space-md) var(--space-md);
     border-top: 1px solid var(--color-border);
@@ -826,6 +842,13 @@
     justify-content: center;
     width: 16px;
     color: var(--color-text-faint);
+}
+
+.provider-row__icon-image {
+    width: 14px;
+    height: 14px;
+    border-radius: 2px;
+    object-fit: contain;
 }
 
 .provider-row--active .provider-row__icon {

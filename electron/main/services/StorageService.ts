@@ -10,6 +10,7 @@ import { isValidEntityName, sanitizeEntityName } from "@shared/names";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
 import type { ReferenceHit, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
+import { isPluginHandle } from "@shared/plugins";
 import { crc32Upload } from "./usb/Crc32";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
@@ -18,6 +19,9 @@ export const APP_DIR_NAME = "LucydDeck";
 export const SUB_DIRS = ["profiles", "icons", "plugins", "tools", "logs"] as const;
 export const PROFILES_DIR = "profiles";
 export const SETTINGS_FILE = "settings.json";
+
+/** Which plugins are disabled. A handle absent from the file is enabled. */
+export const PLUGINS_FILE = "plugins.json";
 
 /** Persisted app-level settings (kept outside the profile dirs). */
 export interface StorageSettings {
@@ -244,6 +248,98 @@ export class StorageService {
     /** Absolute path of the `logs/` directory. */
     logsDir(): string {
         return path.join(this.dataDir, "logs");
+    }
+
+    // --- Plugins --------------------------------------------------------
+
+    /** Absolute path of the `plugins/` directory. */
+    pluginsDir(): string {
+        return path.join(this.dataDir, "plugins");
+    }
+
+    /** Absolute path of `plugins/<handle>/`; throws for an invalid handle. */
+    pluginDir(handle: string): string {
+        if (!isPluginHandle(handle)) {
+            throw new StorageError(`Invalid plugin handle: "${handle}"`);
+        }
+        return path.join(this.pluginsDir(), handle);
+    }
+
+    /** Absolute path of `plugins/<handle>/config.json`. */
+    pluginConfigPath(handle: string): string {
+        return path.join(this.pluginDir(handle), "config.json");
+    }
+
+    /**
+     * Disabled handles from `plugins.json`. A missing file means every
+     * installed plugin is enabled; malformed entries are ignored.
+     */
+    readPluginEnabled(): Record<string, boolean> {
+        const file = path.join(this.dataDir, PLUGINS_FILE);
+        if (!fs.existsSync(file)) {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+            if (typeof parsed !== "object" || parsed === null) {
+                return {};
+            }
+            const enabled = (parsed as { enabled?: unknown }).enabled;
+            if (typeof enabled !== "object" || enabled === null) {
+                return {};
+            }
+            const result: Record<string, boolean> = {};
+            for (const [handle, value] of Object.entries(enabled as Record<string, unknown>)) {
+                if (isPluginHandle(handle) && typeof value === "boolean") {
+                    result[handle] = value;
+                }
+            }
+            return result;
+        } catch {
+            log.warn(`[storage] unreadable plugins file: ${file}`);
+            return {};
+        }
+    }
+
+    /** True unless `plugins.json` marks the handle disabled. */
+    isPluginEnabled(handle: string): boolean {
+        if (!isPluginHandle(handle)) {
+            throw new StorageError(`Invalid plugin handle: "${handle}"`);
+        }
+        return this.readPluginEnabled()[handle] !== false;
+    }
+
+    /** Persist one plugin's enabled state; install starts a plugin enabled. */
+    setPluginEnabled(handle: string, enabled: boolean): void {
+        if (!isPluginHandle(handle)) {
+            throw new StorageError(`Invalid plugin handle: "${handle}"`);
+        }
+        const states = this.readPluginEnabled();
+        if (enabled) {
+            delete states[handle];
+        } else {
+            states[handle] = false;
+        }
+        this.writePluginEnabled(states);
+        log.info(`[storage] plugin ${handle} ${enabled ? "enabled" : "disabled"}`);
+    }
+
+    /** Drop a removed plugin's entry from `plugins.json`. */
+    removePluginEnabled(handle: string): void {
+        const states = this.readPluginEnabled();
+        if (!Object.prototype.hasOwnProperty.call(states, handle)) {
+            return;
+        }
+        delete states[handle];
+        this.writePluginEnabled(states);
+    }
+
+    private writePluginEnabled(states: Record<string, boolean>): void {
+        fs.mkdirSync(this.dataDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(this.dataDir, PLUGINS_FILE),
+            JSON.stringify({ enabled: states }, null, 2) + "\n",
+        );
     }
 
     /** Persisted default profile name, or `null` when unset/invalid. */
@@ -585,6 +681,14 @@ function pageReferences(page: PageConfig, query: ReferenceQuery): boolean {
         return buttons.some(
             (button) =>
                 typeof button?.imageName === "string" && iconBaseName(button.imageName) === icon,
+        );
+    }
+    if (query.kind === "plugin") {
+        const prefix = `CMD:${query.handle}:`;
+        return buttons.some(
+            (button) =>
+                Array.isArray(button?.click) &&
+                button.click.some((step) => typeof step === "string" && step.startsWith(prefix)),
         );
     }
     const needle = query.kind === "page" ? `PAGE:${query.id}` : `PROFILE:${query.name}`;

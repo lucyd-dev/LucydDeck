@@ -49,6 +49,8 @@ export interface DiffPlan {
     profilesToDelete: string[];
     /** Icons referenced by local pages but present neither locally nor on-device. */
     missingIcons: SyncIconRef[];
+    /** `handle:command` values a local page runs but no enabled plugin registers. */
+    missingPluginCommands: string[];
     /** Profile to activate after sync, when the user requested one. */
     setActiveProfile: string | null;
 }
@@ -79,6 +81,7 @@ export function emptyDiffPlan(): DiffPlan {
         iconsToDelete: [],
         profilesToDelete: [],
         missingIcons: [],
+        missingPluginCommands: [],
         setActiveProfile: null,
     };
 }

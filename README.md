@@ -67,7 +67,7 @@ See the [Firmware Repository](https://github.com/lucyd-dev/LucydDeck-firmware) f
 
 - **Intuitive UI:** Drag-and-drop style customization.
 - **Page Management:** Organize buttons across multiple virtual pages.
-- **Plugin overview:** Manage your plugins for more functionality
+- **Plugin overview:** Manage your plugins for more functionality. Start with [Build your first plugin](docs/plugin-development.md); the full reference is [docs/plugin-api.md](docs/plugin-api.md).
 - **Device Management:** Integrated serial monitor, connection diagnostics, and "one-click" firmware flashing/updates.
 
 ### Firmware & Hardware

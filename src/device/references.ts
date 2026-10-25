@@ -45,6 +45,8 @@ function verbFor(kind: ReferenceKind, count: number): string {
             return singular ? "uses this icon" : "use this icon";
         case "page":
             return singular ? "steps to this page" : "step to this page";
+        case "plugin":
+            return singular ? "runs this plugin's commands" : "run this plugin's commands";
         default:
             return singular ? "switches to this profile" : "switch to this profile";
     }

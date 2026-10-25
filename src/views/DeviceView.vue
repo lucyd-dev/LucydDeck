@@ -478,6 +478,19 @@ watch(
                         </span>
                     </div>
 
+                    <div
+                        v-if="device.plan.missingPluginCommands.length > 0"
+                        class="device-banner"
+                        style="margin-top: var(--space-md)"
+                    >
+                        <AlertTriangle :size="15" />
+                        <span>
+                            Some steps on your pages belong to a plugin that is not installed,
+                            disabled or not running. Those steps do nothing until the plugin is
+                            available.
+                        </span>
+                    </div>
+
                     <div class="review-footer">
                         <div class="review-footer__note">
                             <p>

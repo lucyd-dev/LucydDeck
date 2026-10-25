@@ -20,8 +20,12 @@ export default defineConfig({
         vue(),
         electron({
             main: {
-                // Shortcut of `build.lib.entry`.
-                entry: "electron/main.ts",
+                // Two entries: the app and the worker runtime that
+                // `utilityProcess.fork` launches for each plugin.
+                entry: {
+                    main: "electron/main.ts",
+                    runtime: "electron/main/plugins/runtime.ts",
+                },
                 // Add Vite options for the main process build.
                 vite: {
                     resolve: {

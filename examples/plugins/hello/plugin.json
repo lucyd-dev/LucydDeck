@@ -1,0 +1,19 @@
+{
+    "apiVersion": 1,
+    "handle": "hello",
+    "name": "Hello",
+    "version": "1.0.0",
+    "description": "A minimal example plugin with one config field.",
+    "icon": "icon.png",
+    "main": "main.mjs",
+    "configFields": [
+        {
+            "key": "greeting",
+            "label": "Greeting",
+            "kind": "text",
+            "description": "Printed in the app log when a key runs Greet.",
+            "default": "Hello",
+            "required": true
+        }
+    ]
+}
