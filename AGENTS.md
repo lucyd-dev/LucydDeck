@@ -21,7 +21,7 @@ Single-context: `GLOSSARY.md` at the root, ADRs in `docs/adr/`. See `docs/agents
 Work them in order. One workstream's spec is alive at a time, in the tracker, and only while that workstream is open. When it merges, the next one starts and writes its own spec.
 
 1. **Firmware targets and delete.** Firmware repo, cloned in WSL at `~/Code/LucydDeck-firmware`, built and flashed with PlatformIO. Three issues, in order: [identity targets #10](https://github.com/lucyd-dev/LucydDeck-firmware/issues/10) changes `CMD_FILE_START` to `[kind][identity]`; [page and icon delete #9](https://github.com/lucyd-dev/LucydDeck-firmware/issues/9) adds `0x23` and `0x24`; [host adaptation #6](https://github.com/lucyd-dev/LucydDeck/issues/6) updates `DeviceService`, the IPC contract and the Device view. The hardware test comes after all three.
-2. **UI finish.** `feature/ui-rebuild`. The board inspector and the chosen prototype in `prototype/one-action.html` are the starting point. Ends with a review and a merge to `main`.
+2. **UI finish.** `feature/ui-rebuild`. Ends with a review and a merge to `main`.
 3. **Plugin integration.** New branch from `main`. A worker-hosted command handler reached by `CMD:` steps.
 4. **Firmware updater.** Host and firmware bootloader, last because a bad flash bricks a deck.
 

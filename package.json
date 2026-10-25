@@ -13,7 +13,6 @@
     "scripts": {
         "dev": "vite",
         "preview": "vite preview",
-        "prototype:panel": "node prototype/serve.mjs",
         "build": "vue-tsc && vite build",
         "lint": "eslint . --max-warnings=0",
         "lint:fix": "eslint . --fix",
