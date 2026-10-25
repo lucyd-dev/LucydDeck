@@ -4,7 +4,7 @@ import path from "node:path";
 import log from "electron-log/main";
 import type { PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
-import { serializePageConfig, validatePageConfig } from "@shared/schema";
+import { emptyPageConfig, serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
@@ -297,6 +297,9 @@ export class StorageService {
             throw new StorageError(`Profile already exists: "${name}"`);
         }
         fs.mkdirSync(dir, { recursive: true });
+        // Every profile starts with one page; write it the way a page save
+        // does, so the listing and the file agree from the first read.
+        this.savePage(name, "0", serializePageConfig(emptyPageConfig()));
         log.info(`[storage] profile created: ${name}`);
         return { name };
     }

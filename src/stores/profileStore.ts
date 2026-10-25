@@ -64,6 +64,8 @@ export const useProfileStore = defineStore("profile", () => {
     let saveAgain = false;
     let changeRevision = 0;
     let pagesRequestSeq = 0;
+    /** Profiles deleted this session; a queued write must not revive one. */
+    const retiredProfiles = new Set<string>();
 
     const hasProfile = computed(() => activeProfile.value !== "");
     const hasPage = computed(() => currentPageId.value !== null);
@@ -150,7 +152,7 @@ export const useProfileStore = defineStore("profile", () => {
     async function writeCurrentPage(): Promise<boolean> {
         const profile = activeProfile.value;
         const id = currentPageId.value;
-        if (profile === "" || id === null) {
+        if (profile === "" || id === null || retiredProfiles.has(profile)) {
             return true;
         }
         if (invalidStepCount.value > 0) {
@@ -273,6 +275,10 @@ export const useProfileStore = defineStore("profile", () => {
             return;
         }
         profiles.value = result.data;
+        // A profile that is back on disk is writable again (import, recreate).
+        for (const item of result.data) {
+            retiredProfiles.delete(item.name);
+        }
         if (
             activeProfile.value !== "" &&
             !result.data.some((p) => p.name === activeProfile.value)
@@ -304,9 +310,11 @@ export const useProfileStore = defineStore("profile", () => {
         pages.value = result.data;
     }
 
-    function resetDocument(): void {
+    /** Drop the page-level document, leaving the active profile in place. */
+    function clearDocument(): void {
         clearAutosaveTimer();
-        activeProfile.value = "";
+        // Discard a page listing still in flight for the document being dropped.
+        pagesRequestSeq++;
         pages.value = [];
         currentPageId.value = null;
         currentPage.value = emptyPageConfig();
@@ -315,15 +323,21 @@ export const useProfileStore = defineStore("profile", () => {
         dirty.value = false;
         saveState.value = "saved";
         externalChange.value = null;
-        deferredPages.clear();
         changeRevision++;
     }
 
+    function resetDocument(): void {
+        clearDocument();
+        activeProfile.value = "";
+        deferredPages.clear();
+    }
+
     async function loadPage(id: string, options: { fromDisk?: boolean } = {}): Promise<boolean> {
-        if (activeProfile.value === "") {
+        const profile = activeProfile.value;
+        if (profile === "") {
             return false;
         }
-        const key = pageHistoryKey(activeProfile.value, id);
+        const key = pageHistoryKey(profile, id);
         if (options.fromDisk) {
             deferredPages.delete(key);
         } else {
@@ -343,7 +357,12 @@ export const useProfileStore = defineStore("profile", () => {
             }
         }
 
-        const result = await storageClient.loadPage(activeProfile.value, id);
+        const result = await storageClient.loadPage(profile, id);
+        // The user switched profiles while this page was loading; the new
+        // profile owns the document now.
+        if (activeProfile.value !== profile) {
+            return false;
+        }
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
             return false;
@@ -370,19 +389,19 @@ export const useProfileStore = defineStore("profile", () => {
         if (!(await leaveCurrentPage())) {
             return;
         }
+        if (profile === activeProfile.value) {
+            return;
+        }
+        // Drop the previous document before the profile changes. A watcher
+        // must never see the new profile paired with the old page id.
+        clearDocument();
         activeProfile.value = profile;
         await refreshPages(profile);
+        if (activeProfile.value !== profile) {
+            return;
+        }
         if (pages.value.length > 0) {
             await loadPage(pages.value[0].id);
-        } else {
-            currentPage.value = emptyPageConfig();
-            currentPageId.value = null;
-            currentPageMtime.value = null;
-            selectedKeys.value = [];
-            dirty.value = false;
-            saveState.value = "saved";
-            externalChange.value = null;
-            changeRevision++;
         }
     }
 
@@ -740,19 +759,24 @@ export const useProfileStore = defineStore("profile", () => {
         touch();
     }
 
-    /** Profile CRUD wrappers (the caller owns confirmation UX). */
-    async function createProfile(name: string): Promise<void> {
+    /**
+     * Profile CRUD wrappers (the caller owns confirmation UX). Creating one
+     * opens it and returns false when the name was refused.
+     */
+    async function createProfile(name: string): Promise<boolean> {
         const result = await storageClient.createProfile(name);
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
-            return;
+            return false;
         }
+        retiredProfiles.delete(name);
         const hadDefault = profiles.value.some((item) => item.isDefault);
         await refreshProfiles();
         if (!hadDefault) {
             await setDefaultProfile(name);
         }
         await selectProfile(name);
+        return true;
     }
 
     async function renameProfile(oldName: string, newName: string): Promise<void> {
@@ -775,30 +799,54 @@ export const useProfileStore = defineStore("profile", () => {
     }
 
     async function deleteProfile(name: string): Promise<void> {
+        const wasActive = activeProfile.value === name;
         const wasDefault = profiles.value.find((item) => item.name === name)?.isDefault === true;
+
+        if (wasActive) {
+            // A pending autosave, or a write already in flight, would land in
+            // the directory being removed. Settle both before deleting.
+            clearAutosaveTimer();
+            if (activeSave !== null) {
+                await activeSave;
+            }
+            clearAutosaveTimer();
+        }
+
         const result = await storageClient.deleteProfile(name);
         if (!result.ok) {
             useAppStore().pushToast("error", result.error);
             return;
         }
-        if (activeProfile.value === name) {
+        // Re-check: the user may have switched profiles while the delete was
+        // in flight, and the new profile keeps its own document.
+        const activeWasDeleted = activeProfile.value === name;
+        retiredProfiles.add(name);
+        // Drop the profile from the listing now, so no write can target it
+        // while the fresh listing is still on its way.
+        profiles.value = profiles.value.filter((item) => item.name !== name);
+        for (const key of [...deferredPages.keys()]) {
+            if (key.startsWith(`${name}/`)) {
+                deferredPages.delete(key);
+            }
+        }
+        if (activeWasDeleted) {
             resetDocument();
             history.clear();
             historyVersion.value++;
-        } else {
-            for (const key of [...deferredPages.keys()]) {
-                if (key.startsWith(`${name}/`)) {
-                    deferredPages.delete(key);
-                }
-            }
         }
+
         await refreshProfiles();
         if (wasDefault) {
+            // Promote the next remaining profile before choosing a fallback.
             const fallback = profiles.value[0]?.name ?? null;
             await storageClient.setDefaultProfile(fallback);
             await refreshProfiles();
-            if (fallback !== null) {
-                await selectProfile(fallback);
+        }
+        if (activeWasDeleted) {
+            // The default profile when there is one, else the first remaining.
+            const target = defaultProfile.value ?? profiles.value[0]?.name ?? null;
+            if (target !== null) {
+                await selectProfile(target);
             }
         }
     }

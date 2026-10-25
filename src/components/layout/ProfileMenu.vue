@@ -91,10 +91,16 @@ async function submitEdit(): Promise<void> {
         app.pushToast("warning", "Profile name cannot be empty");
         return;
     }
-    cancelEdit();
     if (current === "create") {
-        await profile.createProfile(name);
-    } else if (current === "rename" && name !== profile.activeProfile) {
+        // Close on success; on failure the form stays open with the typed
+        // name so it can be corrected.
+        if (await profile.createProfile(name)) {
+            close();
+        }
+        return;
+    }
+    cancelEdit();
+    if (current === "rename" && name !== profile.activeProfile) {
         await profile.renameProfile(profile.activeProfile, name);
     }
 }
@@ -160,21 +166,31 @@ async function importProfile(): Promise<void> {
         </button>
 
         <div v-if="open" class="profile-menu__popover" role="menu">
-            <form v-if="mode !== null" class="profile-menu__edit" @submit.prevent="submitEdit">
-                <input
-                    v-model="draft"
-                    class="profile-menu__input"
-                    type="text"
-                    :placeholder="mode === 'create' ? 'New profile name' : 'Rename profile'"
-                    autofocus
-                />
-                <button class="profile-menu__icon" type="submit" title="Confirm">
-                    <Check :size="13" />
-                </button>
-                <button class="profile-menu__icon" type="button" title="Cancel" @click="cancelEdit">
-                    <X :size="13" />
-                </button>
-            </form>
+            <div v-if="mode !== null" class="profile-menu__edit">
+                <p class="profile-menu__edit-title">
+                    {{ mode === "create" ? "New profile" : "Rename profile" }}
+                </p>
+                <form class="profile-menu__edit-row" @submit.prevent="submitEdit">
+                    <input
+                        v-model="draft"
+                        class="profile-menu__input"
+                        type="text"
+                        :placeholder="mode === 'create' ? 'New profile name' : 'Rename profile'"
+                        autofocus
+                    />
+                    <button class="profile-menu__icon" type="submit" title="Confirm">
+                        <Check :size="13" />
+                    </button>
+                    <button
+                        class="profile-menu__icon"
+                        type="button"
+                        title="Cancel"
+                        @click="cancelEdit"
+                    >
+                        <X :size="13" />
+                    </button>
+                </form>
+            </div>
 
             <ul class="profile-menu__list">
                 <li v-for="item in profile.profiles" :key="item.name" class="profile-menu__row">

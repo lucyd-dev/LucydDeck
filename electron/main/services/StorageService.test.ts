@@ -173,6 +173,16 @@ describe("StorageService profile CRUD", () => {
         expect(storage.listProfiles().map((p) => p.name)).toEqual(["home"]);
     });
 
+    it("gives a new profile an empty first page", () => {
+        storage.createProfile("main");
+
+        expect(storage.listPages("main").map((page) => page.id)).toEqual(["0"]);
+        expect(storage.loadPage("main", "0")).toEqual({ buttons: {} });
+        expect(fs.readFileSync(path.join(dataDir, "profiles", "main", "0.json"), "utf8")).toBe(
+            `${JSON.stringify(serializePageConfig({ buttons: {} }), null, 2)}\n`,
+        );
+    });
+
     it("rejects invalid profile names at the service boundary", () => {
         expect(() => storage.createProfile("../evil")).toThrow();
         expect(() => storage.createProfile("a/b")).toThrow();
@@ -195,7 +205,7 @@ describe("StorageService profile CRUD", () => {
         fs.writeFileSync(path.join(dataDir, "profiles", "main", "01.json"), "{}");
         fs.writeFileSync(path.join(dataDir, "profiles", "main", "page.json"), "{}");
 
-        expect(storage.listPages("main").map((p) => p.id)).toEqual(["01"]);
+        expect(storage.listPages("main").map((p) => p.id)).toEqual(["0", "01"]);
     });
 
     it("rejects invalid page ids", () => {

@@ -166,7 +166,10 @@ describe("SyncService.reconcile", () => {
         device.profiles = [
             {
                 name: "main",
-                pages: [{ filename: "7.json", hash: pageHash(page) } as DevicePageEntry],
+                pages: [
+                    { id: 0, filename: "0.json", hash: pageHash({ buttons: {} }) },
+                    { filename: "7.json", hash: pageHash(page) } as DevicePageEntry,
+                ],
             },
         ];
         expect((await sync.reconcile()).pagesToUpload).toEqual([]);

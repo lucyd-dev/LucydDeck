@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
+import { watch } from "vue";
 
 const mocks = vi.hoisted(() => ({
     savePage: vi.fn(),
@@ -7,6 +8,9 @@ const mocks = vi.hoisted(() => ({
     loadPage: vi.fn(),
     listPages: vi.fn(),
     listProfiles: vi.fn(),
+    createProfile: vi.fn(),
+    deleteProfile: vi.fn(),
+    setDefaultProfile: vi.fn(),
 }));
 
 vi.mock("@/ipc/client", () => ({ storageClient: mocks }));
@@ -15,7 +19,8 @@ vi.mock("@/ipc/events", () => ({
     eventChannels: { toast: "toast", usb: "usb" },
 }));
 
-import { useProfileStore } from "./profileStore";
+import { useAppStore } from "./appStore";
+import { AUTOSAVE_DELAY_MS, useProfileStore } from "./profileStore";
 import type { PageConfig } from "@shared/types";
 
 function setupStore(): ReturnType<typeof useProfileStore> {
@@ -53,6 +58,9 @@ describe("profileStore autosave and history", () => {
         });
         mocks.listProfiles.mockReset().mockResolvedValue({ ok: true, data: [] });
         mocks.deletePage.mockReset().mockResolvedValue({ ok: true, data: undefined });
+        mocks.createProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "new" } });
+        mocks.deleteProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
+        mocks.setDefaultProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
     });
 
     afterEach(() => {
@@ -214,5 +222,203 @@ describe("profileStore autosave and history", () => {
 
         expect(await store.removePage("0")).toBe(false);
         expect(store.currentPageId).toBe("0");
+    });
+
+    it("opens a newly created profile without carrying the previous page id", async () => {
+        const store = setupStore();
+        store.activeProfile = "Default";
+        store.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        store.currentPageId = "1";
+        mocks.createProfile.mockResolvedValue({ ok: true, data: { name: "Gaming Room" } });
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [
+                { name: "Default", isDefault: true },
+                { name: "Gaming Room", isDefault: false },
+            ],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 3000 }] });
+
+        // The switch must be atomic: when the new profile becomes active, the
+        // previous profile's page "1" is already gone.
+        const switches: Array<{ profile: string; pageId: string | null }> = [];
+        const stop = watch(
+            () => store.activeProfile,
+            () => switches.push({ profile: store.activeProfile, pageId: store.currentPageId }),
+            { flush: "sync" },
+        );
+        expect(await store.createProfile("Gaming Room")).toBe(true);
+        stop();
+
+        expect(switches).toEqual([{ profile: "Gaming Room", pageId: null }]);
+        expect(store.activeProfile).toBe("Gaming Room");
+        expect(store.currentPageId).toBe("0");
+        expect(mocks.loadPage).toHaveBeenCalledWith("Gaming Room", "0");
+        expect(mocks.loadPage).not.toHaveBeenCalledWith("Gaming Room", "1");
+        expect(useAppStore().toasts).toEqual([]);
+    });
+
+    it("opens the first page of a newly created profile", async () => {
+        const store = useProfileStore();
+        mocks.createProfile.mockResolvedValue({ ok: true, data: { name: "main" } });
+        mocks.listProfiles
+            .mockResolvedValueOnce({ ok: true, data: [{ name: "main", isDefault: false }] })
+            .mockResolvedValue({ ok: true, data: [{ name: "main", isDefault: true }] });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 1000 }] });
+
+        expect(await store.createProfile("main")).toBe(true);
+
+        expect(mocks.setDefaultProfile).toHaveBeenCalledWith("main");
+        expect(store.activeProfile).toBe("main");
+        expect(store.currentPageId).toBe("0");
+        expect(mocks.loadPage).toHaveBeenCalledWith("main", "0");
+    });
+
+    it("reports a failed create and leaves the open profile alone", async () => {
+        const store = setupStore();
+        store.profiles = [{ name: "main", isDefault: true }];
+        mocks.createProfile.mockResolvedValue({
+            ok: false,
+            error: 'Profile already exists: "main"',
+        });
+
+        expect(await store.createProfile("main")).toBe(false);
+
+        expect(store.activeProfile).toBe("main");
+        expect(mocks.loadPage).not.toHaveBeenCalled();
+        expect(useAppStore().toasts).toContainEqual(
+            expect.objectContaining({ level: "error", message: 'Profile already exists: "main"' }),
+        );
+    });
+
+    it("falls back to the default profile when the active profile is deleted", async () => {
+        const store = setupStore();
+        store.activeProfile = "Gaming Room";
+        store.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        store.pages = [{ id: "0", mtimeMs: 3000 }];
+        store.currentPageId = "0";
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "Default", isDefault: true }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "3", mtimeMs: 4000 }] });
+
+        await store.deleteProfile("Gaming Room");
+
+        expect(mocks.deleteProfile).toHaveBeenCalledWith("Gaming Room");
+        expect(store.activeProfile).toBe("Default");
+        expect(store.currentPageId).toBe("3");
+        expect(mocks.loadPage).toHaveBeenCalledWith("Default", "3");
+        expect(mocks.setDefaultProfile).not.toHaveBeenCalled();
+    });
+
+    it("promotes the next profile when the active default is deleted", async () => {
+        const store = setupStore();
+        store.activeProfile = "Default";
+        store.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        store.pages = [{ id: "0", mtimeMs: 3000 }];
+        mocks.listProfiles
+            .mockResolvedValueOnce({
+                ok: true,
+                data: [{ name: "Gaming Room", isDefault: false }],
+            })
+            .mockResolvedValue({
+                ok: true,
+                data: [{ name: "Gaming Room", isDefault: true }],
+            });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
+
+        await store.deleteProfile("Default");
+
+        expect(mocks.setDefaultProfile).toHaveBeenCalledWith("Gaming Room");
+        expect(store.activeProfile).toBe("Gaming Room");
+        expect(store.defaultProfile).toBe("Gaming Room");
+    });
+
+    it("never writes to a profile after deleting it", async () => {
+        const store = setupStore();
+        store.activeProfile = "Gaming Room";
+        store.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        store.pages = [{ id: "0", mtimeMs: 3000 }];
+        store.currentPageId = "0";
+        store.currentPage = { buttons: { "0": { click: [] } } };
+        store.selectKey("0");
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "Default", isDefault: true }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
+
+        let finishDelete: (value: { ok: true; data: undefined }) => void = () => {};
+        mocks.deleteProfile.mockReturnValue(
+            new Promise((resolve) => {
+                finishDelete = resolve;
+            }),
+        );
+
+        store.setLabel("A");
+        const deletion = store.deleteProfile("Gaming Room");
+        // The autosave would fire here, while the delete is still in flight.
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100);
+        finishDelete({ ok: true, data: undefined });
+        await deletion;
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100);
+
+        const writesToDeleted = mocks.savePage.mock.calls.filter(
+            ([profile]) => profile === "Gaming Room",
+        );
+        expect(writesToDeleted).toHaveLength(0);
+        expect(store.activeProfile).toBe("Default");
+        expect(store.dirty).toBe(false);
+    });
+
+    it("settles an in-flight save before deleting the active profile", async () => {
+        const store = setupStore();
+        store.activeProfile = "Gaming Room";
+        store.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        store.pages = [{ id: "0", mtimeMs: 3000 }];
+        store.currentPageId = "0";
+        store.currentPage = { buttons: { "0": { click: [] } } };
+        store.selectKey("0");
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "Default", isDefault: true }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
+
+        let finishSave: (value: { ok: true; data: undefined }) => void = () => {};
+        mocks.savePage.mockReturnValue(
+            new Promise((resolve) => {
+                finishSave = resolve;
+            }),
+        );
+
+        store.setLabel("A");
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
+        expect(mocks.savePage).toHaveBeenCalledTimes(1);
+
+        const deletion = store.deleteProfile("Gaming Room");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.deleteProfile).not.toHaveBeenCalled();
+
+        finishSave({ ok: true, data: undefined });
+        await deletion;
+        expect(mocks.deleteProfile).toHaveBeenCalledWith("Gaming Room");
+        expect(store.activeProfile).toBe("Default");
     });
 });
