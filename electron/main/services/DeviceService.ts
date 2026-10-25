@@ -11,6 +11,8 @@ import {
     type DeviceProfileEntry,
 } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
+import { iconBaseName } from "@shared/icons";
+import { isValidEntityName } from "@shared/names";
 import { validateName } from "./StorageService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 import { isFirmwareError } from "./usb/FirmwareError";
@@ -39,7 +41,14 @@ export interface DeleteOptions {
     allowMissing?: boolean;
 }
 
-const PNG_EXTENSION = /\.png$/i;
+export interface IconUploadOptions {
+    /**
+     * Let an icon that already exists on the deck keep a name from before the
+     * entity grammar. The firmware accepts that overwrite because it creates
+     * no new name; a new legacy name is still rejected.
+     */
+    allowLegacyName?: boolean;
+}
 
 function textBytes(value: string): Uint8Array {
     return new TextEncoder().encode(value);
@@ -112,13 +121,13 @@ export class DeviceService {
     }
 
     async createProfile(name: string): Promise<void> {
-        this.assertName(name);
+        this.assertEntityName(name);
         await this.usb.command(HostCommand.ProfileCreate, textBytes(name), DeviceResponse.Ack);
     }
 
     async renameProfile(oldName: string, newName: string): Promise<void> {
         this.assertName(oldName);
-        this.assertName(newName);
+        this.assertEntityName(newName);
         await this.usb.command(
             HostCommand.ProfileRename,
             textBytes(`${oldName}:${newName}`),
@@ -162,9 +171,17 @@ export class DeviceService {
      * Upload a PNG icon as `<name>`; the firmware appends `.png` and commits
      * `/icons/<name>.png`. `name` may be given with or without the extension.
      */
-    async uploadIcon(name: string, pngBytes: Uint8Array): Promise<void> {
-        const base = name.replace(PNG_EXTENSION, "");
-        this.assertName(base);
+    async uploadIcon(
+        name: string,
+        pngBytes: Uint8Array,
+        options: IconUploadOptions = {},
+    ): Promise<void> {
+        const base = iconBaseName(name);
+        if (options.allowLegacyName === true) {
+            this.assertName(base);
+        } else {
+            this.assertEntityName(base);
+        }
         await this.transfer.upload(TARGET_ICON, base, pngBytes);
     }
 
@@ -185,7 +202,7 @@ export class DeviceService {
      * be given with or without the extension.
      */
     async deleteIcon(name: string, options: DeleteOptions = {}): Promise<void> {
-        const base = name.replace(PNG_EXTENSION, "");
+        const base = iconBaseName(name);
         this.assertName(base);
         await this.deleteIdentity(HostCommand.IconDelete, base, options);
     }
@@ -224,6 +241,15 @@ export class DeviceService {
     private assertName(name: string): void {
         if (!this.validator(name)) {
             throw new DeviceError(`Invalid device name: "${name}"`, DeviceErrorCodes.InvalidName);
+        }
+    }
+
+    private assertEntityName(name: string): void {
+        if (!isValidEntityName(name)) {
+            throw new DeviceError(
+                `Invalid device name: "${name}" (the deck only accepts 1-64 letters, digits, spaces, "-" and "_")`,
+                DeviceErrorCodes.InvalidName,
+            );
         }
     }
 

@@ -183,11 +183,33 @@ describe("StorageService profile CRUD", () => {
         );
     });
 
-    it("rejects invalid profile names at the service boundary", () => {
-        expect(() => storage.createProfile("../evil")).toThrow();
-        expect(() => storage.createProfile("a/b")).toThrow();
+    it("sanitizes new profile names at the service boundary", () => {
+        expect(storage.createProfile(" Gaming ")).toEqual({ name: "Gaming" });
+        expect(storage.createProfile("v1.2")).toEqual({ name: "v12" });
+        expect(storage.listProfiles().map((p) => p.name)).toEqual(["Gaming", "v12"]);
+
+        expect(storage.renameProfile("Gaming", "Gaming: Room")).toEqual({
+            name: "Gaming Room",
+        });
+        expect(fs.existsSync(path.join(dataDir, "profiles", "Gaming Room"))).toBe(true);
+        expect(fs.existsSync(path.join(dataDir, "profiles", "Gaming: Room"))).toBe(false);
+
+        expect(() => storage.createProfile("🎨")).toThrow(/Invalid profile name/);
+        expect(() => storage.createProfile("CON")).toThrow(/Invalid profile name/);
         expect(() => storage.renameProfile("missing", "other")).toThrow();
         expect(() => storage.deleteProfile("missing")).toThrow();
+    });
+
+    it("leaves a profile from before the entity grammar alone", () => {
+        const legacy = path.join(dataDir, "profiles", "v1.2");
+        fs.mkdirSync(legacy, { recursive: true });
+        fs.writeFileSync(path.join(legacy, "0.json"), JSON.stringify({ buttons: {} }));
+
+        expect(storage.listProfiles().map((p) => p.name)).toContain("v1.2");
+        expect(storage.listPages("v1.2").map((p) => p.id)).toEqual(["0"]);
+
+        storage.deleteProfile("v1.2");
+        expect(storage.listProfiles()).toEqual([]);
     });
 
     it("maps page filenames to canonical ids", () => {
@@ -345,6 +367,18 @@ describe("StorageService export/import", () => {
         const meta = storage.importProfileFrom(src);
         expect(meta.name).toBe("incoming");
         expect(fs.existsSync(path.join(dataDir, "profiles", "incoming", "0.json"))).toBe(true);
+    });
+
+    it("imports a directory under its sanitized entity name", () => {
+        storage.ensureLayout();
+        const src = path.join(dataDir, "import-src", "v1.2");
+        fs.mkdirSync(src, { recursive: true });
+        fs.writeFileSync(path.join(src, "0.json"), JSON.stringify({ buttons: {} }));
+
+        const meta = storage.importProfileFrom(src);
+        expect(meta.name).toBe("v12");
+        expect(fs.existsSync(path.join(dataDir, "profiles", "v12", "0.json"))).toBe(true);
+        expect(fs.existsSync(path.join(dataDir, "profiles", "v1.2"))).toBe(false);
     });
 
     it("rejects importing over an existing profile name", async () => {

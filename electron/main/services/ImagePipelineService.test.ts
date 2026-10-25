@@ -59,6 +59,12 @@ describe("icon name helpers", () => {
         expect(resolveIconName(undefined, "C:/tmp/Cool Shot.png")).toBe("cool-shot");
         expect(resolveIconName("...", "C:/tmp/whatever.png")).toBe("icon");
     });
+
+    it("sanitizes an imported name to the firmware's entity grammar", () => {
+        expect(resolveIconName("logo.png", "C:/tmp/whatever.png")).toBe("logo");
+        expect(resolveIconName("v1.2.png", "C:/tmp/whatever.png")).toBe("v12");
+        expect(resolveIconName("Gaming: Room", "C:/tmp/whatever.png")).toBe("gaming-room");
+    });
 });
 
 describe("ImagePipelineService", () => {

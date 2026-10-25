@@ -20,6 +20,10 @@ _Avoid_: Screen, view, sheet
 The one-based name a page is shown under in the app, so the page with id 0 reads "Page 1".
 _Avoid_: Page number, page id
 
+**Entity name**:
+A name that creates a profile directory or an icon file: 1 to 64 bytes of ASCII letters, digits, space, `-` and `_`, with no leading or trailing space. A new name is sanitized to this grammar before it is stored or sent; a name already on the card is only checked for path safety.
+_Avoid_: Filename, slug, safe name
+
 **Key**:
 One of the 15 cells on a page, holding an icon, a label, a background colour and one sequence.
 _Avoid_: Button, slot, tile

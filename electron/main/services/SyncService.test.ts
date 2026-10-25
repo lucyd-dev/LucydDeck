@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import log from "electron-log/main";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceImageEntry, DevicePageEntry, DeviceProfileEntry } from "@shared/protocol";
 import { serializePageConfig } from "@shared/schema";
@@ -60,10 +61,17 @@ class MockDevice implements SyncDeviceClient {
         this.calls.push(`page:${profile}/${id}`);
     }
 
-    async uploadIcon(name: string, _bytes: Uint8Array): Promise<void> {
+    iconUploads: Array<{ name: string; options?: { allowLegacyName?: boolean } }> = [];
+
+    async uploadIcon(
+        name: string,
+        _bytes: Uint8Array,
+        options?: { allowLegacyName?: boolean },
+    ): Promise<void> {
         void _bytes;
         this.check("uploadIcon");
         this.calls.push(`icon:${name}`);
+        this.iconUploads.push({ name, options });
     }
 
     readonly deleteCalls: Array<{
@@ -113,6 +121,7 @@ describe("SyncService.reconcile", () => {
         storage.ensureLayout();
         device = new MockDevice();
         sync = new SyncService(storage, device, transfer);
+        vi.mocked(log.warn).mockClear();
     });
 
     afterEach(() => {
@@ -185,6 +194,46 @@ describe("SyncService.reconcile", () => {
         const plan = await sync.reconcile();
         expect(plan.iconsToUpload).toEqual([]);
         expect(plan.iconsToDelete).toEqual([{ name: "stale" }]);
+    });
+
+    it("skips a local icon that cannot be created under the entity grammar", async () => {
+        fs.writeFileSync(path.join(storage.iconsDir(), "v1.2.png"), Buffer.from([1]));
+        device.images = [];
+
+        const plan = await sync.reconcile();
+        expect(plan.iconsToUpload).toEqual([]);
+        expect(vi.mocked(log.warn)).toHaveBeenCalledWith(expect.stringContaining('icon "v1.2"'));
+    });
+
+    it("plans an overwrite for a legacy icon the deck already has", async () => {
+        fs.writeFileSync(path.join(storage.iconsDir(), "v1.2.png"), Buffer.from([1, 2]));
+        device.images = [{ filename: "v1.2.png", hash: crc32Upload(Uint8Array.from([9])) }];
+
+        const plan = await sync.reconcile();
+        expect(plan.iconsToUpload).toEqual([{ name: "v1.2" }]);
+
+        await sync.executePlan(plan);
+        expect(device.iconUploads).toEqual([{ name: "v1.2", options: { allowLegacyName: true } }]);
+    });
+
+    it("still syncs a profile created under the older name rule", async () => {
+        const legacyDir = path.join(dataDir, "profiles", "v1.2");
+        fs.mkdirSync(legacyDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(legacyDir, "0.json"),
+            `${JSON.stringify(serializePageConfig({ buttons: {} }))}\n`,
+        );
+        device.profiles = [
+            {
+                name: "v1.2",
+                pages: [{ id: 0, filename: "0.json", hash: pageHash({ buttons: {} }) }],
+            },
+        ];
+
+        const plan = await sync.reconcile();
+        expect(plan.profilesToCreate).toEqual([]);
+        expect(plan.pagesToUpload).toEqual([]);
+        expect(plan.pagesToDelete).toEqual([]);
     });
 
     it("plans remote-only pages/icons and reports missing icon references", async () => {

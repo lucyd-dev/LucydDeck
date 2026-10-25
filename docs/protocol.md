@@ -51,6 +51,8 @@ Device to host:
 - An action string is `namespace:args`, split on the first colon. Namespaces: `PAGE`, `PROFILE`, `HID_KEY`, `CONTROL_KEY`, `MOUSE_MOVE`, `MOUSE_CLICK`, `DELAY`, `TEXT`, `CMD`. The device drops invalid actions, so validate before upload.
 - Page files are `<id>.json`, where the id is the leading digits, 0 to 255. Order is numeric. No rename and no reorder.
 - Profiles are directories. The device builds its profile list at boot and changes it only through protocol commands.
+- A new profile name, and the new half of a rename, must pass the firmware's entity-name grammar: 1 to 64 bytes of ASCII letters, digits, space, `-` and `_`, with no leading or trailing space. The host sanitizes profile input to it before storing, and rejects a name that sanitizes to nothing. Delete, activation, scanning and the profile half of a page identity keep `validateName`, so a profile from before the grammar still works.
+- An uploaded icon identity must pass the same entity grammar and carry no extension. An icon already on the card may be overwritten under an older `validateName` name, because that creates no new name; a local icon with such a name that is not on the card is skipped during sync rather than failing it. Icon delete and listing keep `validateName`.
 
 ## Gaps the app must respect
 

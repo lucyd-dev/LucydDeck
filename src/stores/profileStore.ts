@@ -769,13 +769,17 @@ export const useProfileStore = defineStore("profile", () => {
             useAppStore().pushToast("error", result.error);
             return false;
         }
-        retiredProfiles.delete(name);
+        const created = result.data.name;
+        if (created !== name.trim()) {
+            useAppStore().pushToast("info", `Profile name saved as "${created}"`);
+        }
+        retiredProfiles.delete(created);
         const hadDefault = profiles.value.some((item) => item.isDefault);
         await refreshProfiles();
         if (!hadDefault) {
-            await setDefaultProfile(name);
+            await setDefaultProfile(created);
         }
-        await selectProfile(name);
+        await selectProfile(created);
         return true;
     }
 
@@ -786,14 +790,18 @@ export const useProfileStore = defineStore("profile", () => {
             useAppStore().pushToast("error", result.error);
             return;
         }
+        const renamed = result.data.name;
+        if (renamed !== newName.trim()) {
+            useAppStore().pushToast("info", `Profile name saved as "${renamed}"`);
+        }
         history.clear();
         historyVersion.value++;
         deferredPages.clear();
         if (activeProfile.value === oldName) {
-            activeProfile.value = newName;
+            activeProfile.value = renamed;
         }
         if (wasDefault) {
-            await storageClient.setDefaultProfile(newName);
+            await storageClient.setDefaultProfile(renamed);
         }
         await refreshProfiles();
     }

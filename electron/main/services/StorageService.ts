@@ -6,6 +6,7 @@ import type { PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
 import { emptyPageConfig, serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
+import { isValidEntityName, sanitizeEntityName } from "@shared/names";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
 import type { ReferenceHit, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
@@ -289,42 +290,44 @@ export class StorageService {
     }
 
     createProfile(name: string): ProfileMeta {
-        if (!this.validateName(name)) {
+        const sanitized = sanitizeEntityName(name);
+        if (!isValidEntityName(sanitized) || !this.validateName(sanitized)) {
             throw new StorageError(`Invalid profile name: "${name}"`);
         }
-        const dir = this.profileDir(name);
+        const dir = this.profileDir(sanitized);
         if (fs.existsSync(dir)) {
-            throw new StorageError(`Profile already exists: "${name}"`);
+            throw new StorageError(`Profile already exists: "${sanitized}"`);
         }
         fs.mkdirSync(dir, { recursive: true });
         // Every profile starts with one page; write it the way a page save
         // does, so the listing and the file agree from the first read.
-        this.savePage(name, "0", serializePageConfig(emptyPageConfig()));
-        log.info(`[storage] profile created: ${name}`);
-        return { name };
+        this.savePage(sanitized, "0", serializePageConfig(emptyPageConfig()));
+        log.info(`[storage] profile created: ${sanitized}`);
+        return { name: sanitized };
     }
 
     renameProfile(oldName: string, newName: string): ProfileMeta {
         if (!this.validateName(oldName)) {
             throw new StorageError(`Invalid profile name: "${oldName}"`);
         }
-        if (!this.validateName(newName)) {
+        const sanitized = sanitizeEntityName(newName);
+        if (!isValidEntityName(sanitized) || !this.validateName(sanitized)) {
             throw new StorageError(`Invalid profile name: "${newName}"`);
         }
         const oldDir = this.profileDir(oldName);
         if (!fs.existsSync(oldDir)) {
             throw new StorageError(`Profile not found: "${oldName}"`);
         }
-        const newDir = this.profileDir(newName);
+        const newDir = this.profileDir(sanitized);
         if (fs.existsSync(newDir)) {
-            throw new StorageError(`Profile already exists: "${newName}"`);
+            throw new StorageError(`Profile already exists: "${sanitized}"`);
         }
         fs.renameSync(oldDir, newDir);
         if (this.readSettings().defaultProfile === oldName) {
-            this.setDefaultProfile(newName);
+            this.setDefaultProfile(sanitized);
         }
-        log.info(`[storage] profile renamed: ${oldName} -> ${newName}`);
-        return { name: newName };
+        log.info(`[storage] profile renamed: ${oldName} -> ${sanitized}`);
+        return { name: sanitized };
     }
 
     deleteProfile(name: string): void {
@@ -521,9 +524,9 @@ export class StorageService {
         if (!stat.isDirectory()) {
             throw new StorageError(`Not a directory: "${srcDir}"`);
         }
-        const name = path.basename(srcDir);
-        if (!this.validateName(name)) {
-            throw new StorageError(`Invalid profile name: "${name}"`);
+        const name = sanitizeEntityName(path.basename(srcDir));
+        if (!isValidEntityName(name) || !this.validateName(name)) {
+            throw new StorageError(`Invalid profile name: "${path.basename(srcDir)}"`);
         }
         const dest = this.profileDir(name);
         if (fs.existsSync(dest)) {

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     listPages: vi.fn(),
     listProfiles: vi.fn(),
     createProfile: vi.fn(),
+    renameProfile: vi.fn(),
     deleteProfile: vi.fn(),
     setDefaultProfile: vi.fn(),
 }));
@@ -59,6 +60,7 @@ describe("profileStore autosave and history", () => {
         mocks.listProfiles.mockReset().mockResolvedValue({ ok: true, data: [] });
         mocks.deletePage.mockReset().mockResolvedValue({ ok: true, data: undefined });
         mocks.createProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "new" } });
+        mocks.renameProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "renamed" } });
         mocks.deleteProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
         mocks.setDefaultProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
     });
@@ -291,6 +293,51 @@ describe("profileStore autosave and history", () => {
         expect(mocks.loadPage).not.toHaveBeenCalled();
         expect(useAppStore().toasts).toContainEqual(
             expect.objectContaining({ level: "error", message: 'Profile already exists: "main"' }),
+        );
+    });
+
+    it("opens a profile under the sanitized name the service returns", async () => {
+        const store = setupStore();
+        mocks.createProfile.mockResolvedValue({ ok: true, data: { name: "v12" } });
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "v12", isDefault: false }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 3000 }] });
+
+        expect(await store.createProfile("v1.2")).toBe(true);
+
+        expect(mocks.setDefaultProfile).toHaveBeenCalledWith("v12");
+        expect(store.activeProfile).toBe("v12");
+        expect(store.currentPageId).toBe("0");
+        expect(mocks.loadPage).toHaveBeenCalledWith("v12", "0");
+        expect(useAppStore().toasts).toContainEqual(
+            expect.objectContaining({ level: "info", message: 'Profile name saved as "v12"' }),
+        );
+    });
+
+    it("renames to the sanitized name the service returns", async () => {
+        const store = setupStore();
+        store.activeProfile = "v1.2";
+        store.profiles = [{ name: "v1.2", isDefault: true }];
+        mocks.renameProfile.mockResolvedValue({
+            ok: true,
+            data: { name: "Gaming Room" },
+        });
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "Gaming Room", isDefault: true }],
+        });
+
+        await store.renameProfile("v1.2", "Gaming: Room");
+
+        expect(store.activeProfile).toBe("Gaming Room");
+        expect(mocks.setDefaultProfile).toHaveBeenCalledWith("Gaming Room");
+        expect(useAppStore().toasts).toContainEqual(
+            expect.objectContaining({
+                level: "info",
+                message: 'Profile name saved as "Gaming Room"',
+            }),
         );
     });
 

@@ -106,11 +106,28 @@ describe("DeviceService mutations", () => {
         expect(new TextDecoder().decode(usb.lastPayload())).toBe("7");
     });
 
-    it("validates names and page ids", async () => {
-        const { device } = makeService();
+    it("validates new names with the entity grammar and old names with path safety", async () => {
+        const { usb, device } = makeService();
         await expect(device.createProfile("../evil")).rejects.toMatchObject({
             code: "DEVICE_INVALID_NAME",
         });
+        await expect(device.createProfile("v1.2")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+        await expect(device.createProfile(" Gaming ")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+        await expect(device.renameProfile("gaming", "Gaming: Room")).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
+
+        // The old half is a lookup, so a profile from before the grammar still
+        // renames, activates and deletes.
+        await device.renameProfile("v1.2", "Gaming Room");
+        expect(new TextDecoder().decode(usb.lastPayload())).toBe("v1.2:Gaming Room");
+        await expect(device.deleteProfile("v1.2")).resolves.toBeUndefined();
+        await expect(device.setActiveProfile("v1.2")).resolves.toBeUndefined();
+
         await expect(device.setActivePage("300")).rejects.toMatchObject({
             code: "DEVICE_INVALID_PAGE_ID",
         });
@@ -135,11 +152,20 @@ describe("DeviceService mutations", () => {
         expect(upload).toHaveBeenCalledWith(TARGET_ICON, "github", Uint8Array.from([1, 2, 3]));
     });
 
-    it("rejects invalid icon names", async () => {
+    it("rejects a new icon name outside the entity grammar", async () => {
         const { device } = makeService();
+        await expect(device.uploadIcon("v1.2", new Uint8Array())).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
+        });
         await expect(device.uploadIcon("bad/name", new Uint8Array())).rejects.toMatchObject({
             code: "DEVICE_INVALID_NAME",
         });
+    });
+
+    it("lets a legacy icon name be overwritten when the deck already has it", async () => {
+        const { upload, device } = makeService();
+        await device.uploadIcon("v1.2.png", Uint8Array.from([1]), { allowLegacyName: true });
+        expect(upload).toHaveBeenCalledWith(TARGET_ICON, "v1.2", Uint8Array.from([1]));
     });
 });
 

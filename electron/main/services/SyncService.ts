@@ -8,6 +8,7 @@ import {
     pageIdFromFilename,
 } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
+import { isValidEntityName, sanitizeEntityName } from "@shared/names";
 import type { SyncProgressPayload, TransferProgressEvent } from "@shared/ipc";
 import {
     type DiffPlan,
@@ -41,7 +42,11 @@ export interface SyncDeviceClient {
     createProfile(name: string): Promise<void>;
     setActiveProfile(name: string): Promise<void>;
     uploadPage(profile: string, id: string | number, json: string | Uint8Array): Promise<void>;
-    uploadIcon(name: string, pngBytes: Uint8Array): Promise<void>;
+    uploadIcon(
+        name: string,
+        pngBytes: Uint8Array,
+        options?: { allowLegacyName?: boolean },
+    ): Promise<void>;
     deletePage(
         profile: string,
         id: string | number,
@@ -216,6 +221,20 @@ export class SyncService {
                 log.warn(`[sync] icon "${icon.name}" has an invalid name: ${String(error)}`);
                 continue;
             }
+            if (!isValidEntityName(icon.name) && !deviceIcons.has(icon.name)) {
+                // A legacy name is only writable when the deck already has that
+                // file (the firmware's overwrite exception). A new one would be
+                // rejected, so leave it out instead of aborting the whole sync.
+                const sanitized = sanitizeEntityName(icon.name);
+                log.warn(
+                    `[sync] icon "${icon.name}" cannot be created on the deck: not an entity name` +
+                        (sanitized === ""
+                            ? ""
+                            : ` (would sanitize to "${sanitized}"); rename the file to send it`) +
+                        "; skipping",
+                );
+                continue;
+            }
             const deviceHash = deviceIcons.get(icon.name);
             if (
                 localHash === null ||
@@ -308,7 +327,12 @@ export class SyncService {
                     log.warn(`[sync] icon "${icon.name}" vanished before upload; skipping`);
                     continue;
                 }
-                await this.device.uploadIcon(icon.name, new Uint8Array(fs.readFileSync(path)));
+                await this.device.uploadIcon(icon.name, new Uint8Array(fs.readFileSync(path)), {
+                    // A reconcile plan only keeps a legacy name when the deck
+                    // already has that file, so this is the firmware's overwrite
+                    // exception rather than a new name.
+                    allowLegacyName: !isValidEntityName(icon.name),
+                });
                 result.uploadedIcons.push(icon);
                 tick("icon", icon.name);
             }
