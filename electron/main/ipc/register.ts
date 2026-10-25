@@ -369,9 +369,9 @@ export function registerIpcHandlers(services: IpcServices): void {
         ok: true,
         data: await sync.reconcile({ activeProfile }),
     }));
-    register(channels.sync.execute, async ({ plan }) => ({
+    register(channels.sync.execute, async ({ plan, allowRemovals }) => ({
         ok: true,
-        data: await sync.executePlan(plan),
+        data: await sync.executePlan(plan, { allowRemovals: allowRemovals === true }),
     }));
 
     // --- stubs for later steps -----------------------------------------

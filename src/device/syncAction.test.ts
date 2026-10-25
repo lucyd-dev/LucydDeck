@@ -50,7 +50,7 @@ describe("syncAction", () => {
     it("reads In sync when nothing is planned in either direction", () => {
         expect(syncAction(snapshot())).toEqual({
             label: "In sync",
-            hint: "Nothing to sync. Every page and icon on the deck matches the library.",
+            hint: "Nothing to sync. Every page, icon and profile on the deck matches the library.",
             disabled: true,
         });
     });
@@ -71,18 +71,18 @@ describe("syncAction", () => {
         });
     });
 
-    it("counts one file to remove in the singular", () => {
+    it("counts one item to remove in the singular", () => {
         expect(syncAction(snapshot({ plannedRemovals: 1 }))).toEqual({
-            label: "Remove 1 file",
-            hint: "1 file that is only on the deck will be removed.",
+            label: "Remove 1 item",
+            hint: "1 item only on the deck will be removed.",
             disabled: false,
         });
     });
 
-    it("counts several files to remove", () => {
+    it("counts several items to remove", () => {
         expect(syncAction(snapshot({ plannedRemovals: 2 }))).toEqual({
-            label: "Remove 2 files",
-            hint: "2 files that are only on the deck will be removed.",
+            label: "Remove 2 items",
+            hint: "2 items only on the deck will be removed.",
             disabled: false,
         });
     });
@@ -90,9 +90,34 @@ describe("syncAction", () => {
     it("names both directions when a sync uploads and removes", () => {
         expect(syncAction(snapshot({ pendingChanges: 4, plannedRemovals: 2 }))).toEqual({
             label: "Sync 4 changes, remove 2",
-            hint: "4 pending changes will be sent, 2 device-only files removed.",
+            hint: "4 pending changes will be sent, 2 items removed.",
             disabled: false,
         });
+    });
+
+    it("adds the profile clause to the hint without changing the count", () => {
+        expect(
+            syncAction(
+                snapshot({
+                    pendingChanges: 4,
+                    plannedRemovals: 3,
+                    plannedProfileRemovals: 1,
+                }),
+            ),
+        ).toEqual({
+            label: "Sync 4 changes, remove 3",
+            hint:
+                "4 pending changes will be sent, 3 items removed. 1 deck profile and its pages " +
+                "will be removed.",
+            disabled: false,
+        });
+    });
+
+    it("uses the plural profile clause for several profiles", () => {
+        expect(syncAction(snapshot({ plannedRemovals: 2, plannedProfileRemovals: 2 })).hint).toBe(
+            "2 items only on the deck will be removed. 2 deck profiles and their pages will be " +
+                "removed.",
+        );
     });
 
     it("returns to a reading after the sync finishes", () => {

@@ -165,6 +165,11 @@ export interface SyncReconcileRequest {
 
 export interface SyncExecuteRequest {
     plan: DiffPlan;
+    /**
+     * Run the plan's device removals. Only a sync the user starts sets this;
+     * an autosync pass omits it so a background run cannot wipe deck state.
+     */
+    allowRemovals?: boolean;
 }
 
 export interface UsbSetActivePageRequest {

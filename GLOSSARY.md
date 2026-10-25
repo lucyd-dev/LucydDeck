@@ -45,7 +45,7 @@ A screen of the desktop app: Deck, Device, Plugins or Settings.
 _Avoid_: Page, tab, section
 
 **Sync**:
-Copying changed pages and icons from the app to the device.
+Copying changed profiles, pages and icons from the app to the device, and, in a sync the user starts, removing deck files and profiles with no library copy.
 _Avoid_: Upload, push, deploy
 
 **In sync**:
@@ -57,7 +57,7 @@ An icon a key references that is neither in the library nor on the deck.
 _Avoid_: Broken icon, lost image
 
 **Pending change**:
-One operation the next sync performs: create a profile, upload a page or icon, or switch the active profile.
+One upload-side operation the next sync performs: create or rename a profile, upload a page or icon, or switch the active profile. Removals are counted separately ("remove 2").
 _Avoid_: Operation, task, diff entry
 
 **Review**:
@@ -67,6 +67,14 @@ _Avoid_: Sync page, plan view
 **Device-only file**:
 A page or icon that exists on the device with no local copy.
 _Avoid_: Orphan, stale file
+
+**Device-only profile**:
+A profile that exists on the deck with no library copy. A sync removes it, and everything in it, after the pages and icons it could hold are settled.
+_Avoid_: Orphan profile, stale profile
+
+**Profile rename**:
+Sending a library profile's new name to the deck with `CMD_PROFILE_RENAME`, which keeps the profile and its pages. A sync detects it only when one deck profile and one library profile correspond page for page; otherwise it falls back to create plus remove.
+_Avoid_: Move, recreate
 
 **Delete**:
 Removing a page or icon from the library and from the deck in the same action. While the deck is disconnected, the library copy goes and the deck copy stays.

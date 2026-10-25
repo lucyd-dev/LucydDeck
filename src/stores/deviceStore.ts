@@ -1,7 +1,7 @@
 import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
 import type { DeviceInfo, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
-import { diffPlanDeletions, diffPlanOperations } from "@shared/sync";
+import { diffPlanDeletions, diffPlanOperations, planRemovesProfiles } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
 import { pageLabel } from "@shared/pages";
 import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
@@ -53,6 +53,9 @@ export const useDeviceStore = defineStore("device", () => {
     const plannedDeletions = computed(() =>
         plan.value === null ? 0 : diffPlanDeletions(plan.value),
     );
+    const plannedProfileRemovals = computed(() =>
+        plan.value === null ? 0 : plan.value.profilesToDelete.length,
+    );
     const canDelete = computed(() => usb.connected && !stale.value);
     const deleteDisabledReason = computed<string | undefined>(() => {
         if (!usb.connected) {
@@ -71,6 +74,7 @@ export const useDeviceStore = defineStore("device", () => {
             planLoaded: plan.value !== null,
             pendingChanges: operations.value,
             plannedRemovals: plannedDeletions.value,
+            plannedProfileRemovals: plannedProfileRemovals.value,
         }),
     );
 
@@ -184,10 +188,33 @@ export const useDeviceStore = defineStore("device", () => {
 
     /** Push the current review plan, then refresh the inventory and plan. */
     async function syncNow(): Promise<boolean> {
-        if (syncAction.value.disabled || plan.value === null) {
+        const current = plan.value;
+        if (syncAction.value.disabled || current === null) {
             return false;
         }
-        const result = await usb.executePlan(plan.value);
+        // A profile removal takes its pages with it, so it is the one removal
+        // the button asks about before running. Page and icon removals stay
+        // covered by the label and the Review list.
+        if (planRemovesProfiles(current)) {
+            const names = current.profilesToDelete;
+            const confirmed = await confirm.ask({
+                title: names.length === 1 ? "Remove a deck profile" : "Remove deck profiles",
+                message:
+                    `This sync removes ${names.map((name) => `“${name}”`).join(", ")} from the ` +
+                    `deck, including the pages ${
+                        names.length === 1 ? "it holds" : "they hold"
+                    }. The library has no copy of ${
+                        names.length === 1 ? "that profile" : "those profiles"
+                    }.`,
+                confirmLabel:
+                    names.length === 1 ? "Remove profile and sync" : "Remove profiles and sync",
+                danger: true,
+            });
+            if (!confirmed) {
+                return false;
+            }
+        }
+        const result = await usb.executePlan(current, { allowRemovals: true });
         if (result !== null) {
             await refresh();
         }
@@ -304,6 +331,7 @@ export const useDeviceStore = defineStore("device", () => {
         summary,
         operations,
         plannedDeletions,
+        plannedProfileRemovals,
         canDelete,
         deleteDisabledReason,
         syncAction,

@@ -65,12 +65,11 @@ Device to host:
 
 Both commands take one identity string with no extension and answer `RESP_ACK` on success. The firmware appends `.json` or `.png` and rejects an identity that carries an extension.
 
-| Opcode | Command           | Payload                      |
-| ------ | ----------------- | ---------------------------- |
-| `0x23` | `CMD_PAGE_DELETE` | `<profile>/<id>`, no `.json` |
-| `0x24` | `CMD_ICON_DELETE` | `<name>`, no `.png`          |
-
-Page failures:
+| Opcode         | Command           | Payload                      |
+| -------------- | ----------------- | ---------------------------- |
+| `0x23`         | `CMD_PAGE_DELETE` | `<profile>/<id>`, no `.json` |
+| `0x24`         | `CMD_ICON_DELETE` | `<name>`, no `.png`          |
+| Page failures: |
 
 | Failure                           | Error                        |
 | --------------------------------- | ---------------------------- |
@@ -83,6 +82,19 @@ Page failures:
 Icon failures: `ERR_INVALID_PATH` for a bad name, `ERR_FILE_NOT_FOUND` for a missing file, `ERR_DELETE` when the unlink fails. The image list is scanned on request, so it needs no refresh. The current page keeps the pixmap it loaded.
 
 Deleting the displayed page repaints the first remaining page (lowest id) in the active profile, and a blank page when none remain.
+
+## Profile rename and delete
+
+| Opcode | Command              | Payload   |
+| ------ | -------------------- | --------- |
+| `0x21` | `CMD_PROFILE_RENAME` | `old:new` |
+| `0x22` | `CMD_PROFILE_DELETE` | `<name>`  |
+
+`CMD_PROFILE_RENAME` splits on the first `:`. The old name is a lookup under `validateName`; the new name creates a directory and passes the entity grammar, or the command answers `ERR_INVALID_PATH` and leaves the directory untouched. The profile keeps its pages, and an active profile follows the rename.
+
+`CMD_PROFILE_DELETE` removes the profile directory and every page in it, so the host settles page and icon removals first. A missing profile answers `ERR_PROFILE_NOT_FOUND`; a delete failure answers `ERR_DELETE`. An active profile is reselected and the display repaints.
+
+Both keep `validateName` on the name that already exists, so a profile from before the entity grammar still renames and deletes.
 
 ## Versioning
 

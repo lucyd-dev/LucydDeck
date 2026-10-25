@@ -81,7 +81,15 @@ export const iconsClient = {
 export const syncClient = {
     reconcile: (activeProfile?: string) =>
         invoke(channels.sync.reconcile, activeProfile === undefined ? {} : { activeProfile }),
-    execute: (plan: DiffPlan) => invoke(channels.sync.execute, { plan }),
+    /**
+     * Execute a plan. `allowRemovals` is set only by an explicit sync; an
+     * autosync call leaves it off and the main process skips every removal.
+     */
+    execute: (plan: DiffPlan, options: { allowRemovals?: boolean } = {}) =>
+        invoke(channels.sync.execute, {
+            plan,
+            ...(options.allowRemovals === true ? { allowRemovals: true } : {}),
+        }),
 };
 
 export const pluginsClient = {

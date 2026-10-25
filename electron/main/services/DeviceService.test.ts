@@ -233,6 +233,22 @@ describe("DeviceService file deletion", () => {
         });
     });
 
+    it("treats an already-removed profile as gone when asked", async () => {
+        const { usb, device } = makeService();
+        usb.failError = new UsbError(
+            "CMD_PROFILE_DELETE failed: ERR_PROFILE_NOT_FOUND",
+            "ERR_PROFILE_NOT_FOUND",
+            ErrorCode.ProfileNotFound,
+        );
+
+        await expect(
+            device.deleteProfile("stale", { allowMissing: true }),
+        ).resolves.toBeUndefined();
+        await expect(device.deleteProfile("stale")).rejects.toMatchObject({
+            code: "ERR_PROFILE_NOT_FOUND",
+        });
+    });
+
     it("still reports other deck errors when missing files are allowed", async () => {
         const { usb, device } = makeService();
         usb.failError = new UsbError(

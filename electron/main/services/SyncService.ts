@@ -12,6 +12,7 @@ import { isValidEntityName, sanitizeEntityName } from "@shared/names";
 import type { SyncProgressPayload, TransferProgressEvent } from "@shared/ipc";
 import {
     type DiffPlan,
+    type ProfileRename,
     type SyncResult,
     diffPlanDeletions,
     diffPlanOperations,
@@ -23,6 +24,7 @@ import type { StorageService } from "./StorageService";
 
 export const SyncErrorCodes = {
     InvalidPage: "SYNC_INVALID_PAGE",
+    UnreadableLibrary: "SYNC_UNREADABLE_LIBRARY",
 } as const;
 
 export class SyncError extends Error {
@@ -40,6 +42,7 @@ export interface SyncDeviceClient {
     listProfiles(): Promise<DeviceProfileEntry[]>;
     listImages(): Promise<DeviceImageEntry[]>;
     createProfile(name: string): Promise<void>;
+    renameProfile(oldName: string, newName: string): Promise<void>;
     setActiveProfile(name: string): Promise<void>;
     uploadPage(profile: string, id: string | number, json: string | Uint8Array): Promise<void>;
     uploadIcon(
@@ -53,6 +56,7 @@ export interface SyncDeviceClient {
         options?: { allowMissing?: boolean },
     ): Promise<void>;
     deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<void>;
+    deleteProfile(name: string, options?: { allowMissing?: boolean }): Promise<void>;
 }
 
 /** Minimal transfer surface for per-chunk progress (satisfied by `FileTransfer`). */
@@ -65,13 +69,41 @@ export interface ReconcileOptions {
     activeProfile?: string;
 }
 
+export interface ExecutePlanOptions {
+    /**
+     * Send the removals in the plan. Only a sync the user starts sets this,
+     * currently the Sync action; autosync leaves it false so a background pass
+     * cannot wipe deck state.
+     */
+    allowRemovals?: boolean;
+}
+
 export interface SyncServiceOptions {
     onProgress?: (payload: SyncProgressPayload) => void;
 }
 
 const encoder = new TextEncoder();
 
-/** Normalize a device page entry to its canonical id, or null when unusable. */
+/** One local profile as the reconciler sees it: canonical page CRCs. */
+interface LocalProfileScan {
+    name: string;
+    pages: Map<string, number>;
+}
+
+/** One deck profile as the reconciler sees it; `null` for an unreadable hash. */
+interface DeviceProfileScan {
+    name: string;
+    pages: Map<string, number | null>;
+}
+
+interface LocalScan {
+    profiles: LocalProfileScan[];
+    referencedIcons: Set<string>;
+}
+
+/**
+ * Normalize a device page entry to its canonical id, or null when unusable.
+ */
 function normalizePageId(entry: DevicePageEntry): string | null {
     if (entry.id !== undefined && entry.id !== null && String(entry.id) !== "") {
         const id = String(entry.id);
@@ -89,17 +121,172 @@ function normalizeHash(value: unknown): number | null {
     return hash >>> 0;
 }
 
+function unreadable(what: string, error: unknown): SyncError {
+    const message = error instanceof Error ? error.message : String(error);
+    return new SyncError(
+        `The library could not be read (${what}): ${message}`,
+        SyncErrorCodes.UnreadableLibrary,
+    );
+}
+
+/**
+ * Read and validate every local profile before anything is planned.
+ *
+ * A page that cannot be read or validated aborts the whole reconcile rather
+ * than planning a deletion for it: a broken library must not look like an
+ * empty one.
+ */
+function scanLocalProfiles(storage: StorageService): LocalScan {
+    let names: string[];
+    try {
+        names = storage.listProfiles().map((profile) => profile.name);
+    } catch (error) {
+        throw unreadable("profile list", error);
+    }
+
+    const referencedIcons = new Set<string>();
+    const profiles: LocalProfileScan[] = [];
+    for (const name of names) {
+        let metas;
+        try {
+            metas = storage.listPages(name);
+        } catch (error) {
+            throw unreadable(`pages of "${name}"`, error);
+        }
+        const pages = new Map<string, number>();
+        for (const meta of metas) {
+            let page;
+            try {
+                page = storage.loadPage(name, meta.id);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new SyncError(
+                    `Page ${name}/${meta.id}.json could not be read: ${message}`,
+                    SyncErrorCodes.InvalidPage,
+                );
+            }
+            const validation = validatePageConfig(page);
+            if (!validation.ok) {
+                throw new SyncError(
+                    `Page ${name}/${meta.id}.json is invalid: ${validation.errors.join("; ")}`,
+                    SyncErrorCodes.InvalidPage,
+                );
+            }
+            for (const button of Object.values(validation.page.buttons)) {
+                if (button.imageName) {
+                    referencedIcons.add(button.imageName);
+                }
+            }
+            const canonical = serializePageConfig(validation.page);
+            pages.set(meta.id, crc32Upload(encoder.encode(JSON.stringify(canonical))));
+        }
+        profiles.push({ name, pages });
+    }
+    return { profiles, referencedIcons };
+}
+
+function scanDeviceProfiles(entries: readonly DeviceProfileEntry[]): DeviceProfileScan[] {
+    return entries.map((profile) => {
+        const pages = new Map<string, number | null>();
+        for (const page of profile.pages ?? []) {
+            const id = normalizePageId(page);
+            if (id !== null) {
+                pages.set(id, normalizeHash(page.hash));
+            }
+        }
+        return { name: profile.name, pages };
+    });
+}
+
+/**
+ * True when every deck page of `device` exists in `local` with the same CRC,
+ * which is what a rename leaves behind: the local directory is the deck
+ * profile under a new name, possibly with extra pages added since.
+ */
+function devicePagesCorrespond(device: DeviceProfileScan, local: LocalProfileScan): boolean {
+    if (device.pages.size === 0) {
+        // No deck page to match: a rename would be a guess. Create plus remove
+        // is correct when nothing proves the two profiles are one.
+        return false;
+    }
+    for (const [id, hash] of device.pages) {
+        if (hash === null || local.pages.get(id) !== hash) {
+            return false;
+        }
+    }
+    return true;
+}
+
+interface RenameAssessment {
+    rename: ProfileRename | null;
+    /** Set when the plan looked like a rename but could not be resolved safely. */
+    fallbackReason: string | null;
+}
+
+/**
+ * Detect a one-to-one rename: exactly one deck-only profile, exactly one
+ * library-only profile, their pages correspond, and no other pair on either
+ * side corresponds too. Anything else falls back to create plus remove, the
+ * behaviour without rename detection.
+ */
+function detectRename(local: LocalScan, device: readonly DeviceProfileScan[]): RenameAssessment {
+    const localNames = new Set(local.profiles.map((profile) => profile.name));
+    const deviceByName = new Map(device.map((profile) => [profile.name, profile]));
+    const deviceOnly = device.filter((profile) => !localNames.has(profile.name));
+    const localOnly = local.profiles.filter((profile) => !deviceByName.has(profile.name));
+
+    const candidates: ProfileRename[] = [];
+    for (const from of deviceOnly) {
+        for (const to of localOnly) {
+            if (devicePagesCorrespond(from, to)) {
+                candidates.push({ from: from.name, to: to.name });
+            }
+        }
+    }
+    if (candidates.length === 0) {
+        return { rename: null, fallbackReason: null };
+    }
+
+    if (deviceOnly.length === 1 && localOnly.length === 1 && candidates.length === 1) {
+        const [candidate] = candidates;
+        const deviceProfile = deviceOnly[0];
+        const localProfile = localOnly[0];
+        const otherLocal = local.profiles.filter(
+            (profile) =>
+                profile.name !== candidate.to && devicePagesCorrespond(deviceProfile, profile),
+        );
+        const otherDevice = device.filter(
+            (profile) =>
+                profile.name !== candidate.from && devicePagesCorrespond(profile, localProfile),
+        );
+        if (otherLocal.length === 0 && otherDevice.length === 0) {
+            return { rename: candidate, fallbackReason: null };
+        }
+    }
+
+    const deviceNames = deviceOnly.map((profile) => `"${profile.name}"`).join(", ");
+    const localList = localOnly.map((profile) => `"${profile.name}"`).join(", ");
+    return {
+        rename: null,
+        fallbackReason:
+            `The pages of ${deviceNames} on the deck also match ${localList} in the library, ` +
+            "but not one-to-one; not guessing a rename. The sync creates the local profile " +
+            "and removes the deck one instead.",
+    };
+}
+
 /**
  * Differential delta-sync engine.
  *
  * `reconcile()` fetches the device profile/image lists and compares them with
  * the local `profiles/` + `icons/` directories using CRC-32 (the same hash the
- * firmware reports). `executePlan()` creates missing profiles first, then
- * uploads icons and pages, then activates the requested profile, emitting
+ * firmware reports). `executePlan()` creates missing profiles, sends detected
+ * renames, then uploads icons and pages, then removes page, icon and profile
+ * entries with no local copy, and activates the requested profile, emitting
  * `sync:progress` payloads throughout.
  *
- * Protocol v1 has no file-delete opcode, so `pagesToDelete`/`iconsToDelete`
- * are planned and reported (the UI confirms them) but not executed.
+ * Removals are part of the plan but run only when the caller allows them: an
+ * explicit sync passes `allowRemovals`, autosync does not.
  */
 export class SyncService {
     private readonly storage: StorageService;
@@ -139,8 +326,8 @@ export class SyncService {
     }
 
     /**
-     * Compare local state with the device and return the upload plan. Does not
-     * mutate the device.
+     * Compare local state with the device and return the plan. Does not mutate
+     * the device.
      */
     async reconcile(options: ReconcileOptions = {}): Promise<DiffPlan> {
         const [deviceProfiles, deviceImages] = await Promise.all([
@@ -149,68 +336,52 @@ export class SyncService {
         ]);
 
         const plan = emptyDiffPlan();
-        const localProfiles = this.storage.listProfiles().map((profile) => profile.name);
-        const deviceByName = new Map(deviceProfiles.map((profile) => [profile.name, profile]));
+        const local = scanLocalProfiles(this.storage);
+        const device = scanDeviceProfiles(deviceProfiles);
+        const localNames = new Set(local.profiles.map((profile) => profile.name));
+        const deviceByName = new Map(device.map((profile) => [profile.name, profile]));
+
+        const assessment = detectRename(local, device);
+        const rename = assessment.rename;
+        if (rename !== null) {
+            plan.profileRenames.push(rename);
+            log.info(`[sync] profile rename detected: "${rename.from}" -> "${rename.to}"`);
+        } else if (assessment.fallbackReason !== null) {
+            plan.profileRenameFallback = assessment.fallbackReason;
+            log.warn(`[sync] ${assessment.fallbackReason}`);
+        }
+
+        for (const profile of local.profiles) {
+            const isRenameTarget = rename !== null && rename.to === profile.name;
+            const comparisonName =
+                rename !== null && rename.to === profile.name ? rename.from : profile.name;
+            const deviceProfile = deviceByName.get(comparisonName);
+            if (!deviceByName.has(profile.name) && !isRenameTarget) {
+                plan.profilesToCreate.push(profile.name);
+            }
+
+            // A rename target is compared against the deck profile it becomes,
+            // so only pages that changed or were added are uploaded; every page
+            // it already holds stays where it is.
+            const devicePages = deviceProfile?.pages ?? new Map<string, number | null>();
+            for (const [id, localHash] of profile.pages) {
+                const deviceHash = devicePages.get(id);
+                if (deviceHash === undefined || deviceHash === null || deviceHash !== localHash) {
+                    plan.pagesToUpload.push({ profile: profile.name, id });
+                }
+            }
+            for (const id of devicePages.keys()) {
+                if (!profile.pages.has(id)) {
+                    plan.pagesToDelete.push({ profile: profile.name, id });
+                }
+            }
+        }
+
         const localIcons = this.storage.listIconFiles();
         const localIconNames = new Set(localIcons.map((icon) => icon.name));
         const deviceIcons = new Map<string, number | null>(
             deviceImages.map((image) => [iconBaseName(image.filename), normalizeHash(image.hash)]),
         );
-        const referencedIcons = new Set<string>();
-
-        for (const profile of localProfiles) {
-            const deviceProfile = deviceByName.get(profile);
-            if (!deviceProfile) {
-                plan.profilesToCreate.push(profile);
-            }
-            const devicePages = new Map<string, number | null>();
-            for (const page of deviceProfile?.pages ?? []) {
-                const id = normalizePageId(page);
-                if (id !== null) {
-                    devicePages.set(id, normalizeHash(page.hash));
-                }
-            }
-
-            const localPages = this.storage.listPages(profile);
-            const localIds = new Set(localPages.map((page) => page.id));
-            for (const meta of localPages) {
-                let page;
-                try {
-                    page = this.storage.loadPage(profile, meta.id);
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    throw new SyncError(
-                        `Page ${profile}/${meta.id}.json could not be read: ${message}`,
-                        SyncErrorCodes.InvalidPage,
-                    );
-                }
-                const validation = validatePageConfig(page);
-                if (!validation.ok) {
-                    throw new SyncError(
-                        `Page ${profile}/${meta.id}.json is invalid: ${validation.errors.join("; ")}`,
-                        SyncErrorCodes.InvalidPage,
-                    );
-                }
-                for (const button of Object.values(validation.page.buttons)) {
-                    if (button.imageName) {
-                        referencedIcons.add(button.imageName);
-                    }
-                }
-                const canonical = serializePageConfig(validation.page);
-                const bytes = encoder.encode(JSON.stringify(canonical));
-                const localHash = crc32Upload(bytes);
-                const deviceHash = devicePages.get(meta.id);
-                if (deviceHash === undefined || deviceHash === null || deviceHash !== localHash) {
-                    plan.pagesToUpload.push({ profile, id: meta.id });
-                }
-            }
-
-            for (const id of devicePages.keys()) {
-                if (!localIds.has(id)) {
-                    plan.pagesToDelete.push({ profile, id });
-                }
-            }
-        }
 
         for (const icon of localIcons) {
             let localHash: number | null;
@@ -252,9 +423,29 @@ export class SyncService {
             }
         }
 
-        for (const name of referencedIcons) {
+        for (const name of local.referencedIcons) {
             if (!localIconNames.has(name) && !deviceIcons.has(name)) {
                 plan.missingIcons.push({ name });
+            }
+        }
+
+        // Fail closed: an empty library is far more likely to be a broken or
+        // unmounted data directory than a user who wants every deck profile
+        // gone. Pages and icons keep their existing behaviour.
+        const profilesToPrune = device.filter(
+            (profile) =>
+                !localNames.has(profile.name) && (rename === null || rename.from !== profile.name),
+        );
+        if (local.profiles.length === 0) {
+            if (profilesToPrune.length > 0) {
+                log.info(
+                    `[sync] the library has no profiles; leaving ${profilesToPrune.length} ` +
+                        "deck profile(s) in place",
+                );
+            }
+        } else {
+            for (const profile of profilesToPrune) {
+                plan.profilesToDelete.push(profile.name);
             }
         }
 
@@ -262,7 +453,8 @@ export class SyncService {
         if (
             requested !== undefined &&
             requested !== "" &&
-            (localProfiles.includes(requested) || deviceByName.has(requested))
+            (localNames.has(requested) || deviceByName.has(requested)) &&
+            !plan.profilesToDelete.includes(requested)
         ) {
             plan.setActiveProfile = requested;
         }
@@ -271,19 +463,27 @@ export class SyncService {
     }
 
     /**
-     * Execute a plan. Creates profiles before any page upload, uploads icons
-     * before pages, then removes device files that have no local copy and
-     * activates the requested profile. Aborts on the first device error; the
-     * plan can be recomputed and resumed on the next run.
+     * Execute a plan. Creates profiles, sends renames, uploads icons and pages,
+     * then removes device files and profiles that have no local copy, then
+     * activates the requested profile. Removals run only when the caller
+     * passes `allowRemovals`. Aborts on the first device error; the plan can be
+     * recomputed and resumed on the next run.
      */
-    async executePlan(plan: DiffPlan): Promise<SyncResult> {
-        const total = diffPlanOperations(plan) + diffPlanDeletions(plan);
+    async executePlan(plan: DiffPlan, options: ExecutePlanOptions = {}): Promise<SyncResult> {
+        const allowRemovals = options.allowRemovals === true;
+        const pagesToDelete = allowRemovals ? plan.pagesToDelete : [];
+        const iconsToDelete = allowRemovals ? plan.iconsToDelete : [];
+        const profilesToDelete = allowRemovals ? plan.profilesToDelete : [];
+        const skippedRemovals = allowRemovals ? 0 : diffPlanDeletions(plan);
+        const total = diffPlanOperations(plan) + (allowRemovals ? diffPlanDeletions(plan) : 0);
         const result: SyncResult = {
             createdProfiles: [],
+            renamedProfiles: [],
             uploadedPages: [],
             uploadedIcons: [],
             removedPages: [],
             removedIcons: [],
+            removedProfiles: [],
             activeProfile: null,
         };
         let completed = 0;
@@ -297,6 +497,12 @@ export class SyncService {
                 current,
             });
         };
+
+        if (skippedRemovals > 0) {
+            log.info(
+                `[sync] skipping ${skippedRemovals} removal(s): only an explicit sync removes`,
+            );
+        }
 
         this.emitProgress({ phase: "prepare", percent: 0, completed: 0, total });
 
@@ -319,6 +525,14 @@ export class SyncService {
                 await this.device.createProfile(name);
                 result.createdProfiles.push(name);
                 tick("profile", name);
+            }
+
+            // A rename must land before a page is uploaded under the new name,
+            // and it keeps the deck profile's pages instead of recreating them.
+            for (const rename of plan.profileRenames) {
+                await this.device.renameProfile(rename.from, rename.to);
+                result.renamedProfiles.push(rename);
+                tick("rename", `${rename.from} -> ${rename.to}`);
             }
 
             for (const icon of plan.iconsToUpload) {
@@ -368,22 +582,35 @@ export class SyncService {
 
             // Pages before icons: removing an icon first would leave a page that
             // is still on the deck pointing at a missing image.
-            for (const page of plan.pagesToDelete) {
+            for (const page of pagesToDelete) {
                 await this.device.deletePage(page.profile, page.id, { allowMissing: true });
                 result.removedPages.push(page);
                 tick("remove-page", `${page.profile}/${page.id}`);
             }
 
-            for (const icon of plan.iconsToDelete) {
+            for (const icon of iconsToDelete) {
                 await this.device.deleteIcon(icon.name, { allowMissing: true });
                 result.removedIcons.push(icon);
                 tick("remove-icon", icon.name);
             }
 
-            if (plan.pagesToDelete.length > 0 || plan.iconsToDelete.length > 0) {
+            // Profiles last: a profile must never go before the pages it holds
+            // are settled, since deleting it takes its whole directory with it.
+            for (const name of profilesToDelete) {
+                await this.device.deleteProfile(name, { allowMissing: true });
+                result.removedProfiles.push(name);
+                tick("remove-profile", name);
+            }
+
+            if (
+                result.removedPages.length > 0 ||
+                result.removedIcons.length > 0 ||
+                result.removedProfiles.length > 0
+            ) {
                 log.info(
-                    `[sync] removed ${plan.pagesToDelete.length} page(s) and ` +
-                        `${plan.iconsToDelete.length} icon(s) with no local copy`,
+                    `[sync] removed ${result.removedPages.length} page(s), ` +
+                        `${result.removedIcons.length} icon(s) and ` +
+                        `${result.removedProfiles.length} profile(s) with no local copy`,
                 );
             }
 

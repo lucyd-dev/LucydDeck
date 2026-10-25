@@ -6,6 +6,7 @@ import type { DiffPlan, SyncResult } from "@shared/sync";
 import { usbClient, syncClient } from "@/ipc/client";
 import { on } from "@/ipc/events";
 import { eventChannels } from "@/ipc/events";
+import { syncResultMessage } from "@/device/syncResult";
 import { useAppStore } from "@/stores/appStore";
 
 /** USB/HID store: connection lifecycle, device info, and delta-sync state. */
@@ -84,7 +85,10 @@ export const useUsbStore = defineStore("usb", () => {
     }
 
     /** Execute a plan, streaming `sync:progress` into `syncProgress`. */
-    async function executePlan(plan: DiffPlan): Promise<SyncResult | null> {
+    async function executePlan(
+        plan: DiffPlan,
+        options: { allowRemovals?: boolean } = {},
+    ): Promise<SyncResult | null> {
         if (!connected.value) {
             useAppStore().pushToast("warning", "Device disconnected; sync aborted");
             return null;
@@ -92,20 +96,12 @@ export const useUsbStore = defineStore("usb", () => {
         syncing.value = true;
         syncProgress.value = { phase: "prepare", percent: 0 };
         try {
-            const result = await syncClient.execute(plan);
+            const result = await syncClient.execute(plan, options);
             if (!result.ok) {
                 useAppStore().pushToast("error", result.error);
                 return null;
             }
-            const removed = result.data.removedPages.length + result.data.removedIcons.length;
-            if (removed > 0) {
-                useAppStore().pushToast(
-                    "success",
-                    `Synced. Removed ${removed} file${removed === 1 ? "" : "s"} from the deck.`,
-                );
-            } else {
-                useAppStore().pushToast("success", "Device synced");
-            }
+            useAppStore().pushToast("success", syncResultMessage(result.data));
             return result.data;
         } catch (error) {
             useAppStore().pushToast(

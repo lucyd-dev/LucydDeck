@@ -11,10 +11,12 @@ export interface SyncSnapshot {
     stale: boolean;
     syncing: boolean;
     planLoaded: boolean;
-    /** Pending uploads, profile creates and the active-profile switch. */
+    /** Pending uploads, profile creates, renames and the active-profile switch. */
     pendingChanges: number;
-    /** Device-only files the plan will remove. */
+    /** Device-only items (pages, icons and profiles) the plan will remove. */
     plannedRemovals: number;
+    /** Deck profiles among the removals; they ask for confirmation. */
+    plannedProfileRemovals?: number;
 }
 
 export interface SyncReading {
@@ -31,12 +33,22 @@ function pendingChangeLabel(count: number): string {
     return `${count} pending ${count === 1 ? "change" : "changes"}`;
 }
 
-function fileCountLabel(count: number): string {
-    return `${count} ${count === 1 ? "file" : "files"}`;
+function itemCountLabel(count: number): string {
+    return `${count} ${count === 1 ? "item" : "items"}`;
 }
 
-function deviceOnlyFileLabel(count: number): string {
-    return `${count} device-only ${count === 1 ? "file" : "files"}`;
+function removalHint(count: number): string {
+    return `${itemCountLabel(count)} only on the deck will be removed.`;
+}
+
+/** Extra hint for a profile removal, which the Sync action confirms first. */
+function profileRemovalHint(count: number | undefined): string {
+    if (count === undefined || count <= 0) {
+        return "";
+    }
+    return count === 1
+        ? " 1 deck profile and its pages will be removed."
+        : ` ${count} deck profiles and their pages will be removed.`;
 }
 
 /**
@@ -61,19 +73,18 @@ export function syncAction(snapshot: SyncSnapshot): SyncReading {
     if (!snapshot.planLoaded) {
         return { label: "Sync", hint: "The review has not loaded yet", disabled: true };
     }
+    const profileHint = profileRemovalHint(snapshot.plannedProfileRemovals);
     if (snapshot.pendingChanges === 0 && snapshot.plannedRemovals === 0) {
         return {
             label: "In sync",
-            hint: "Nothing to sync. Every page and icon on the deck matches the library.",
+            hint: "Nothing to sync. Every page, icon and profile on the deck matches the library.",
             disabled: true,
         };
     }
     if (snapshot.pendingChanges === 0) {
         return {
-            label: `Remove ${fileCountLabel(snapshot.plannedRemovals)}`,
-            hint: `${fileCountLabel(snapshot.plannedRemovals)} that ${
-                snapshot.plannedRemovals === 1 ? "is" : "are"
-            } only on the deck will be removed.`,
+            label: `Remove ${itemCountLabel(snapshot.plannedRemovals)}`,
+            hint: `${removalHint(snapshot.plannedRemovals)}${profileHint}`,
             disabled: false,
         };
     }
@@ -88,9 +99,9 @@ export function syncAction(snapshot: SyncSnapshot): SyncReading {
         label: `Sync ${changeCountLabel(snapshot.pendingChanges)}, remove ${
             snapshot.plannedRemovals
         }`,
-        hint: `${pendingChangeLabel(snapshot.pendingChanges)} will be sent, ${deviceOnlyFileLabel(
+        hint: `${pendingChangeLabel(snapshot.pendingChanges)} will be sent, ${itemCountLabel(
             snapshot.plannedRemovals,
-        )} removed.`,
+        )} removed.${profileHint}`,
         disabled: false,
     };
 }

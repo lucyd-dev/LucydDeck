@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { DeviceState } from "@shared/ipc";
+import { emptyDiffPlan } from "@shared/sync";
+import type { SyncResult } from "@shared/sync";
 
 const mocks = vi.hoisted(() => ({
     deleteFile: vi.fn(),
@@ -88,7 +90,7 @@ describe("deviceStore two-sided delete", () => {
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 1 }] });
         mocks.loadPage.mockResolvedValue({ ok: true, data: { buttons: {} } });
         mocks.savePage.mockResolvedValue({ ok: true, data: undefined });
-        mocks.reconcile.mockResolvedValue({ ok: true, data: { profilesToCreate: [] } });
+        mocks.reconcile.mockResolvedValue({ ok: true, data: emptyDiffPlan() });
         mocks.iconList.mockResolvedValue({ ok: true, data: [] });
         mocks.iconRemove.mockResolvedValue({ ok: true, data: undefined });
     });
@@ -189,46 +191,39 @@ describe("deviceStore sync reading", () => {
             data: [{ name: "main", isDefault: true }],
         });
         mocks.listPages.mockResolvedValue({ ok: true, data: [] });
-        mocks.reconcile.mockResolvedValue({
-            ok: true,
-            data: {
-                profilesToCreate: [],
-                pagesToUpload: [],
-                iconsToUpload: [],
-                pagesToDelete: [],
-                iconsToDelete: [],
-                missingIcons: [],
-                setActiveProfile: null,
-            },
-        });
+        mocks.reconcile.mockResolvedValue({ ok: true, data: emptyDiffPlan() });
         mocks.iconList.mockResolvedValue({ ok: true, data: [] });
     });
 
-    it("runs the current plan and refreshes afterwards", async () => {
-        const { store } = setup();
-        const usb = useUsbStore();
-        const execute = vi.spyOn(usb, "executePlan").mockResolvedValue({
+    function syncResult(overrides: Partial<SyncResult> = {}): SyncResult {
+        return {
             createdProfiles: [],
-            uploadedPages: [{ profile: "main", id: "0" }],
+            renamedProfiles: [],
+            uploadedPages: [],
             uploadedIcons: [],
             removedPages: [],
             removedIcons: [],
+            removedProfiles: [],
             activeProfile: null,
-        });
+            ...overrides,
+        };
+    }
+
+    it("runs the current plan explicitly and refreshes afterwards", async () => {
+        const { store } = setup();
+        const usb = useUsbStore();
+        const execute = vi
+            .spyOn(usb, "executePlan")
+            .mockResolvedValue(syncResult({ uploadedPages: [{ profile: "main", id: "0" }] }));
         const plan = {
-            profilesToCreate: [],
+            ...emptyDiffPlan(),
             pagesToUpload: [{ profile: "main", id: "0" }],
-            iconsToUpload: [],
-            pagesToDelete: [],
-            iconsToDelete: [],
-            missingIcons: [],
-            setActiveProfile: null,
         };
         store.plan = plan;
 
         await expect(store.syncNow()).resolves.toBe(true);
 
-        expect(execute).toHaveBeenCalledWith(plan);
+        expect(execute).toHaveBeenCalledWith(plan, { allowRemovals: true });
         expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
     });
 
@@ -236,18 +231,63 @@ describe("deviceStore sync reading", () => {
         const { store } = setup();
         const usb = useUsbStore();
         const execute = vi.spyOn(usb, "executePlan");
-        store.plan = {
-            profilesToCreate: [],
-            pagesToUpload: [],
-            iconsToUpload: [],
-            pagesToDelete: [],
-            iconsToDelete: [],
-            missingIcons: [],
-            setActiveProfile: null,
-        };
+        store.plan = emptyDiffPlan();
 
         expect(store.syncAction.label).toBe("In sync");
         await expect(store.syncNow()).resolves.toBe(false);
         expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("asks before a sync removes a deck profile", async () => {
+        const { store } = setup();
+        const usb = useUsbStore();
+        const execute = vi.spyOn(usb, "executePlan").mockResolvedValue(syncResult());
+        const ask = vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const plan = {
+            ...emptyDiffPlan(),
+            pagesToDelete: [{ profile: "main", id: "9" }],
+            profilesToDelete: ["stale"],
+        };
+        store.plan = plan;
+
+        await expect(store.syncNow()).resolves.toBe(true);
+
+        expect(ask).toHaveBeenCalledTimes(1);
+        expect(ask.mock.calls[0]?.[0]).toMatchObject({
+            title: "Remove a deck profile",
+            danger: true,
+        });
+        expect(ask.mock.calls[0]?.[0].message).toContain("“stale”");
+        expect(execute).toHaveBeenCalledWith(plan, { allowRemovals: true });
+    });
+
+    it("runs nothing when the profile removal is declined", async () => {
+        const { store } = setup();
+        const usb = useUsbStore();
+        const execute = vi.spyOn(usb, "executePlan");
+        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(false);
+        store.plan = { ...emptyDiffPlan(), profilesToDelete: ["stale"] };
+
+        await expect(store.syncNow()).resolves.toBe(false);
+
+        expect(execute).not.toHaveBeenCalled();
+        expect(mocks.deviceInfo).not.toHaveBeenCalled();
+    });
+
+    it("does not ask when only pages and icons are removed", async () => {
+        const { store } = setup();
+        const usb = useUsbStore();
+        vi.spyOn(usb, "executePlan").mockResolvedValue(syncResult());
+        const ask = vi.spyOn(useConfirmStore(), "ask");
+        const plan = {
+            ...emptyDiffPlan(),
+            pagesToDelete: [{ profile: "main", id: "9" }],
+            iconsToDelete: [{ name: "old" }],
+        };
+        store.plan = plan;
+
+        await expect(store.syncNow()).resolves.toBe(true);
+
+        expect(ask).not.toHaveBeenCalled();
     });
 });

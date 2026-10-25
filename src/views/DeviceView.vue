@@ -99,6 +99,17 @@ function reviewNames(items: Array<{ name?: string; profile?: string; id?: string
     );
 }
 
+const plannedRemovalNames = computed(() => {
+    if (device.plan === null) {
+        return [];
+    }
+    return [
+        ...reviewNames(device.plan.pagesToDelete),
+        ...reviewNames(device.plan.iconsToDelete),
+        ...device.plan.profilesToDelete.map((name) => `Profile “${name}”`),
+    ];
+});
+
 onMounted(() => {
     void device.refresh();
 });
@@ -395,6 +406,17 @@ watch(
                             </ul>
                         </div>
                         <div class="review-group">
+                            <p class="review-group__label">Profiles to rename</p>
+                            <p class="review-group__count">
+                                {{ device.plan.profileRenames.length }}
+                            </p>
+                            <ul v-if="device.plan.profileRenames.length > 0" class="review-list">
+                                <li v-for="rename in device.plan.profileRenames" :key="rename.from">
+                                    {{ rename.from }} → {{ rename.to }}
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="review-group">
                             <p class="review-group__label">Pages to upload</p>
                             <p class="review-group__count">
                                 {{ device.plan.pagesToUpload.length }}
@@ -423,22 +445,25 @@ watch(
                             </ul>
                         </div>
                         <div class="review-group">
-                            <p class="review-group__label">Files to remove</p>
+                            <p class="review-group__label">Files and profiles to remove</p>
                             <p class="review-group__count">
                                 {{ device.plannedDeletions }}
                             </p>
                             <ul v-if="device.plannedDeletions > 0" class="review-list">
-                                <li
-                                    v-for="name in [
-                                        ...reviewNames(device.plan.pagesToDelete),
-                                        ...reviewNames(device.plan.iconsToDelete),
-                                    ]"
-                                    :key="name"
-                                >
+                                <li v-for="name in plannedRemovalNames" :key="name">
                                     {{ name }}
                                 </li>
                             </ul>
                         </div>
+                    </div>
+
+                    <div
+                        v-if="device.plan.profileRenameFallback"
+                        class="device-banner"
+                        style="margin-top: var(--space-md)"
+                    >
+                        <AlertTriangle :size="15" />
+                        <span>{{ device.plan.profileRenameFallback }}</span>
                     </div>
 
                     <div
@@ -456,15 +481,18 @@ watch(
                     <div class="review-footer">
                         <div class="review-footer__note">
                             <p>
-                                {{ device.summary.inSync }} file(s) already match and stay
+                                {{ device.summary.inSync }} item(s) already match and stay
                                 untouched.
                                 <template v-if="device.plannedDeletions > 0">
                                     {{ device.plannedDeletions }}
-                                    {{ device.plannedDeletions === 1 ? "file" : "files" }} that
+                                    {{ device.plannedDeletions === 1 ? "item" : "items" }} that
                                     {{ device.plannedDeletions === 1 ? "is" : "are" }} only on the
                                     deck {{ device.plannedDeletions === 1 ? "is" : "are" }} removed
                                     by this sync.
                                 </template>
+                            </p>
+                            <p v-if="device.plan.profileRenames.length > 0">
+                                The deck profile is renamed in place, so its pages stay intact.
                             </p>
                             <p v-if="device.plan.setActiveProfile">
                                 The deck switches to profile
