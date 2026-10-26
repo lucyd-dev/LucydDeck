@@ -462,6 +462,10 @@ export function registerIpcHandlers(services: IpcServices): void {
         ok: true,
         data: await firmware.flashLocal(request ?? {}),
     }));
+    register(channels.firmware.retry, async () => ({
+        ok: true,
+        data: await firmware.retry(),
+    }));
     register(channels.firmware.cancel, async () => ({
         ok: true,
         data: await firmware.cancel(),

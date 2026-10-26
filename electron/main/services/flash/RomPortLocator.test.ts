@@ -30,7 +30,35 @@ describe("RomPortLocator", () => {
         ).toEqual(fingerprint);
     });
 
-    it("polls until the loader port appears on the recorded fingerprint", async () => {
+    it("finds the bootloader port once without waiting", async () => {
+        const listPorts = vi
+            .fn<() => Promise<SerialPortInfoLike[]>>()
+            .mockResolvedValue([loaderPort()]);
+        const locator = new RomPortLocator({
+            listPorts,
+            resolveUsbPath: () => null,
+        });
+
+        await expect(locator.find(fingerprint)).resolves.toEqual(loaderPort());
+        expect(listPorts).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns no port when the fingerprint no longer matches", async () => {
+        const locator = new RomPortLocator({
+            listPorts: async () => [
+                {
+                    path: "/dev/ttyACM1",
+                    serialNumber: "11:22:33:44:55:66",
+                    usbPath: "1-2",
+                },
+            ],
+            resolveUsbPath: () => null,
+        });
+
+        await expect(locator.find(fingerprint)).resolves.toBeNull();
+    });
+
+    it("polls until the bootloader port appears on the recorded fingerprint", async () => {
         const listPorts = vi
             .fn<() => Promise<SerialPortInfoLike[]>>()
             .mockResolvedValueOnce([])

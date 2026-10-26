@@ -3,6 +3,7 @@ import {
     deckUsbFingerprint,
     normalizeSerialNumber,
     normalizeUsbPath,
+    portMatchesFingerprint,
     selectRomPort,
     usbBusPortFromSysfsPath,
 } from "./PortFingerprint";
@@ -121,5 +122,43 @@ describe("selectRomPort", () => {
         expect(
             selectRomPort(fingerprint({ serialNumber: null, usbPath: null }), [port()]),
         ).toBeNull();
+    });
+});
+
+describe("portMatchesFingerprint", () => {
+    it("accepts the port that carries both the serial and the USB path", () => {
+        expect(
+            portMatchesFingerprint(
+                fingerprint(),
+                port({ serialNumber: "80:65:99:A5:03:8C", usbPath: "1-2" }),
+            ),
+        ).toBe(true);
+    });
+
+    it("rejects a different serial on the recorded path", () => {
+        expect(
+            portMatchesFingerprint(
+                fingerprint(),
+                port({ serialNumber: "AAAAAAAAAAAA", usbPath: "1-2" }),
+            ),
+        ).toBe(false);
+    });
+
+    it("rejects the right serial on a different path", () => {
+        expect(
+            portMatchesFingerprint(
+                fingerprint(),
+                port({ serialNumber: "806599A5038C", usbPath: "1-3" }),
+            ),
+        ).toBe(false);
+    });
+
+    it("has nothing to match without a serial or a path", () => {
+        expect(
+            portMatchesFingerprint(
+                fingerprint({ serialNumber: null, usbPath: null }),
+                port({ serialNumber: "806599A5038C", usbPath: "1-2" }),
+            ),
+        ).toBe(false);
     });
 });

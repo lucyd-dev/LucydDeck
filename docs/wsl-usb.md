@@ -181,11 +181,17 @@ See the [WSL acceptance check](#wsl-acceptance-check) for the manual pass.
 
 The Advanced action accepts one local `.bin` built for the `max_app_8MB` layout. It checks the size bound of 8064 KiB, writes at `0x10000` with `eraseAll: false`, and never writes the bootloader, partition table, NVS or SD card. A local file carries no manifest, so its address and layout are not checked; the release updater owns those checks.
 
-The stages are bootloader handoff, bootloader mode, write (0-100%) and return. The confirmation dialog is the cancel point; there is no cancel after the bootloader handoff. Quitting during the write asks first, once per write.
+The stages are bootloader handoff, bootloader mode, write (0-100%) and return. Cancel is offered for a check, a download, the confirmation and the handoff itself; once the write starts it is refused. A cancel after the deck was handed off leaves the deck in bootloader mode and asks for an unplug and replug. Quitting during the write asks first, once per write.
+
+A failed write keeps the bootloader port and offers **Retry**, which writes the same image again without a second handoff. Retry is not offered after the deck has been written and only the return is missing; that state asks for an unplug and replug instead.
 
 ## When something is missing
 
+- **The app says it cannot open the deck's USB port.** On Linux that message names `99-lucyddeck.rules`. Install it with the [udev steps](#one-time-wsl-setup), replug the deck, then retry.
 - **No `ttyACM` or `hidraw` node.** Check `lsusb -d 303a:`. If the device is there but the nodes have the wrong owner, the udev rule did not apply. Replug, rerun `udevadm trigger`, or temporarily `sudo chmod -R a+rw /dev/bus/usb`.
+- **The write failed.** Choose **Retry**. The deck stays in bootloader mode, so the retry writes the same image on the retained bootloader port without another handoff. A permission or busy-port failure names what to fix first.
+- **The deck did not come back after the write.** Unplug it and plug it back in. The app reads the firmware version again when it reconnects.
+- **The app says the deck's firmware is too old.** That deck predates `0x05`; run the [one-time bootstrap flash](#one-time-bootstrap-flash).
 - **The port vanishes after a flash.** The ESP32 re-enumerated. Auto-attach should bring it back in a second or two. Without auto-attach, run the attach command again.
 - **The port vanishes at the start of an upload and never returns.** The flash reset the deck into its ROM bootloader, which is a second USB device on the same port (`USB JTAG/serial debug unit`, a different COM port). usbipd shares devices individually, so bind that one too while it is visible: `usbipd bind --busid <busid>` as administrator. With both the app device and the bootloader device shared, auto-attach follows the deck through a flash. A power cycle boots the old firmware and brings the app device back.
 - **Upload times out at 921600.** Lower `upload_speed` to `460800` in a local override. The virtual USB hop is less forgiving than the native one.

@@ -114,6 +114,7 @@ export const FirmwareErrorCodes = {
     Download: "FIRMWARE_DOWNLOAD_FAILED",
     Checksum: "FIRMWARE_CHECKSUM_MISMATCH",
     VersionMismatch: "FIRMWARE_VERSION_MISMATCH",
+    Cancelled: "FIRMWARE_CANCELLED",
     Failed: "FIRMWARE_FAILED",
 } as const;
 
@@ -140,6 +141,11 @@ export interface FirmwareErrorInfo {
     code: FirmwareErrorCode;
     /** One sentence plus a next step, for the Firmware section. */
     message: string;
+    /**
+     * True when the write failed after the bootloader handoff and the retained
+     * bootloader port can be written again without a second handoff.
+     */
+    retryable?: boolean;
 }
 
 export interface FirmwareState {

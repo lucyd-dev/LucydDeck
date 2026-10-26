@@ -122,5 +122,6 @@ export const firmwareClient = {
     check: (request: FirmwareCheckRequest = {}) => invoke(channels.firmware.check, request),
     update: () => invoke(channels.firmware.update, undefined),
     flashLocal: (request: FlashLocalRequest = {}) => invoke(channels.firmware.flashLocal, request),
+    retry: () => invoke(channels.firmware.retry, undefined),
     cancel: () => invoke(channels.firmware.cancel, undefined),
 };

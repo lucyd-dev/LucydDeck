@@ -164,6 +164,10 @@ The deck's built-in USB mode that accepts a firmware image while the app firmwar
 _Also_: ROM loader
 _Avoid_: Download mode, DFU, recovery mode, serial mode
 
+**Bootloader port**:
+The serial port the deck exposes while it is in bootloader mode, identified by the USB serial number and, where the platform exposes it, the physical USB path recorded from its HID interface. The app keeps the matching port after a failed write so Retry writes again without another handoff.
+_Avoid_: ROM port, loader port, retained ROM port
+
 **Bootloader handoff**:
 The acknowledged restart from the running firmware into bootloader mode. The app sends `CMD_ENTER_BOOTLOADER`, the deck answers, then the HID interface disappears.
 _Short form_: handoff (in code and stage names)

@@ -111,6 +111,7 @@ export const channels = {
         check: "firmware:check",
         update: "firmware:update",
         flashLocal: "firmware:flashLocal",
+        retry: "firmware:retry",
         cancel: "firmware:cancel",
     },
 } as const;
@@ -367,6 +368,7 @@ export interface RequestMap {
     [channels.firmware.check]: FirmwareCheckRequest;
     [channels.firmware.update]: undefined;
     [channels.firmware.flashLocal]: FlashLocalRequest;
+    [channels.firmware.retry]: undefined;
     [channels.firmware.cancel]: undefined;
 }
 
@@ -439,6 +441,7 @@ export interface ResponseMap {
     [channels.firmware.check]: IpcResponse<FirmwareState>;
     [channels.firmware.update]: IpcResponse<FirmwareState>;
     [channels.firmware.flashLocal]: IpcResponse<FirmwareState | null>;
+    [channels.firmware.retry]: IpcResponse<FirmwareState>;
     [channels.firmware.cancel]: IpcResponse<FirmwareState>;
 }
 

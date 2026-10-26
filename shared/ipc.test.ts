@@ -65,6 +65,7 @@ describe("shared/ipc contract", () => {
         expect(channels.firmware.check).toBe("firmware:check");
         expect(channels.firmware.update).toBe("firmware:update");
         expect(channels.firmware.flashLocal).toBe("firmware:flashLocal");
+        expect(channels.firmware.retry).toBe("firmware:retry");
         expect(channels.firmware.cancel).toBe("firmware:cancel");
         expect(channels.updater.state).toBe("updater:state");
         expect(channels.updater.check).toBe("updater:check");

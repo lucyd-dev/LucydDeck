@@ -31,6 +31,14 @@ export const useFirmwareStore = defineStore("firmware", () => {
     const isActive = computed(() => isFirmwareActive(state.value));
     const checking = computed(() => state.value.release.status === "checking");
     const updateAvailable = computed(() => state.value.release.status === "available");
+    const canRetry = computed(() => state.value.error?.retryable === true);
+    const canCancel = computed(
+        () =>
+            state.value.release.status === "checking" ||
+            state.value.phase === "downloading" ||
+            state.value.phase === "handoff" ||
+            state.value.phase === "locating",
+    );
 
     function apply(next: FirmwareState): void {
         state.value = next;
@@ -160,6 +168,25 @@ export const useFirmwareStore = defineStore("firmware", () => {
         }
     }
 
+    /** Write again on the bootloader port kept from a failed write. */
+    async function retry(): Promise<boolean> {
+        if (starting.value || isActive.value || !canRetry.value) {
+            return false;
+        }
+        starting.value = true;
+        try {
+            const result = await firmwareClient.retry();
+            if (!result.ok) {
+                failWithToast(result.error, result.code);
+                return false;
+            }
+            apply(result.data);
+            return result.data.phase === "done";
+        } finally {
+            starting.value = false;
+        }
+    }
+
     async function cancel(): Promise<void> {
         const result = await firmwareClient.cancel();
         if (result.ok) {
@@ -183,11 +210,14 @@ export const useFirmwareStore = defineStore("firmware", () => {
         isActive,
         checking,
         updateAvailable,
+        canRetry,
+        canCancel,
         refresh,
         checkForUpdate,
         installUpdate,
         chooseLocal,
         flashLocal,
+        retry,
         cancel,
     };
 });

@@ -298,12 +298,18 @@ watch(
                         >
                             {{ percent }}%
                         </span>
-                        <Button
-                            v-if="firmware.state.phase === 'downloading'"
-                            size="sm"
-                            @click="firmware.cancel()"
-                        >
+                        <Button v-if="firmware.canCancel" size="sm" @click="firmware.cancel()">
                             Cancel
+                        </Button>
+                        <Button
+                            v-else-if="firmware.canRetry"
+                            size="sm"
+                            variant="primary"
+                            :loading="firmware.starting"
+                            :disabled="firmware.isActive"
+                            @click="firmware.retry()"
+                        >
+                            Retry
                         </Button>
                     </div>
                 </div>

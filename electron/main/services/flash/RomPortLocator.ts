@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Wait for the ROM loader's serial port after the deck's HID interface drops.
+// Wait for the bootloader port after the deck's HID interface drops.
 // ---------------------------------------------------------------------------
 
 import { deckUsbFingerprint, resolveLinuxUsbPath, selectRomPort } from "./PortFingerprint";
@@ -13,7 +13,7 @@ export interface RomPortLocatorOptions {
     listPorts?: () => Promise<SerialPortInfoLike[]>;
     /** Test seam: physical USB path for a device node. */
     resolveUsbPath?: (devicePath: string) => string | null;
-    /** How often to look for the loader port. */
+    /** How often to look for the bootloader port. */
     pollMs?: number;
     /** How long to wait for it. */
     timeoutMs?: number;
@@ -48,16 +48,16 @@ export class RomPortLocator {
         return deckUsbFingerprint(device, this.resolveUsbPath);
     }
 
-    /** Poll until the loader port appears, or return `null` after the timeout. */
+    /** Look for the bootloader port once, without waiting. */
+    async find(fingerprint: DeckUsbFingerprint): Promise<SerialPortInfoLike | null> {
+        return this.scan(fingerprint);
+    }
+
+    /** Poll until the bootloader port appears, or return `null` after the timeout. */
     async waitFor(fingerprint: DeckUsbFingerprint): Promise<SerialPortInfoLike | null> {
         const deadline = this.now() + this.timeoutMs;
         for (;;) {
-            const ports = await this.listPorts();
-            const enriched = ports.map((port) => ({
-                ...port,
-                usbPath: port.usbPath ?? this.resolveUsbPath(port.path) ?? undefined,
-            }));
-            const match = selectRomPort(fingerprint, enriched);
+            const match = await this.scan(fingerprint);
             if (match !== null) {
                 return match;
             }
@@ -66,5 +66,14 @@ export class RomPortLocator {
             }
             await this.sleep(this.pollMs);
         }
+    }
+
+    private async scan(fingerprint: DeckUsbFingerprint): Promise<SerialPortInfoLike | null> {
+        const ports = await this.listPorts();
+        const enriched = ports.map((port) => ({
+            ...port,
+            usbPath: port.usbPath ?? this.resolveUsbPath(port.path) ?? undefined,
+        }));
+        return selectRomPort(fingerprint, enriched);
     }
 }

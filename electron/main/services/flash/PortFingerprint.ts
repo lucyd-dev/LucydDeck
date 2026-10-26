@@ -1,18 +1,18 @@
 // ---------------------------------------------------------------------------
-// Which serial port is the deck's ROM loader?
+// Which serial port is the deck's bootloader port?
 //
-// The running deck and its ROM loader both report Espressif `303A:1001`, and
+// The running deck and its bootloader both report Espressif `303A:1001`, and
 // the app's own CDC interface is a serial port too. A port is therefore
 // selected by the identity recorded from the HID interface before the
 // handoff, never by PID alone:
 //
-// - the USB serial number (the Arduino firmware and the ROM loader both derive
+// - the USB serial number (the Arduino firmware and the bootloader both derive
 //   it from the chip's MAC, with different separators), and
 // - the physical USB port path when the platform exposes it (Linux sysfs).
 //
 // A port that only shares the PID is not a match.
 //
-// Under usbipd the ROM device can re-enumerate on a different vhci path, so the
+// Under usbipd the bootloader can re-enumerate on a different vhci path, so the
 // path alone cannot be the identity there. The serial number survives that
 // re-enumeration; the path is a corroborating match on native Linux.
 // ---------------------------------------------------------------------------
@@ -103,6 +103,25 @@ export function deckUsbFingerprint(
         usbPath: device.path ? normalizeUsbPath(resolveUsbPath(device.path)) : null,
         product: device.product ?? null,
     };
+}
+
+/** Does this port still carry the identity recorded from the deck's HID interface? */
+export function portMatchesFingerprint(
+    fingerprint: DeckUsbFingerprint,
+    port: SerialPortInfoLike,
+): boolean {
+    const serial = fingerprint.serialNumber;
+    const usbPath = fingerprint.usbPath;
+    if (serial === null && usbPath === null) {
+        return false;
+    }
+    if (serial !== null && normalizeSerialNumber(port.serialNumber) !== serial) {
+        return false;
+    }
+    if (usbPath !== null && normalizeUsbPath(port.usbPath ?? port.locationId) !== usbPath) {
+        return false;
+    }
+    return true;
 }
 
 /**

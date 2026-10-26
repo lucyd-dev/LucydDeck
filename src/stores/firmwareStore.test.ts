@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     check: vi.fn(),
     update: vi.fn(),
     flashLocal: vi.fn(),
+    retry: vi.fn(),
     cancel: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ vi.mock("@/ipc/client", () => ({
         check: mocks.check,
         update: mocks.update,
         flashLocal: mocks.flashLocal,
+        retry: mocks.retry,
         cancel: mocks.cancel,
     },
 }));
@@ -58,6 +60,7 @@ describe("firmwareStore", () => {
         mocks.state.mockResolvedValue({ ok: true, data: state() });
         mocks.check.mockResolvedValue({ ok: true, data: state() });
         mocks.update.mockResolvedValue({ ok: true, data: state() });
+        mocks.retry.mockResolvedValue({ ok: true, data: state() });
         mocks.cancel.mockResolvedValue({ ok: true, data: state() });
     });
 
@@ -261,5 +264,98 @@ describe("firmwareStore", () => {
         await expect(store.installUpdate()).resolves.toBe(false);
         expect(mocks.pushToast).toHaveBeenCalledWith("error", "There is no update to install.");
         expect(store.state.error).toMatchObject({ code: "FIRMWARE_NO_UPDATE" });
+    });
+
+    it("offers Retry only for a write that kept its bootloader port", () => {
+        const store = useFirmwareStore();
+
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_NO_RETURN", message: "Unplug and replug." },
+            }),
+        );
+        expect(store.canRetry).toBe(false);
+
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_WRITE_FAILED", message: "Try again.", retryable: true },
+            }),
+        );
+        expect(store.canRetry).toBe(true);
+    });
+
+    it("offers Cancel only before the write starts", () => {
+        const store = useFirmwareStore();
+
+        emit(
+            "firmware:state",
+            state({ release: { status: "checking", latest: null, error: null } }),
+        );
+        expect(store.canCancel).toBe(true);
+
+        for (const phase of ["downloading", "handoff", "locating"] as const) {
+            emit("firmware:state", state({ phase }));
+            expect(store.canCancel).toBe(true);
+        }
+        for (const phase of ["writing", "returning"] as const) {
+            emit("firmware:state", state({ phase }));
+            expect(store.canCancel).toBe(false);
+        }
+
+        emit("firmware:state", state({ phase: "idle" }));
+        expect(store.canCancel).toBe(false);
+    });
+
+    it("retries the retained write and reports completion", async () => {
+        mocks.retry.mockResolvedValue({
+            ok: true,
+            data: state({ phase: "done", installedVersion: "0.4.0" }),
+        });
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_WRITE_FAILED", message: "Try again.", retryable: true },
+            }),
+        );
+
+        await expect(store.retry()).resolves.toBe(true);
+
+        expect(mocks.retry).toHaveBeenCalledTimes(1);
+        expect(store.state.phase).toBe("done");
+        expect(store.canRetry).toBe(false);
+    });
+
+    it("does not retry without a retained write", async () => {
+        const store = useFirmwareStore();
+
+        await expect(store.retry()).resolves.toBe(false);
+        expect(mocks.retry).not.toHaveBeenCalled();
+    });
+
+    it("shows a Retry failure as a toast and an error state", async () => {
+        mocks.retry.mockResolvedValue({
+            ok: false,
+            error: "The image did not finish writing.",
+            code: "FIRMWARE_WRITE_FAILED",
+        });
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_WRITE_FAILED", message: "Try again.", retryable: true },
+            }),
+        );
+
+        await expect(store.retry()).resolves.toBe(false);
+
+        expect(mocks.pushToast).toHaveBeenCalledWith("error", "The image did not finish writing.");
+        expect(store.state.error).toMatchObject({ code: "FIRMWARE_WRITE_FAILED" });
     });
 });

@@ -37,6 +37,11 @@ class FakeUsb implements FirmwareUsbClient {
     connectSucceeds = true;
     hidPresentCalls = 0;
     hidPresentResults: boolean[] = [];
+    hidError: Error | null = null;
+    deferCommand = false;
+    private finishCommand: (() => void) | null = null;
+    deferConnect = false;
+    private finishConnect: (() => void) | null = null;
 
     constructor(order: string[] = []) {
         this.order = order;
@@ -51,6 +56,9 @@ class FakeUsb implements FirmwareUsbClient {
     };
 
     hidFingerprint(): HidDescriptorLike | null {
+        if (this.hidError !== null) {
+            throw this.hidError;
+        }
         return this.hid;
     }
 
@@ -67,7 +75,17 @@ class FakeUsb implements FirmwareUsbClient {
         if (this.commandError !== null) {
             return Promise.reject(this.commandError);
         }
-        return Promise.resolve(new Uint8Array());
+        if (!this.deferCommand) {
+            return Promise.resolve(new Uint8Array());
+        }
+        return new Promise((resolve) => {
+            this.finishCommand = () => resolve(new Uint8Array());
+        });
+    }
+
+    finishHandoff(): void {
+        this.finishCommand?.();
+        this.finishCommand = null;
     }
 
     async disconnect(): Promise<void> {
@@ -81,7 +99,21 @@ class FakeUsb implements FirmwareUsbClient {
         if (!this.connectSucceeds) {
             throw new Error("no deck");
         }
+        if (this.deferConnect) {
+            await new Promise<void>((resolve) => {
+                this.finishConnect = () => {
+                    this.connected = true;
+                    resolve();
+                };
+            });
+            return;
+        }
         this.connected = true;
+    }
+
+    releaseConnect(): void {
+        this.finishConnect?.();
+        this.finishConnect = null;
     }
 }
 
@@ -90,11 +122,18 @@ class FakeDevice implements FirmwareDeviceClient {
     board = "WAVESHARE_ESP32_S3_TOUCH_LCD_4_3";
     calls = 0;
     fail = false;
+    deferInfo = false;
+    private finishInfo: (() => void) | null = null;
 
     async getDeviceInfo(): Promise<DeviceInfo> {
         this.calls++;
         if (this.fail) {
             throw new Error("no device info");
+        }
+        if (this.deferInfo) {
+            await new Promise<void>((resolve) => {
+                this.finishInfo = resolve;
+            });
         }
         return {
             firmwareVersion: this.version,
@@ -102,6 +141,11 @@ class FakeDevice implements FirmwareDeviceClient {
             board: this.board,
             freeSpaceKb: 2048,
         };
+    }
+
+    finish(): void {
+        this.finishInfo?.();
+        this.finishInfo = null;
     }
 }
 
@@ -151,7 +195,13 @@ class FakeFlasher implements FirmwareFlasher {
 
 class FakeLocator {
     port: SerialPortInfoLike | null = PORT;
+    findPort: SerialPortInfoLike | null = { ...PORT, usbPath: "1-2" };
     waitCalls = 0;
+    findCalls = 0;
+    waitError: Error | null = null;
+    findError: Error | null = null;
+    defer = false;
+    private finishWait: (() => void) | null = null;
     readonly order: string[];
 
     constructor(order: string[] = []) {
@@ -168,10 +218,31 @@ class FakeLocator {
         return this.fingerprint;
     }
 
+    async find(): Promise<SerialPortInfoLike | null> {
+        this.findCalls++;
+        if (this.findError !== null) {
+            throw this.findError;
+        }
+        return this.findPort;
+    }
+
     async waitFor(): Promise<SerialPortInfoLike | null> {
         this.waitCalls++;
         this.order.push("locate");
-        return this.port;
+        if (this.waitError !== null) {
+            throw this.waitError;
+        }
+        if (!this.defer) {
+            return this.port;
+        }
+        return new Promise((resolve) => {
+            this.finishWait = () => resolve(this.port);
+        });
+    }
+
+    finish(): void {
+        this.finishWait?.();
+        this.finishWait = null;
     }
 }
 
@@ -214,13 +285,29 @@ class FakeReleaseSource implements FirmwareReleaseSource {
     latestCalls = 0;
     downloadCalls = 0;
     readonly removed: string[] = [];
+    deferLatest = false;
+    private finishLatest: (() => void) | null = null;
 
-    async latest(): Promise<LatestRelease> {
+    latest(signal?: AbortSignal): Promise<LatestRelease> {
         this.latestCalls++;
         if (this.latestError !== null) {
-            throw this.latestError;
+            return Promise.reject(this.latestError);
         }
-        return this.latestResult;
+        if (signal?.aborted === true) {
+            return Promise.reject(abortError());
+        }
+        if (!this.deferLatest) {
+            return Promise.resolve(this.latestResult);
+        }
+        return new Promise((resolve, reject) => {
+            this.finishLatest = () => resolve(this.latestResult);
+            signal?.addEventListener("abort", () => reject(abortError()), { once: true });
+        });
+    }
+
+    finishLatestRelease(): void {
+        this.finishLatest?.();
+        this.finishLatest = null;
     }
 
     download(_entry: FirmwareBoardEntry, signal?: AbortSignal): Promise<string> {
@@ -268,7 +355,15 @@ function abortError(): Error {
     return error;
 }
 
-function make(overrides: { fileSize?: number; pick?: string | null; order?: string[] } = {}) {
+function make(
+    overrides: {
+        fileSize?: number;
+        pick?: string | null;
+        order?: string[];
+        platform?: NodeJS.Platform;
+        readFile?: (file: string) => Uint8Array;
+    } = {},
+) {
     const order = overrides.order ?? [];
     const usb = new FakeUsb(order);
     const device = new FakeDevice();
@@ -293,7 +388,8 @@ function make(overrides: { fileSize?: number; pick?: string | null; order?: stri
             isFile: () => true,
             isSymbolicLink: () => false,
         }),
-        readFile: () => new Uint8Array(fileSize),
+        readFile: overrides.readFile ?? (() => new Uint8Array(fileSize)),
+        platform: overrides.platform,
         sleep: async (ms) => {
             clock += ms;
         },
@@ -402,7 +498,8 @@ describe("FirmwareService local flash", () => {
             phase: "error",
             error: { code: FirmwareErrorCodes.FirmwareTooOld },
         });
-        expect(state!.error?.message).toContain("update-ready");
+        expect(state!.error?.message).toContain("one-time bootstrap");
+        expect(state!.error?.message).toContain("PlatformIO");
         expect(usb.disconnectCalls).toBe(0);
         expect(flasher.calls).toHaveLength(0);
     });
@@ -498,6 +595,280 @@ describe("FirmwareService local flash", () => {
         await expect(service.cancel()).resolves.toMatchObject({ phase: "writing" });
         flasher.finish();
         await flash;
+    });
+
+    it("refuses to cancel once the write has finished", async () => {
+        const { service, usb } = make();
+        usb.deferConnect = true;
+
+        const flash = service.flashLocal({ path: FILE, confirmed: true });
+        await vi.waitFor(() => expect(service.state().phase).toBe("returning"));
+        await expect(service.cancel()).resolves.toMatchObject({ phase: "returning" });
+
+        usb.releaseConnect();
+        await expect(flash).resolves.toMatchObject({ phase: "done" });
+    });
+
+    it("cancels a handoff before the write starts", async () => {
+        const { service, usb, flasher } = make();
+        usb.deferCommand = true;
+
+        const flash = service.flashLocal({ path: FILE, confirmed: true });
+        await vi.waitFor(() => expect(service.state().phase).toBe("handoff"));
+        await service.cancel();
+        usb.finishHandoff();
+        const state = await flash;
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Cancelled },
+        });
+        expect(state!.error?.message).toContain("bootloader mode");
+        expect(state!.error?.message).toContain("unplug it and plug it back in");
+        expect(flasher.calls).toHaveLength(0);
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+    });
+
+    it("cancels the loader search without writing", async () => {
+        const { service, flasher, locator } = make();
+        locator.defer = true;
+
+        const flash = service.flashLocal({ path: FILE, confirmed: true });
+        await vi.waitFor(() => expect(service.state().phase).toBe("locating"));
+        await service.cancel();
+        locator.finish();
+        const state = await flash;
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Cancelled },
+        });
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("retries a failed write on the retained ROM port without a second handoff", async () => {
+        const { service, usb, flasher, locator } = make();
+        flasher.failOnce = new Error("Resource busy");
+
+        const failed = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(failed).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.PortBusy, retryable: true },
+        });
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+        expect(locator.waitCalls).toBe(1);
+
+        const done = await service.retry();
+
+        expect(done.phase).toBe("done");
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+        expect(locator.waitCalls).toBe(1);
+        expect(flasher.calls).toHaveLength(2);
+        expect(flasher.calls[1].port).toBe(PORT);
+    });
+
+    it("drops Retry when the retained port no longer matches the deck", async () => {
+        const { service, usb, flasher, locator } = make();
+        flasher.failOnce = new Error("Resource busy");
+        await service.flashLocal({ path: FILE, confirmed: true });
+        locator.findPort = { ...PORT, serialNumber: "AAAAAAAAAAAA", usbPath: "1-2" };
+
+        const state = await service.retry();
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.PortNotFound },
+        });
+        expect(state!.error?.message).toContain("Unplug the deck, plug it back in, then Retry");
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+        expect(locator.findCalls).toBe(1);
+        expect(flasher.calls).toHaveLength(1);
+
+        await service.retry();
+        expect(locator.findCalls).toBe(1);
+        expect(flasher.calls).toHaveLength(1);
+    });
+
+    it("clears the failed-write message while Retry writes", async () => {
+        const { service, flasher } = make();
+        flasher.failOnce = new Error("Resource busy");
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        flasher.defer = true;
+        const retrying = service.retry();
+        await vi.waitFor(() => expect(service.state().phase).toBe("writing"));
+        expect(service.state().error).toBeNull();
+
+        flasher.finish();
+        await retrying;
+    });
+
+    it("stops offering Retry when the write failed but the deck did not return", async () => {
+        const { service, flasher, usb } = make();
+        usb.connectSucceeds = false;
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.NoReturn },
+        });
+        expect(state!.error?.message).toContain("Unplug it, plug it back in");
+        expect(state!.error?.retryable).toBeUndefined();
+        await service.retry();
+        expect(flasher.calls).toHaveLength(1);
+    });
+
+    it("does nothing when Retry has no retained write", async () => {
+        const { service, flasher } = make();
+
+        await expect(service.retry()).resolves.toMatchObject({ phase: "idle" });
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("drops the Retry once the deck comes back in app mode", async () => {
+        const { service, usb, flasher } = make();
+        flasher.failOnce = new Error("Resource busy");
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        usb.connected = true;
+        const state = await service.refreshDeckInfo();
+
+        expect(state).toMatchObject({ phase: "idle", error: null });
+        await service.retry();
+        expect(flasher.calls).toHaveLength(1);
+    });
+
+    it("drops the retained write when the failure is cancelled", async () => {
+        const { service, flasher } = make();
+        flasher.failOnce = new Error("Resource busy");
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        const cancelled = await service.cancel();
+        expect(cancelled).toMatchObject({ phase: "idle", error: null });
+        await service.retry();
+
+        expect(flasher.calls).toHaveLength(1);
+    });
+
+    it("names the Linux udev rule when the port is not writable", async () => {
+        const { service, flasher } = make({ platform: "linux" });
+        flasher.failOnce = Object.assign(
+            new Error("EACCES: permission denied, open '/dev/ttyACM1'"),
+            {
+                code: "EACCES",
+            },
+        );
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({
+            code: FirmwareErrorCodes.PortPermission,
+            retryable: true,
+        });
+        expect(state!.error?.message).toContain("99-lucyddeck.rules");
+        expect(state!.error?.message).not.toContain("EACCES");
+        expect(state!.error?.message).not.toContain("/dev/ttyACM1");
+    });
+
+    it("keeps udev out of a Windows permission failure", async () => {
+        const { service, flasher } = make({ platform: "win32" });
+        flasher.failOnce = new Error("Access is denied");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.PortPermission });
+        expect(state!.error?.message).not.toContain("udev");
+        expect(state!.error?.message).not.toContain("Access is denied");
+    });
+
+    it("maps a loader failure without leaking esptool text", async () => {
+        const { service, flasher } = make();
+        flasher.failOnce = new Error("Failed to connect to ESP32-S3: No serial data received.");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({
+            code: FirmwareErrorCodes.Loader,
+            retryable: true,
+        });
+        expect(state!.error?.message).not.toContain("ESP32-S3");
+        expect(state!.error?.message).not.toContain("serial data");
+    });
+
+    it("maps a write failure without leaking esptool text", async () => {
+        const { service, flasher } = make();
+        flasher.failOnce = new Error(
+            "A fatal error occurred: Failed to write to target Flash after seq 42",
+        );
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({
+            code: FirmwareErrorCodes.Write,
+            retryable: true,
+        });
+        expect(state!.error?.message).not.toContain("fatal");
+        expect(state!.error?.message).not.toContain("seq 42");
+        expect(state!.error?.message).not.toContain("Flash");
+    });
+
+    it("turns an unreadable local image into a sentence, not a filesystem error", async () => {
+        const { service } = make({
+            readFile: () => {
+                throw Object.assign(new Error("EACCES: permission denied, open '/tmp/fw.bin'"), {
+                    code: "EACCES",
+                });
+            },
+        });
+
+        await expect(service.selectLocal(FILE)).rejects.toMatchObject({
+            code: FirmwareErrorCodes.ImageRejected,
+            message: "The app could not read that image. Choose it again.",
+        });
+    });
+
+    it("turns an unexpected USB failure into a sentence, not a stack", async () => {
+        const { service, usb } = make();
+        usb.hidError = new Error("HID descriptor read failed at /dev/hidraw0");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Failed },
+        });
+        expect(state!.error?.message).toBe("The flash could not be prepared. Try again.");
+        expect(state!.error?.message).not.toContain("hidraw");
+    });
+
+    it("turns a locator failure into the bootloader step", async () => {
+        const { service, locator } = make();
+        locator.waitError = new Error("serialport: cannot list ports");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.PortNotFound });
+        expect(state!.error?.message).toContain("Unplug the deck, plug it back in");
+        expect(state!.error?.message).not.toContain("serialport");
+    });
+
+    it("cancels a check before its release is read", async () => {
+        const { service, releaseSource } = make();
+        releaseSource.deferLatest = true;
+
+        const checking = service.checkForUpdate();
+        await vi.waitFor(() => expect(service.state().release.status).toBe("checking"));
+        const cancelled = await service.cancel();
+        await checking;
+
+        expect(cancelled.release.status).toBe("idle");
+        expect(service.state()).toMatchObject({
+            phase: "idle",
+            release: { status: "idle", error: null },
+        });
+        expect(releaseSource.latestCalls).toBe(0);
     });
 });
 
@@ -689,7 +1060,7 @@ describe("FirmwareService release update", () => {
 
         const state = await service.update();
 
-        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.NoUpdate });
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.NoUpdate });
         expect(flasher.calls).toHaveLength(0);
     });
 
@@ -714,7 +1085,7 @@ describe("FirmwareService release update", () => {
 
         const state = await service.update();
 
-        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.Checksum });
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.Checksum });
         expect(state.release.status).toBe("available");
         expect(usb.calls).toHaveLength(0);
         expect(releaseSource.removed).toEqual([]);
@@ -728,7 +1099,7 @@ describe("FirmwareService release update", () => {
 
         const state = await service.update();
 
-        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.PortBusy });
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.PortBusy });
         expect(state.release.status).toBe("available");
         expect(releaseSource.removed).toEqual([STAGED]);
     });
@@ -760,10 +1131,76 @@ describe("FirmwareService release update", () => {
 
         const state = await service.update();
 
-        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.VersionMismatch });
-        expect(state.error?.message).toContain("0.3.0");
-        expect(state.error?.message).toContain("0.4.0");
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.VersionMismatch });
+        expect(state!.error?.message).toContain("0.3.0");
+        expect(state!.error?.message).toContain("0.4.0");
         expect(state.release.status).toBe("available");
         expect(releaseSource.removed).toEqual([STAGED]);
+    });
+
+    it("retries a failed release write without downloading or handing off again", async () => {
+        const { service, device, flasher, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        flasher.failOnce = new Error("Resource busy");
+
+        const failed = await service.update();
+
+        expect(failed.error).toMatchObject({
+            code: FirmwareErrorCodes.PortBusy,
+            retryable: true,
+        });
+        expect(failed.release.status).toBe("available");
+        expect(releaseSource.removed).toEqual([STAGED]);
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+
+        flasher.onFlash = () => {
+            device.version = "0.4.0";
+        };
+        const retried = await service.retry();
+
+        expect(retried).toMatchObject({
+            phase: "done",
+            installedVersion: "0.4.0",
+            error: null,
+            release: { status: "up-to-date" },
+        });
+        expect(releaseSource.downloadCalls).toBe(1);
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+        expect(flasher.calls).toHaveLength(2);
+    });
+
+    it("reports a deck that could not be read before the update", async () => {
+        const { service, device, flasher } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        device.fail = true;
+
+        const state = await service.update();
+
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.NotConnected });
+        expect(state!.error?.message).toContain("Replug it");
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("cancels an update while the deck is re-read before the download", async () => {
+        const { service, device, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        device.deferInfo = true;
+
+        const updating = service.update();
+        await vi.waitFor(() => expect(device.calls).toBe(2));
+        await service.cancel();
+        device.finish();
+        const state = await updating;
+
+        expect(state).toMatchObject({
+            phase: "idle",
+            error: null,
+            release: { status: "available" },
+        });
+        expect(releaseSource.downloadCalls).toBe(0);
+        expect(usb.calls).toHaveLength(0);
     });
 });
