@@ -91,6 +91,7 @@ describe("deckUsbFingerprint", () => {
             },
             () => "1-2",
             ["/dev/ttyACM0"],
+            "linux",
         );
         expect(recorded).toEqual({
             serialNumber: "806599A5038C",
@@ -102,7 +103,7 @@ describe("deckUsbFingerprint", () => {
         });
     });
 
-    it("records the Windows VID/PID when no serial or path is available", () => {
+    it("records the bootloader identity when the HID serial is absent", () => {
         const recorded = deckUsbFingerprint(
             {
                 vendorId: 0x303a,
@@ -113,6 +114,7 @@ describe("deckUsbFingerprint", () => {
             },
             () => null,
             ["COM9"],
+            "win32",
         );
         expect(recorded).toMatchObject({
             serialNumber: null,
@@ -121,6 +123,25 @@ describe("deckUsbFingerprint", () => {
             bootloaderProductId: 0x1001,
             preHandoffPaths: ["COM9"],
         });
+    });
+
+    it("ignores a non-null HID serial on Windows and selects the new COM port", () => {
+        const recorded = deckUsbFingerprint(
+            {
+                vendorId: 0x303a,
+                productId: 0x1001,
+                path: "\\\\?\\hid#vid_303a&pid_1001",
+                serialNumber: "806599A5038C",
+                product: "LucydDeck",
+            },
+            () => null,
+            [WINDOWS_CDC.path],
+            "win32",
+        );
+
+        expect(recorded.serialNumber).toBeNull();
+        expect(selectRomPort(recorded, [WINDOWS_CDC, WINDOWS_LOADER])).toBe(WINDOWS_LOADER);
+        expect(selectRomPort(recorded, [WINDOWS_CDC])).toBeNull();
     });
 
     it("records the bootloader PID even when the HID matched the alternate app PID", () => {
@@ -133,6 +154,7 @@ describe("deckUsbFingerprint", () => {
             },
             () => null,
             ["COM9"],
+            "linux",
         );
         expect(recorded).toMatchObject({
             bootloaderVendorId: 0x303a,
@@ -193,7 +215,7 @@ describe("selectRomPort", () => {
         expect(selectRomPort(fingerprint({ usbPath: null }), [one, two])).toBeNull();
     });
 
-    it("selects the new Windows port by VID/PID when the HID has no serial or path", () => {
+    it("selects the new Windows port by VID/PID", () => {
         expect(selectRomPort(windowsFingerprint(), [WINDOWS_CDC, WINDOWS_LOADER])).toBe(
             WINDOWS_LOADER,
         );

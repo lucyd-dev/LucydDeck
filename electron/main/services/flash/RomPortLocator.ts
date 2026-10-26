@@ -20,15 +20,18 @@ export interface RomPortLocatorOptions {
     /** Test seams for time. */
     now?: () => number;
     sleep?: (ms: number) => Promise<void>;
+    /** Platform whose port serial rules apply; defaults to this process. */
+    platform?: NodeJS.Platform;
 }
 
 /**
  * Records the running deck's identity and the serial ports present before the
  * handoff, then finds the one port that appears with that identity. On Linux
- * that is the serial number plus the sysfs path; when neither is available from
- * the HID interface (as on Windows), it is the recorded `303A:1001` on a port
- * that was absent before the handoff. A pre-existing port is never chosen by
- * PID, because the app's own CDC interface shares that PID.
+ * that is the serial number plus the sysfs path. On Windows the COM port's
+ * serial is a PnP instance id, not the HID's USB serial, so the identity is the
+ * pre-handoff snapshot plus the recorded `303A:1001` on a port that was absent
+ * before the handoff. A pre-existing port is never chosen by PID, because the
+ * app's own CDC interface shares that PID.
  */
 export class RomPortLocator {
     private readonly listPorts: () => Promise<SerialPortInfoLike[]>;
@@ -37,6 +40,7 @@ export class RomPortLocator {
     private readonly timeoutMs: number;
     private readonly now: () => number;
     private readonly sleep: (ms: number) => Promise<void>;
+    private readonly platform: NodeJS.Platform;
 
     constructor(options: RomPortLocatorOptions = {}) {
         this.listPorts = options.listPorts ?? listSerialPorts;
@@ -45,6 +49,7 @@ export class RomPortLocator {
         this.timeoutMs = options.timeoutMs ?? 15000;
         this.now = options.now ?? Date.now;
         this.sleep = options.sleep ?? delay;
+        this.platform = options.platform ?? process.platform;
     }
 
     /** Record the deck identity and every serial port present before the handoff. */
@@ -54,6 +59,7 @@ export class RomPortLocator {
             device,
             this.resolveUsbPath,
             ports.map((port) => port.path),
+            this.platform,
         );
     }
 

@@ -8,10 +8,10 @@
 //
 // - on Linux, match the USB serial number and the physical port path resolved
 //   from sysfs;
-// - when the HID interface exposes neither a usable serial number nor a path
-//   (as on Windows), match the bootloader's vendor/product IDs on a port that
-//   appeared after the handoff. A port that existed before the handoff is never
-//   selected by PID.
+// - on Windows the COM port reports a PnP instance id as its serial, not the
+//   HID's USB serial, so the recorded serial is ignored and the bootloader's
+//   vendor/product IDs are matched on a port that appeared after the handoff.
+//   A port that existed before the handoff is never selected by PID.
 //
 // Under usbipd the bootloader can re-enumerate on a different vhci path, so the
 // path alone cannot be the identity there. The serial number survives that
@@ -37,7 +37,7 @@ export interface SerialPortInfoLike {
 }
 
 export interface DeckUsbFingerprint {
-    /** Normalized USB serial number, e.g. `806599A5038C`. */
+    /** Normalized USB serial number; null on Windows, where the COM serial is a PnP id. */
     serialNumber: string | null;
     /** Physical USB port path, e.g. `1-2`, when the platform exposes it. */
     usbPath: string | null;
@@ -157,10 +157,16 @@ export function deckUsbFingerprint(
     device: HidDescriptorLike,
     resolveUsbPath: (devicePath: string) => string | null,
     preHandoffPaths: readonly string[],
+    platform: NodeJS.Platform,
 ): DeckUsbFingerprint {
+    // A Windows COM port reports a PnP instance id as its serial, never the
+    // USB serial the HID interface carries. The two cannot be compared, so the
+    // Windows identity is the pre-handoff snapshot plus the loader's VID/PID.
+    const usesUsbSerial = platform !== "win32";
     return {
-        serialNumber: normalizeSerialNumber(device.serialNumber),
-        usbPath: device.path ? normalizeUsbPath(resolveUsbPath(device.path)) : null,
+        serialNumber: usesUsbSerial ? normalizeSerialNumber(device.serialNumber) : null,
+        usbPath:
+            usesUsbSerial && device.path ? normalizeUsbPath(resolveUsbPath(device.path)) : null,
         product: device.product ?? null,
         bootloaderVendorId: device.vendorId,
         bootloaderProductId: BOOTLOADER_PID,
@@ -191,12 +197,12 @@ export function portMatchesFingerprint(
  * Pick the one serial port that carries the recorded identity.
  *
  * On Linux the serial number and the sysfs path carry the identity, and either
- * can be missing. On Windows both are missing from the HID descriptor, so the
- * fallback is the recorded VID/PID on a port that was not present before the
- * handoff. A pre-existing port is never accepted by PID, because the running
- * deck's own CDC interface shares `303A:1001`. If two candidates match by
- * different criteria the answer is ambiguous and the caller gets `null` rather
- * than a guess.
+ * can be missing. On Windows the COM port's serial is a PnP instance id, so the
+ * locator records no serial and the fallback is the recorded bootloader VID/PID
+ * on a port that was not present before the handoff. A pre-existing port is
+ * never accepted by PID, because the running deck's own CDC interface shares
+ * `303A:1001`. If two candidates match by different criteria the answer is
+ * ambiguous and the caller gets `null` rather than a guess.
  */
 export function selectRomPort(
     fingerprint: DeckUsbFingerprint,

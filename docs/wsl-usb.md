@@ -94,7 +94,7 @@ usbipd attach --wsl --auto-attach --busid <bootloader-busid>
 
 Auto-attach follows the deck when the app interface drops and the ROM interface appears. A flash that stops at "Waiting for the deck's bootloader mode" usually means the ROM device is not bound or attached.
 
-The app identifies the loader by the deck's USB serial number plus its physical path. Under usbipd the ROM device can land on a different vhci path, so the serial number is what matches; the path is a corroborating check on native Linux. When the HID interface has no usable serial or path (as on Windows), the app accepts the recorded `303A:1001` only on a serial port that appeared after the handoff. A port that existed before the handoff is never selected by PID.
+The app identifies the loader by the deck's USB serial number plus its physical path. Under usbipd the ROM device can land on a different vhci path, so the serial number is what matches; the path is a corroborating check on native Linux. On Windows the COM port's serial is a PnP instance id, not the HID's USB serial, so the app ignores the recorded serial and accepts `303A:1001` only on a serial port that appeared after the handoff. A port that existed before the handoff is never selected by PID.
 
 ## WSL acceptance check
 

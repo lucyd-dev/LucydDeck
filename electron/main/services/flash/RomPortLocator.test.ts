@@ -24,6 +24,7 @@ describe("RomPortLocator", () => {
         const locator = new RomPortLocator({
             listPorts: async () => [{ path: "/dev/ttyACM0" }],
             resolveUsbPath: () => "1-2",
+            platform: "linux",
         });
         await expect(
             locator.fingerprintFor({
@@ -56,12 +57,14 @@ describe("RomPortLocator", () => {
         const locator = new RomPortLocator({
             listPorts,
             resolveUsbPath: () => null,
+            platform: "win32",
         });
 
         const recorded = await locator.fingerprintFor({
             vendorId: 0x303a,
             productId: 0x1001,
             path: "\\\\?\\hid#vid_303a&pid_1001",
+            serialNumber: "806599A5038C",
             product: "LucydDeck",
         });
 
@@ -82,6 +85,7 @@ describe("RomPortLocator", () => {
         const locator = new RomPortLocator({
             listPorts,
             resolveUsbPath: () => null,
+            platform: "linux",
         });
 
         await expect(locator.find(fingerprint)).resolves.toEqual(loaderPort());
@@ -98,6 +102,7 @@ describe("RomPortLocator", () => {
                 },
             ],
             resolveUsbPath: () => null,
+            platform: "linux",
         });
 
         await expect(locator.find(fingerprint)).resolves.toBeNull();
@@ -112,6 +117,7 @@ describe("RomPortLocator", () => {
         const locator = new RomPortLocator({
             listPorts,
             resolveUsbPath: () => null,
+            platform: "linux",
             pollMs: 100,
             timeoutMs: 1000,
             now: () => clock,
@@ -129,6 +135,7 @@ describe("RomPortLocator", () => {
         const locator = new RomPortLocator({
             listPorts: async () => [],
             resolveUsbPath: () => null,
+            platform: "linux",
             pollMs: 100,
             timeoutMs: 300,
             now: () => clock,
