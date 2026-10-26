@@ -28,7 +28,7 @@ GitHub shares one number space across issues and PRs per repository, so a bare `
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue. Workstreams and tickets belong in the host repo unless the change is firmware code, which goes to `lucyd-dev/LucydDeck-firmware`.
+Create a GitHub issue. Workstreams and tickets belong in the host repo unless the change is firmware code, which goes to `lucyd-dev/LucydDeck-firmware`. Use the spec body checklist in `spec.md`.
 
 ## When a skill says "fetch the relevant ticket"
 

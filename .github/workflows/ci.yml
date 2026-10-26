@@ -19,6 +19,14 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
+            - name: Reject prototypes on main
+              run: |
+                  if [ -n "$(git ls-files prototype)" ]; then
+                      echo "Prototype files belong on a prototype/<name> branch, not main."
+                      git ls-files prototype
+                      exit 1
+                  fi
+
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:

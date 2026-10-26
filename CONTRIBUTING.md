@@ -71,5 +71,10 @@ npm run dist         # package for all platforms
    a build/package matrix on Ubuntu and Windows, and commitlint validates your
    commit messages.
 
+## Review standards
+
+UI copy, prototypes and developer docs are part of review. Read
+[CODING_STANDARDS.md](CODING_STANDARDS.md) before a pull request.
+
 [cc]: https://www.conventionalcommits.org/en/v1.0.0/
 [release-please]: https://github.com/googleapis/release-please

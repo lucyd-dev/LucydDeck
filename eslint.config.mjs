@@ -21,6 +21,13 @@ export default tseslint.config(
         },
     },
     {
+        files: ["scripts/**/*.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: "module",
+        },
+    },
+    {
         files: ["src/components/ui/*.vue"],
         rules: {
             // The UI primitives intentionally use one-word names (Button, Tabs, ...).
