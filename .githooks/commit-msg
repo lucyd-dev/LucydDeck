@@ -1,0 +1,3 @@
+#!/bin/sh
+# Reject a message the PR check would reject, before it reaches a PR.
+exec npx --no-install commitlint --config config/commitlintrc.json --edit "$1"

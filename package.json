@@ -20,6 +20,8 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "test": "vitest run",
+        "commitlint": "commitlint --config config/commitlintrc.json --from origin/main",
+        "prepare": "git config core.hooksPath .githooks",
         "dist": "electron-builder --config config/electron-builder.json --win --linux --x64",
         "dist:win": "electron-builder --config config/electron-builder.json --win --x64",
         "dist:linux": "electron-builder --config config/electron-builder.json --linux --x64"
