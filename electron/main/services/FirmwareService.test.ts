@@ -236,19 +236,16 @@ describe("FirmwareService local flash", () => {
             "handoff",
             "locating",
             "writing",
-            "writing",
-            "writing",
-            "writing",
             "returning",
             "done",
         ]);
-        expect(
-            progress.filter((event) => event.phase === "writing").map((event) => event.percent),
-        ).toEqual([0, 0, 50, 100]);
-        expect(progress.find((event) => event.phase === "writing")?.message).toContain(
-            "Do not unplug",
-        );
-        expect(progress.at(-1)).toMatchObject({ phase: "done", percent: 100 });
+        expect(progress.map((event) => event.percent)).toContain(50);
+        expect(progress.find((event) => event.percent === 50)).toMatchObject({
+            percent: 50,
+            writtenBytes: 2048,
+            totalBytes: 4096,
+        });
+        expect(progress.at(-1)).toEqual({ percent: 100 });
     });
 
     it("accepts exactly 8064 KiB and refuses one byte more before the handoff", async () => {

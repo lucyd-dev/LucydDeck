@@ -112,20 +112,22 @@ describe("firmwareStore", () => {
         expect(store.state.installedVersion).toBe("0.4.0");
     });
 
-    it("mirrors state and write progress pushed from the main process", () => {
+    it("takes the phase from state and the numbers from progress", () => {
         const store = useFirmwareStore();
-
-        emit("firmware:state", state({ phase: "writing", percent: 0 }));
-        expect(store.state.phase).toBe("writing");
-        expect(store.state.phase).toBe("writing");
 
         emit("flash:progress", {
             phase: "writing",
             percent: 42,
+            writtenBytes: 420,
+            totalBytes: 1000,
             message: "Writing the firmware. Do not unplug the deck.",
         });
+        expect(store.state.phase).toBe("idle");
+        expect(store.progress).toMatchObject({ percent: 42, writtenBytes: 420, totalBytes: 1000 });
+
+        emit("firmware:state", state({ phase: "writing" }));
+        expect(store.state.phase).toBe("writing");
         expect(store.progress?.percent).toBe(42);
-        expect(store.state.percent).toBe(42);
 
         emit("firmware:state", state({ phase: "done", installedVersion: "0.4.0" }));
         expect(store.state.phase).toBe("done");

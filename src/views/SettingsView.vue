@@ -8,6 +8,8 @@ import { useConfirmStore } from "@/stores/confirmStore";
 import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useUsbStore } from "@/stores/usbStore";
 import { DEFAULT_SETTINGS_SECTION, SETTINGS_SECTION_IDS } from "@/views/settingsSections";
+import { FLASH_STAGE_COPY } from "@shared/firmware";
+import type { FlashPhase } from "@shared/firmware";
 
 const settings = useSettingsStore();
 const usb = useUsbStore();
@@ -26,8 +28,11 @@ const licenses = [
     { name: "lucide", license: "ISC" },
 ];
 
-const percent = computed(() => firmware.state.percent ?? 0);
-const stageMessage = computed(() => firmware.progress?.message ?? "");
+const percent = computed(() => firmware.progress?.percent ?? 0);
+const stageMessage = computed(() => {
+    const phase = firmware.state.phase;
+    return phase in FLASH_STAGE_COPY ? FLASH_STAGE_COPY[phase as FlashPhase] : "";
+});
 const showProgress = computed(
     () => firmware.isBusy || firmware.state.phase === "done" || firmware.state.error !== null,
 );
