@@ -16,6 +16,7 @@ import {
 import type { HidDescriptorLike } from "@shared/protocol";
 import { buildFrame, parseFrame, trimTrailingZeros } from "./usb/Framer";
 import type { ParsedFrame } from "./usb/Framer";
+import { describeDevice } from "./usb/label";
 import { nodeHidTransport } from "./usb/transport";
 import type { HidConnection, HidTransport } from "./usb/transport";
 
@@ -109,11 +110,6 @@ function opcodeName(opcode: number): string {
 /** True when the deck rejected a frame for arriving out of sequence. */
 function isSequenceError(error: unknown): boolean {
     return error instanceof UsbError && error.firmwareCode === ErrorCode.Sequence;
-}
-
-function describeDevice(device: HidDescriptorLike, pid: number): string {
-    const name = device.product ?? "LucydDeck";
-    return `${name} (0x${device.vendorId.toString(16)}:0x${pid.toString(16)})`;
 }
 
 function concat(chunks: Uint8Array[]): Uint8Array {

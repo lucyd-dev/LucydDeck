@@ -122,6 +122,22 @@ describe("UsbService.connect", () => {
         expect(events).toContain("status");
     });
 
+    it("shows the deck name for the generic Windows HID product", async () => {
+        const { transport, usb } = makeService();
+        transport.devices = [
+            {
+                ...transport.devices[0],
+                productId: DEVICE_PIDS[1],
+                product: "TinyUSB HID",
+            },
+        ];
+
+        await usb.connect();
+
+        expect(usb.status().state).toBe("connected");
+        expect(usb.status().label).toBe("LucydDeck (0x303a:0x1001)");
+    });
+
     it("reports a typed error when no device matches", async () => {
         const { transport, usb } = makeService();
         transport.devices = [{ vendorId: 0x046d, productId: 0xc52b }];
