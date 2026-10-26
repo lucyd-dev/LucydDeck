@@ -161,12 +161,18 @@ _Avoid_: Upgrade, OTA
 
 **Bootloader mode**:
 The deck's built-in USB mode that accepts a firmware image while the app firmware is not running. A bad app flash cannot remove it.
+_Also_: ROM loader
 _Avoid_: Download mode, DFU, recovery mode, serial mode
 
 **Bootloader handoff**:
 The acknowledged restart from the running firmware into bootloader mode. The app sends `CMD_ENTER_BOOTLOADER`, the deck answers, then the HID interface disappears.
-_Avoid_: Handoff, reset, reboot
+_Short form_: handoff (in code and stage names)
+_Avoid_: reset, reboot
 
 **App slot**:
 The part of the deck's flash that holds the application firmware. A flash writes only this part, so the bootloader, partition table, NVS and SD card stay.
 _Avoid_: App partition, app image area
+
+**App image**:
+The application firmware binary written to the app slot.
+_Avoid_: App binary, firmware.bin
