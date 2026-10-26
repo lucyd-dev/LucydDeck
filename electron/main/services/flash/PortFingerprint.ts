@@ -2,15 +2,16 @@
 // Which serial port is the deck's bootloader port?
 //
 // The running deck and its bootloader both report Espressif `303A:1001`, and
-// the app's own CDC interface is a serial port too. A port is therefore
-// selected by the identity recorded from the HID interface before the
-// handoff, never by PID alone:
+// the app's own CDC interface is a serial port too. The locator records the
+// deck's identity and the serial ports present **before** the handoff, then
+// accepts only a port that was not there before:
 //
-// - the USB serial number (the Arduino firmware and the bootloader both derive
-//   it from the chip's MAC, with different separators), and
-// - the physical USB port path when the platform exposes it (Linux sysfs).
-//
-// A port that only shares the PID is not a match.
+// - on Linux, match the USB serial number and the physical port path resolved
+//   from sysfs;
+// - when the HID interface exposes neither a usable serial number nor a path
+//   (as on Windows), match the bootloader's vendor/product IDs on a port that
+//   appeared after the handoff. A port that existed before the handoff is never
+//   selected by PID.
 //
 // Under usbipd the bootloader can re-enumerate on a different vhci path, so the
 // path alone cannot be the identity there. The serial number survives that
@@ -19,6 +20,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { BOOTLOADER_PID } from "@shared/protocol";
 import type { HidDescriptorLike } from "@shared/protocol";
 
 export interface SerialPortInfoLike {
@@ -26,6 +28,10 @@ export interface SerialPortInfoLike {
     path: string;
     serialNumber?: string;
     locationId?: string;
+    pnpId?: string;
+    /** USB vendor/product IDs as serialport reports them (`"303A"`, `"1001"`). */
+    vendorId?: string;
+    productId?: string;
     /** Filled by the locator from `resolveUsbPath` when the platform knows it. */
     usbPath?: string;
 }
@@ -37,6 +43,11 @@ export interface DeckUsbFingerprint {
     usbPath: string | null;
     /** HID product string, for the log only. */
     product: string | null;
+    /** USB vendor/product IDs the ROM bootloader re-enumerates with. */
+    bootloaderVendorId: number;
+    bootloaderProductId: number;
+    /** Serial port paths present before the handoff; never PID candidates. */
+    preHandoffPaths: readonly string[];
 }
 
 /** Strip separators and case from a USB serial number. */
@@ -58,6 +69,54 @@ export function normalizeUsbPath(value: string | null | undefined): string | nul
         .toLowerCase()
         .replace(/^\/dev\//, "");
     return normalized === "" ? null : normalized;
+}
+
+/** Parse serialport's hex USB id strings (`"303A"`, `"0x1001"`). */
+function parseUsbId(value: string | undefined): number | null {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const hex = value.trim().replace(/^0x/i, "");
+    if (hex === "" || !/^[0-9a-f]+$/i.test(hex)) {
+        return null;
+    }
+    return Number.parseInt(hex, 16);
+}
+
+function portUsbIds(port: SerialPortInfoLike): { vendorId: number; productId: number } | null {
+    const vendorId = parseUsbId(port.vendorId);
+    const productId = parseUsbId(port.productId);
+    if (vendorId !== null && productId !== null) {
+        return { vendorId, productId };
+    }
+    const match = /VID_([0-9A-F]{4})&PID_([0-9A-F]{4})/i.exec(port.pnpId ?? "");
+    if (match === null) {
+        return null;
+    }
+    return {
+        vendorId: Number.parseInt(match[1]!, 16),
+        productId: Number.parseInt(match[2]!, 16),
+    };
+}
+
+function portMatchesBootloaderIds(
+    fingerprint: DeckUsbFingerprint,
+    port: SerialPortInfoLike,
+): boolean {
+    const ids = portUsbIds(port);
+    return (
+        ids !== null &&
+        ids.vendorId === fingerprint.bootloaderVendorId &&
+        ids.productId === fingerprint.bootloaderProductId
+    );
+}
+
+/** A PID match is only accepted on a port that was absent before the handoff. */
+function isNewDeckPort(fingerprint: DeckUsbFingerprint, port: SerialPortInfoLike): boolean {
+    return (
+        !fingerprint.preHandoffPaths.includes(port.path) &&
+        portMatchesBootloaderIds(fingerprint, port)
+    );
 }
 
 const USB_BUS_PORT = /(?:^|\/)(\d+-[\d.]+)(?=\/|$)/g;
@@ -96,12 +155,16 @@ export function resolveLinuxUsbPath(devicePath: string): string | null {
 /** Record what makes this deck's loader distinguishable from any other port. */
 export function deckUsbFingerprint(
     device: HidDescriptorLike,
-    resolveUsbPath: (devicePath: string) => string | null = resolveLinuxUsbPath,
+    resolveUsbPath: (devicePath: string) => string | null,
+    preHandoffPaths: readonly string[],
 ): DeckUsbFingerprint {
     return {
         serialNumber: normalizeSerialNumber(device.serialNumber),
         usbPath: device.path ? normalizeUsbPath(resolveUsbPath(device.path)) : null,
         product: device.product ?? null,
+        bootloaderVendorId: device.vendorId,
+        bootloaderProductId: BOOTLOADER_PID,
+        preHandoffPaths: [...preHandoffPaths],
     };
 }
 
@@ -113,7 +176,7 @@ export function portMatchesFingerprint(
     const serial = fingerprint.serialNumber;
     const usbPath = fingerprint.usbPath;
     if (serial === null && usbPath === null) {
-        return false;
+        return isNewDeckPort(fingerprint, port);
     }
     if (serial !== null && normalizeSerialNumber(port.serialNumber) !== serial) {
         return false;
@@ -127,13 +190,13 @@ export function portMatchesFingerprint(
 /**
  * Pick the one serial port that carries the recorded identity.
  *
- * Both criteria are checked because either can be missing: Windows exposes the
- * serial number but no portable USB path, while a device without a serial
- * string still has a sysfs path. Under usbipd the ROM device lands on a
- * different vhci path, so a matching serial number is what carries the
- * identity across the re-enumeration. If two candidates match by different
- * criteria the answer is ambiguous and the caller gets `null` rather than a
- * guess.
+ * On Linux the serial number and the sysfs path carry the identity, and either
+ * can be missing. On Windows both are missing from the HID descriptor, so the
+ * fallback is the recorded VID/PID on a port that was not present before the
+ * handoff. A pre-existing port is never accepted by PID, because the running
+ * deck's own CDC interface shares `303A:1001`. If two candidates match by
+ * different criteria the answer is ambiguous and the caller gets `null` rather
+ * than a guess.
  */
 export function selectRomPort(
     fingerprint: DeckUsbFingerprint,
@@ -141,8 +204,10 @@ export function selectRomPort(
 ): SerialPortInfoLike | null {
     const serial = fingerprint.serialNumber;
     const usbPath = fingerprint.usbPath;
+
     if (serial === null && usbPath === null) {
-        return null;
+        const matches = ports.filter((port) => isNewDeckPort(fingerprint, port));
+        return matches.length === 1 ? matches[0] : null;
     }
 
     const candidates = ports.map((port) => ({

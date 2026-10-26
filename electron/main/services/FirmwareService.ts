@@ -702,8 +702,11 @@ export class FirmwareService {
         if (hid === null) {
             return this.setError(FirmwareErrorCodes.Handoff, USB_PORT_UNKNOWN_MESSAGE);
         }
-        const fingerprint = this.locator.fingerprintFor(hid);
-        if (fingerprint.serialNumber === null && fingerprint.usbPath === null) {
+        let fingerprint: DeckUsbFingerprint;
+        try {
+            fingerprint = await this.locator.fingerprintFor(hid);
+        } catch (error) {
+            log.error(`[firmware] could not record the deck's USB ports: ${String(error)}`);
             return this.setError(FirmwareErrorCodes.Handoff, USB_PORT_UNKNOWN_MESSAGE);
         }
         // A transfer the deck still holds must not be open when `0x05` arrives:

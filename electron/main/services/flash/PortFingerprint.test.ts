@@ -14,6 +14,9 @@ function fingerprint(overrides: Partial<DeckUsbFingerprint> = {}): DeckUsbFinger
         serialNumber: "806599A5038C",
         usbPath: "1-2",
         product: "LucydDeck",
+        bootloaderVendorId: 0x303a,
+        bootloaderProductId: 0x1001,
+        preHandoffPaths: [],
         ...overrides,
     };
 }
@@ -23,6 +26,31 @@ function port(overrides: Partial<SerialPortInfoLike> = {}): SerialPortInfoLike {
         path: "/dev/ttyACM1",
         ...overrides,
     };
+}
+
+const WINDOWS_LOADER: SerialPortInfoLike = {
+    path: "COM4",
+    serialNumber: "7&3B2CBCB7&2&0000",
+    pnpId: "USB\\VID_303A&PID_1001&MI_00\\7&3B2CBCB7&2&0000",
+    vendorId: "303A",
+    productId: "1001",
+};
+
+const WINDOWS_CDC: SerialPortInfoLike = {
+    path: "COM9",
+    serialNumber: "7&3B2CBCB7&2&0001",
+    pnpId: "USB\\VID_303A&PID_1001&MI_00\\7&3B2CBCB7&2&0001",
+    vendorId: "303A",
+    productId: "1001",
+};
+
+function windowsFingerprint(overrides: Partial<DeckUsbFingerprint> = {}): DeckUsbFingerprint {
+    return fingerprint({
+        serialNumber: null,
+        usbPath: null,
+        preHandoffPaths: [WINDOWS_CDC.path],
+        ...overrides,
+    });
 }
 
 describe("normalizeSerialNumber", () => {
@@ -62,11 +90,53 @@ describe("deckUsbFingerprint", () => {
                 product: "LucydDeck",
             },
             () => "1-2",
+            ["/dev/ttyACM0"],
         );
         expect(recorded).toEqual({
             serialNumber: "806599A5038C",
             usbPath: "1-2",
             product: "LucydDeck",
+            bootloaderVendorId: 0x303a,
+            bootloaderProductId: 0x1001,
+            preHandoffPaths: ["/dev/ttyACM0"],
+        });
+    });
+
+    it("records the Windows VID/PID when no serial or path is available", () => {
+        const recorded = deckUsbFingerprint(
+            {
+                vendorId: 0x303a,
+                productId: 0x1001,
+                path: "\\\\?\\hid#vid_303a&pid_1001",
+                product: "LucydDeck",
+                pnpId: "USB\\VID_303A&PID_1001&MI_00\\7&3B2CBCB7&2&0000",
+            },
+            () => null,
+            ["COM9"],
+        );
+        expect(recorded).toMatchObject({
+            serialNumber: null,
+            usbPath: null,
+            bootloaderVendorId: 0x303a,
+            bootloaderProductId: 0x1001,
+            preHandoffPaths: ["COM9"],
+        });
+    });
+
+    it("records the bootloader PID even when the HID matched the alternate app PID", () => {
+        const recorded = deckUsbFingerprint(
+            {
+                vendorId: 0x303a,
+                productId: 0x822e,
+                path: "\\\\?\\hid#vid_303a&pid_822e",
+                product: "LucydDeck",
+            },
+            () => null,
+            ["COM9"],
+        );
+        expect(recorded).toMatchObject({
+            bootloaderVendorId: 0x303a,
+            bootloaderProductId: 0x1001,
         });
     });
 });
@@ -108,7 +178,12 @@ describe("selectRomPort", () => {
     });
 
     it("refuses a port that only shares 303A:1001", () => {
-        const samePid = port({ path: "/dev/ttyACM0", serialNumber: "AAAAAAAAAAAA" });
+        const samePid = port({
+            path: "/dev/ttyACM0",
+            serialNumber: "AAAAAAAAAAAA",
+            vendorId: "303A",
+            productId: "1001",
+        });
         expect(selectRomPort(fingerprint(), [samePid])).toBeNull();
     });
 
@@ -118,10 +193,35 @@ describe("selectRomPort", () => {
         expect(selectRomPort(fingerprint({ usbPath: null }), [one, two])).toBeNull();
     });
 
-    it("has nothing to match without a serial or a path", () => {
-        expect(
-            selectRomPort(fingerprint({ serialNumber: null, usbPath: null }), [port()]),
-        ).toBeNull();
+    it("selects the new Windows port by VID/PID when the HID has no serial or path", () => {
+        expect(selectRomPort(windowsFingerprint(), [WINDOWS_CDC, WINDOWS_LOADER])).toBe(
+            WINDOWS_LOADER,
+        );
+    });
+
+    it("uses the pnpId when serialport omits vendor and product ids", () => {
+        const pnpOnly = port({ path: "COM4", pnpId: WINDOWS_LOADER.pnpId });
+        expect(selectRomPort(windowsFingerprint(), [WINDOWS_CDC, pnpOnly])).toMatchObject({
+            path: "COM4",
+        });
+    });
+
+    it("never selects a pre-existing port by PID", () => {
+        expect(selectRomPort(windowsFingerprint(), [WINDOWS_CDC])).toBeNull();
+    });
+
+    it("refuses an ambiguous new Windows PID match", () => {
+        const otherLoader = port({
+            path: "COM5",
+            vendorId: "303A",
+            productId: "1001",
+        });
+        expect(selectRomPort(windowsFingerprint(), [WINDOWS_LOADER, otherLoader])).toBeNull();
+    });
+
+    it("refuses a new port with a different Windows VID/PID", () => {
+        const other = port({ path: "COM5", vendorId: "1A86", productId: "7523" });
+        expect(selectRomPort(windowsFingerprint(), [other])).toBeNull();
     });
 });
 
@@ -153,7 +253,12 @@ describe("portMatchesFingerprint", () => {
         ).toBe(false);
     });
 
-    it("has nothing to match without a serial or a path", () => {
+    it("accepts the new Windows loader and rejects the pre-existing CDC", () => {
+        expect(portMatchesFingerprint(windowsFingerprint(), WINDOWS_LOADER)).toBe(true);
+        expect(portMatchesFingerprint(windowsFingerprint(), WINDOWS_CDC)).toBe(false);
+    });
+
+    it("rejects a port without the recorded USB ids", () => {
         expect(
             portMatchesFingerprint(
                 fingerprint({ serialNumber: null, usbPath: null }),

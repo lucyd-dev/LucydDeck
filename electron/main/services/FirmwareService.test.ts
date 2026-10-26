@@ -222,6 +222,8 @@ class FakeLocator {
     findCalls = 0;
     waitError: Error | null = null;
     findError: Error | null = null;
+    fingerprintError: Error | null = null;
+    fingerprintCalls = 0;
     defer = false;
     private finishWait: (() => void) | null = null;
     readonly order: string[];
@@ -234,9 +236,17 @@ class FakeLocator {
         serialNumber: "806599A5038C",
         usbPath: "1-2",
         product: "LucydDeck",
+        bootloaderVendorId: 0x303a,
+        bootloaderProductId: 0x1001,
+        preHandoffPaths: [],
     };
 
-    fingerprintFor(): DeckUsbFingerprint {
+    async fingerprintFor(): Promise<DeckUsbFingerprint> {
+        this.fingerprintCalls++;
+        this.order.push("fingerprint");
+        if (this.fingerprintError !== null) {
+            throw this.fingerprintError;
+        }
         return this.fingerprint;
     }
 
@@ -435,6 +445,7 @@ function make(
         transfer,
         states,
         progress,
+        order,
     };
 }
 
@@ -534,6 +545,32 @@ describe("FirmwareService local flash", () => {
         expect(flasher.calls).toHaveLength(0);
 
         lock.endSync();
+    });
+
+    it("records the pre-handoff ports before sending 0x05", async () => {
+        const order: string[] = [];
+        const { service } = make({ order });
+
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(order.indexOf("fingerprint")).toBeGreaterThanOrEqual(0);
+        expect(order.indexOf("fingerprint")).toBeLessThan(order.indexOf("handoff"));
+    });
+
+    it("stops before the handoff when the pre-handoff ports cannot be recorded", async () => {
+        const { service, usb, flasher, locator } = make();
+        locator.fingerprintError = new Error("serialport list failed");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Handoff },
+        });
+        expect(state!.error?.message).toContain("recognise the deck's USB port");
+        expect(locator.fingerprintCalls).toBe(1);
+        expect(usb.calls).toHaveLength(0);
+        expect(flasher.calls).toHaveLength(0);
     });
 
     it("accepts exactly 8064 KiB and refuses one byte more before the handoff", async () => {

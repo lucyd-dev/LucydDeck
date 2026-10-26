@@ -165,7 +165,7 @@ _Also_: ROM loader
 _Avoid_: Download mode, DFU, recovery mode, serial mode
 
 **Bootloader port**:
-The serial port the deck exposes while it is in bootloader mode, identified by the USB serial number and, where the platform exposes it, the physical USB path recorded from its HID interface. The app keeps the matching port after a failed write so Retry writes again without another handoff.
+The serial port the deck exposes while it is in bootloader mode. On Linux the app identifies it by the USB serial number and physical path recorded before the handoff. When the HID interface exposes neither, as on Windows, the app accepts the recorded `303A:1001` only on a port that appeared after the handoff; a pre-existing port is never selected by PID. The app keeps the matching port after a failed write so Retry writes again without another handoff.
 _Avoid_: ROM port, loader port, retained ROM port
 
 **Bootloader handoff**:

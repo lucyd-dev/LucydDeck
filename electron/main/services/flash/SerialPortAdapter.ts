@@ -27,6 +27,9 @@ export async function listSerialPorts(): Promise<SerialPortInfoLike[]> {
         path: port.path,
         serialNumber: port.serialNumber,
         locationId: port.locationId,
+        pnpId: port.pnpId,
+        vendorId: port.vendorId,
+        productId: port.productId,
     }));
 }
 

@@ -6,6 +6,9 @@ const fingerprint: DeckUsbFingerprint = {
     serialNumber: "806599A5038C",
     usbPath: "1-2",
     product: "LucydDeck",
+    bootloaderVendorId: 0x303a,
+    bootloaderProductId: 0x1001,
+    preHandoffPaths: [],
 };
 
 function loaderPort(): SerialPortInfoLike {
@@ -17,9 +20,12 @@ function loaderPort(): SerialPortInfoLike {
 }
 
 describe("RomPortLocator", () => {
-    it("records the HID descriptor with the platform USB path", () => {
-        const locator = new RomPortLocator({ resolveUsbPath: () => "1-2" });
-        expect(
+    it("records the HID descriptor, the platform USB path and pre-handoff ports", async () => {
+        const locator = new RomPortLocator({
+            listPorts: async () => [{ path: "/dev/ttyACM0" }],
+            resolveUsbPath: () => "1-2",
+        });
+        await expect(
             locator.fingerprintFor({
                 vendorId: 0x303a,
                 productId: 0x1001,
@@ -27,7 +33,46 @@ describe("RomPortLocator", () => {
                 serialNumber: "806599A5038C",
                 product: "LucydDeck",
             }),
-        ).toEqual(fingerprint);
+        ).resolves.toEqual({ ...fingerprint, preHandoffPaths: ["/dev/ttyACM0"] });
+    });
+
+    it("excludes the running CDC and finds the new Windows loader", async () => {
+        const com9: SerialPortInfoLike = {
+            path: "COM9",
+            vendorId: "303A",
+            productId: "1001",
+        };
+        const com4: SerialPortInfoLike = {
+            path: "COM4",
+            serialNumber: "7&3B2CBCB7&2&0000",
+            pnpId: "USB\\VID_303A&PID_1001&MI_00\\7&3B2CBCB7&2&0000",
+            vendorId: "303A",
+            productId: "1001",
+        };
+        const listPorts = vi
+            .fn<() => Promise<SerialPortInfoLike[]>>()
+            .mockResolvedValueOnce([com9])
+            .mockResolvedValueOnce([com9, com4]);
+        const locator = new RomPortLocator({
+            listPorts,
+            resolveUsbPath: () => null,
+        });
+
+        const recorded = await locator.fingerprintFor({
+            vendorId: 0x303a,
+            productId: 0x1001,
+            path: "\\\\?\\hid#vid_303a&pid_1001",
+            product: "LucydDeck",
+        });
+
+        expect(recorded).toMatchObject({
+            serialNumber: null,
+            usbPath: null,
+            bootloaderVendorId: 0x303a,
+            bootloaderProductId: 0x1001,
+            preHandoffPaths: ["COM9"],
+        });
+        await expect(locator.find(recorded)).resolves.toMatchObject(com4);
     });
 
     it("finds the bootloader port once without waiting", async () => {

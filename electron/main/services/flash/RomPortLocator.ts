@@ -23,9 +23,12 @@ export interface RomPortLocatorOptions {
 }
 
 /**
- * Records the running deck's identity before the handoff, then finds the one
- * serial port that appears with that identity. It never picks a port by
- * `303A:1001` alone, because the app's own CDC interface shares that PID.
+ * Records the running deck's identity and the serial ports present before the
+ * handoff, then finds the one port that appears with that identity. On Linux
+ * that is the serial number plus the sysfs path; when neither is available from
+ * the HID interface (as on Windows), it is the recorded `303A:1001` on a port
+ * that was absent before the handoff. A pre-existing port is never chosen by
+ * PID, because the app's own CDC interface shares that PID.
  */
 export class RomPortLocator {
     private readonly listPorts: () => Promise<SerialPortInfoLike[]>;
@@ -44,8 +47,14 @@ export class RomPortLocator {
         this.sleep = options.sleep ?? delay;
     }
 
-    fingerprintFor(device: HidDescriptorLike): DeckUsbFingerprint {
-        return deckUsbFingerprint(device, this.resolveUsbPath);
+    /** Record the deck identity and every serial port present before the handoff. */
+    async fingerprintFor(device: HidDescriptorLike): Promise<DeckUsbFingerprint> {
+        const ports = await this.listPorts();
+        return deckUsbFingerprint(
+            device,
+            this.resolveUsbPath,
+            ports.map((port) => port.path),
+        );
     }
 
     /** Look for the bootloader port once, without waiting. */
