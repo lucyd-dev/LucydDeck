@@ -141,6 +141,11 @@ export enum HostCommand {
     GetProfilesList = 0x03,
     /** Clears the device's host-sequence baseline; any sequence is accepted. */
     ResetSequence = 0x04,
+    /**
+     * Acknowledges, waits about 100 ms, then restarts into the ROM bootloader.
+     * Nothing follows the ack; the HID interface disappearing is success.
+     */
+    EnterBootloader = 0x05,
     ProfileCreate = 0x20,
     ProfileRename = 0x21,
     ProfileDelete = 0x22,
@@ -285,6 +290,7 @@ export interface HidDescriptorLike {
     path?: string;
     product?: string;
     manufacturer?: string;
+    serialNumber?: string;
 }
 
 export interface DeviceMatch {

@@ -1,8 +1,9 @@
-import { FolderOpen, Info, Palette } from "@lucide/vue";
+import { Cpu, FolderOpen, Info, Palette } from "@lucide/vue";
 import type { SectionItem } from "@/views/deviceSections";
 
 export const SETTINGS_SECTIONS: SectionItem[] = [
     { id: "appearance", label: "Appearance", icon: Palette },
+    { id: "firmware", label: "Firmware", icon: Cpu },
     { id: "data", label: "Data", icon: FolderOpen },
     { id: "about", label: "About", icon: Info },
 ];

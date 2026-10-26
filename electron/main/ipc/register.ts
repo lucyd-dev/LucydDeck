@@ -20,6 +20,7 @@ import type { DeviceService } from "../services/DeviceService";
 import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
 import type { SyncService } from "../services/SyncService";
+import type { FirmwareService } from "../services/FirmwareService";
 import type { PluginService } from "../plugins/PluginService";
 import type { CommandRouter } from "../plugins/CommandRouter";
 
@@ -42,6 +43,7 @@ export interface IpcServices {
     fileTransfer: FileTransfer;
     imagePipeline: ImagePipelineService;
     sync: SyncService;
+    firmware: FirmwareService;
     plugins: PluginService;
     commands: CommandRouter;
 }
@@ -52,7 +54,8 @@ export interface IpcServices {
  * with a stable code where available.
  */
 export function registerIpcHandlers(services: IpcServices): void {
-    const { storage, usb, device, fileTransfer, imagePipeline, sync, plugins, commands } = services;
+    const { storage, usb, device, fileTransfer, imagePipeline, sync, firmware, plugins, commands } =
+        services;
 
     // Bridge service events to every renderer window.
     usb.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
@@ -442,10 +445,23 @@ export function registerIpcHandlers(services: IpcServices): void {
         return { ok: true, data: undefined };
     });
 
+    // --- firmware (local image) -----------------------------------------
+    register(channels.firmware.getState, async () => ({
+        ok: true,
+        data: await firmware.refreshDeckInfo(),
+    }));
+    register(channels.firmware.flashLocal, async (request) => ({
+        ok: true,
+        data: await firmware.flashLocal(request ?? {}),
+    }));
+    register(channels.firmware.cancel, async () => ({
+        ok: true,
+        data: await firmware.cancel(),
+    }));
+
     // --- stubs for later steps -----------------------------------------
     notImplemented(channels.updater.state, "5");
     notImplemented(channels.updater.check, "5");
-    notImplemented(channels.firmware.getState, "5");
     notImplemented(channels.firmware.update, "5");
 }
 

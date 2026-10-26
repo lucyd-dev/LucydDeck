@@ -61,6 +61,64 @@ Then run the app from the branch worktree:
 npm run dev
 ```
 
+## One-time bootstrap flash
+
+A deck whose firmware predates `CMD_ENTER_BOOTLOADER` (`0x05`) cannot restart itself from the app. Flash the first release that carries the command once with PlatformIO:
+
+```bash
+cd ~/Code/LucydDeck-firmware
+git pull
+pio run -e release -t upload
+```
+
+The app reports "This deck's firmware is too old to update from the app" for such a deck. From that release onward, Settings → Firmware → Advanced flashes local images and the release updater owns later updates. The bootstrap is a one-time developer step, not a user path.
+
+## Binding the ROM device
+
+The running app and its ROM bootloader share Espressif `303A:1001`, so usbipd sees them as separate devices on the same physical port. Bind **both** once, as administrator:
+
+```powershell
+usbipd list
+usbipd bind --busid <app-busid>
+usbipd bind --busid <bootloader-busid>
+```
+
+Trigger the bootloader once with a PlatformIO upload or `CMD_ENTER_BOOTLOADER` while the deck is visible, note the new bus id, and bind it. Bindings survive reboots and reconnects.
+
+Then attach with auto-attach:
+
+```powershell
+usbipd attach --wsl --auto-attach --busid <app-busid>
+usbipd attach --wsl --auto-attach --busid <bootloader-busid>
+```
+
+Auto-attach follows the deck when the app interface drops and the ROM interface appears. A flash that stops at "Waiting for the deck's bootloader mode" usually means the ROM device is not bound or attached.
+
+The app identifies the loader by the deck's USB serial number plus its physical path. Under usbipd the ROM device can land on a different vhci path, so the serial number is what matches; the path is a corroborating check on native Linux. A port that only shares `303A:1001` is never selected.
+
+## WSL acceptance check
+
+Use a WSL `npm run dev` pass as the Linux functional gate for a local flash:
+
+1. Attach both devices as above.
+2. In Settings → Firmware, confirm the deck firmware version and deck appear.
+3. Choose a local `.bin` built for `max_app_8MB`, confirm, and watch the stages: handoff, bootloader mode, write percentage, return.
+4. Confirm the deck comes back and the section shows the version the deck now reports. Profiles, pages, icons and the active page stay as they were.
+
+The limits and copy are in the [local flash reference](#local-flash-reference).
+
+The WSL pass on 2026-10-26 flashed a local `firmware.bin`, watched handoff, bootloader mode, write and return, and read back `v0.4.0`; the deck's profiles and icons were unchanged.
+
+Native Linux packages are supported, but their install layer (udev rule, `brltty`, AppImage) is documented and **unverified**; Windows is the hardware acceptance gate.
+
+## Local flash reference
+
+See the [WSL acceptance check](#wsl-acceptance-check) for the manual pass.
+
+The Advanced action accepts one local `.bin` built for the `max_app_8MB` layout. It checks the size bound of 8064 KiB, writes at `0x10000` with `eraseAll: false`, and never writes the bootloader, partition table, NVS or SD card. A local file carries no manifest, so its address and layout are not checked; the release updater owns those checks.
+
+The stages are handoff, bootloader mode, write (0-100%) and return. The confirmation dialog is the cancel point; there is no cancel after the handoff. Quitting during the write asks first, once per write.
+
 ## When something is missing
 
 - **No `ttyACM` or `hidraw` node.** Check `lsusb -d 303a:`. If the device is there but the nodes have the wrong owner, the udev rule did not apply. Replug, rerun `udevadm trigger`, or temporarily `sudo chmod -R a+rw /dev/bus/usb`.

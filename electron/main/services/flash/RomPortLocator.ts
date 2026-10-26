@@ -1,0 +1,70 @@
+// ---------------------------------------------------------------------------
+// Wait for the ROM loader's serial port after the deck's HID interface drops.
+// ---------------------------------------------------------------------------
+
+import { deckUsbFingerprint, resolveLinuxUsbPath, selectRomPort } from "./PortFingerprint";
+import type { DeckUsbFingerprint, SerialPortInfoLike } from "./PortFingerprint";
+import { listSerialPorts } from "./SerialPortAdapter";
+import type { HidDescriptorLike } from "@shared/protocol";
+import { delay } from "./delay";
+
+export interface RomPortLocatorOptions {
+    /** Test seam: available serial ports. */
+    listPorts?: () => Promise<SerialPortInfoLike[]>;
+    /** Test seam: physical USB path for a device node. */
+    resolveUsbPath?: (devicePath: string) => string | null;
+    /** How often to look for the loader port. */
+    pollMs?: number;
+    /** How long to wait for it. */
+    timeoutMs?: number;
+    /** Test seams for time. */
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Records the running deck's identity before the handoff, then finds the one
+ * serial port that appears with that identity. It never picks a port by
+ * `303A:1001` alone, because the app's own CDC interface shares that PID.
+ */
+export class RomPortLocator {
+    private readonly listPorts: () => Promise<SerialPortInfoLike[]>;
+    private readonly resolveUsbPath: (devicePath: string) => string | null;
+    private readonly pollMs: number;
+    private readonly timeoutMs: number;
+    private readonly now: () => number;
+    private readonly sleep: (ms: number) => Promise<void>;
+
+    constructor(options: RomPortLocatorOptions = {}) {
+        this.listPorts = options.listPorts ?? listSerialPorts;
+        this.resolveUsbPath = options.resolveUsbPath ?? resolveLinuxUsbPath;
+        this.pollMs = options.pollMs ?? 250;
+        this.timeoutMs = options.timeoutMs ?? 15000;
+        this.now = options.now ?? Date.now;
+        this.sleep = options.sleep ?? delay;
+    }
+
+    fingerprintFor(device: HidDescriptorLike): DeckUsbFingerprint {
+        return deckUsbFingerprint(device, this.resolveUsbPath);
+    }
+
+    /** Poll until the loader port appears, or return `null` after the timeout. */
+    async waitFor(fingerprint: DeckUsbFingerprint): Promise<SerialPortInfoLike | null> {
+        const deadline = this.now() + this.timeoutMs;
+        for (;;) {
+            const ports = await this.listPorts();
+            const enriched = ports.map((port) => ({
+                ...port,
+                usbPath: port.usbPath ?? this.resolveUsbPath(port.path) ?? undefined,
+            }));
+            const match = selectRomPort(fingerprint, enriched);
+            if (match !== null) {
+                return match;
+            }
+            if (this.now() >= deadline) {
+                return null;
+            }
+            await this.sleep(this.pollMs);
+        }
+    }
+}
