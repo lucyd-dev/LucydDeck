@@ -73,7 +73,6 @@ describe("idleFirmwareState", () => {
             installedVersion: null,
             board: null,
             image: null,
-            percent: null,
             error: null,
             release: {
                 status: "idle",

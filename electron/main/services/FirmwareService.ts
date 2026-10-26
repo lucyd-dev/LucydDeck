@@ -17,8 +17,8 @@ import log from "electron-log/main";
 import {
     APP_SLOT_ADDRESS,
     FirmwareErrorCodes,
-    FLASH_STAGE_COPY,
     idleFirmwareState,
+    isFirmwareActive,
     isFirmwareBusy,
     validateFlashSize,
 } from "@shared/firmware";
@@ -30,6 +30,7 @@ import type {
     FirmwareReleaseInfo,
     FirmwareState,
     FlashLocalRequest,
+    FlashPhase,
     FlashProgressPayload,
 } from "@shared/firmware";
 import { evaluateRelease, normalizeVersion } from "@shared/firmwareRelease";
@@ -186,11 +187,7 @@ export class FirmwareService {
 
     /** Check, download and flash all keep a second operation out. */
     isActive(): boolean {
-        return (
-            this.isBusy() ||
-            this.current.phase === "downloading" ||
-            this.current.release.status === "checking"
-        );
+        return isFirmwareActive(this.current);
     }
 
     /** Read the deck's firmware version and board when a deck is connected. */
@@ -207,7 +204,7 @@ export class FirmwareService {
                 this.current.error?.code === FirmwareErrorCodes.NoReturn;
             this.current = {
                 ...this.current,
-                ...(recovered ? { phase: "done" as const, percent: 100, error: null } : {}),
+                ...(recovered ? { phase: "done" as const, error: null } : {}),
                 installedVersion: info.firmwareVersion || null,
                 board: info.board || null,
             };
@@ -344,13 +341,7 @@ export class FirmwareService {
             return this.state();
         }
 
-        this.current = {
-            ...this.current,
-            phase: "downloading",
-            percent: null,
-            error: null,
-        };
-        this.emitState();
+        this.enter("downloading", 0, { error: null });
 
         const controller = new AbortController();
         this.abort = controller;
@@ -380,7 +371,7 @@ export class FirmwareService {
             return await this.flashImage(image, pending.manifest.version);
         } catch (error) {
             if (isAbortError(error)) {
-                this.current = { ...this.current, phase: "idle", percent: null };
+                this.current = { ...this.current, phase: "idle" };
                 this.emitState();
                 return this.state();
             }
@@ -420,7 +411,6 @@ export class FirmwareService {
             ...this.current,
             phase: "ready",
             image: image.info,
-            percent: null,
             error: null,
         };
         this.emitState();
@@ -445,7 +435,7 @@ export class FirmwareService {
         }
 
         const image = this.loadImage(selected);
-        this.current = { ...this.current, image: image.info, percent: null, error: null };
+        this.current = { ...this.current, image: image.info, error: null };
         return this.flashImage(image);
     }
 
@@ -463,7 +453,7 @@ export class FirmwareService {
             this.abort?.abort();
             this.current = {
                 ...this.current,
-                ...(downloading ? { phase: "idle" as const, percent: null } : {}),
+                ...(downloading ? { phase: "idle" as const } : {}),
                 ...(checking
                     ? {
                           release: {
@@ -484,7 +474,6 @@ export class FirmwareService {
             ...this.current,
             phase: "idle",
             image: null,
-            percent: null,
             error: null,
         };
         this.emitState();
@@ -528,9 +517,7 @@ export class FirmwareService {
     }
 
     private async handoff(): Promise<boolean> {
-        this.current = { ...this.current, phase: "handoff", percent: 0 };
-        this.emitState();
-        this.emitProgress("handoff", 0);
+        this.enter("handoff");
 
         try {
             await this.usb.command(
@@ -584,9 +571,7 @@ export class FirmwareService {
     }
 
     private async locate(fingerprint: DeckUsbFingerprint): Promise<SerialPortInfoLike | null> {
-        this.current = { ...this.current, phase: "locating", percent: 0 };
-        this.emitState();
-        this.emitProgress("locating", 0);
+        this.enter("locating");
 
         const port = await this.locator.waitFor(fingerprint);
         if (port === null) {
@@ -604,9 +589,7 @@ export class FirmwareService {
         port: SerialPortInfoLike,
         expectedVersion?: string,
     ): Promise<void> {
-        this.current = { ...this.current, phase: "writing", percent: 0 };
-        this.emitState();
-        this.emitProgress("writing", 0);
+        this.enter("writing");
 
         try {
             await this.flasher.flash(port, image.bytes, {
@@ -614,9 +597,7 @@ export class FirmwareService {
                 onProgress: (written, total) => {
                     const percent =
                         total <= 0 ? 0 : Math.min(100, Math.round((written / total) * 100));
-                    this.current = { ...this.current, percent };
-                    this.emitState();
-                    this.emitProgress("writing", percent);
+                    this.emitProgress(percent, written, total);
                 },
             });
         } catch (error) {
@@ -630,9 +611,7 @@ export class FirmwareService {
     }
 
     private async finishReturn(expectedVersion?: string): Promise<void> {
-        this.current = { ...this.current, phase: "returning", percent: 100 };
-        this.emitState();
-        this.emitProgress("returning", 100);
+        this.enter("returning", 100);
 
         if (!(await this.waitForDeck())) {
             await this.setError(
@@ -650,7 +629,6 @@ export class FirmwareService {
             );
             return;
         }
-
         if (expectedVersion !== undefined) {
             const expected = normalizeVersion(expectedVersion);
             const actual = normalizeVersion(info.firmwareVersion);
@@ -659,7 +637,6 @@ export class FirmwareService {
                     ...this.current,
                     installedVersion: info.firmwareVersion,
                     board: info.board || this.current.board,
-                    percent: 100,
                 };
                 this.reconcileRelease();
                 await this.setError(
@@ -669,35 +646,24 @@ export class FirmwareService {
                 return;
             }
             this.pending = null;
-            this.current = {
-                ...this.current,
-                phase: "done",
+            this.enter("done", 100, {
                 installedVersion: actual,
                 board: info.board || this.current.board,
-                percent: 100,
                 error: null,
                 release: {
                     ...this.current.release,
                     status: "up-to-date",
                     error: null,
                 },
-            };
-            this.emitState();
-            this.emitProgress("done", 100);
+            });
             return;
         }
 
-        this.current = {
-            ...this.current,
-            phase: "done",
-            installedVersion: info.firmwareVersion || this.current.installedVersion,
-            board: info.board || this.current.board,
-            percent: 100,
-            error: null,
-        };
+        const installedVersion = info.firmwareVersion || this.current.installedVersion;
+        const board = info.board || this.current.board;
+        this.current = { ...this.current, installedVersion, board };
         this.reconcileRelease();
-        this.emitState();
-        this.emitProgress("done", 100);
+        this.enter("done", 100, { installedVersion, board, error: null });
     }
 
     private async waitForDeck(): Promise<boolean> {
@@ -809,7 +775,6 @@ export class FirmwareService {
         this.current = {
             ...this.current,
             phase: "error",
-            percent: null,
             error: { code, message },
         };
         this.emitState();
@@ -820,11 +785,17 @@ export class FirmwareService {
         this.onState(this.state());
     }
 
-    private emitProgress(phase: FlashProgressPayload["phase"], percent: number): void {
+    private enter(phase: FlashPhase, percent = 0, patch: Partial<FirmwareState> = {}): void {
+        this.current = { ...this.current, ...patch, phase };
+        this.emitState();
+        this.emitProgress(percent);
+    }
+
+    private emitProgress(percent: number, writtenBytes?: number, totalBytes?: number): void {
         this.onProgress({
-            phase,
             percent,
-            message: FLASH_STAGE_COPY[phase],
+            ...(writtenBytes === undefined ? {} : { writtenBytes }),
+            ...(totalBytes === undefined ? {} : { totalBytes }),
         });
     }
 }

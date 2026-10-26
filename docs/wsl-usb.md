@@ -102,12 +102,12 @@ Use a WSL `npm run dev` pass as the Linux functional gate for a local flash:
 
 1. Attach both devices as above.
 2. In Settings → Firmware, confirm the deck firmware version and deck appear.
-3. Choose a local `.bin` built for `max_app_8MB`, confirm, and watch the stages: handoff, bootloader mode, write percentage, return.
+3. Choose a local `.bin` built for `max_app_8MB`, confirm, and watch the stages: bootloader handoff, bootloader mode, write percentage, return.
 4. Confirm the deck comes back and the section shows the version the deck now reports. Profiles, pages, icons and the active page stay as they were.
 
 The limits and copy are in the [local flash reference](#local-flash-reference).
 
-The WSL pass on 2026-10-26 flashed a local `firmware.bin`, watched handoff, bootloader mode, write and return, and read back `v0.4.0`; the deck's profiles and icons were unchanged.
+The WSL pass on 2026-10-26 flashed a local `firmware.bin`, watched bootloader handoff, bootloader mode, write and return, and read back `v0.4.0`; the deck's profiles and icons were unchanged.
 
 Native Linux packages are supported, but their install layer (udev rule, `brltty`, AppImage) is documented and **unverified**; Windows is the hardware acceptance gate.
 
@@ -181,7 +181,7 @@ See the [WSL acceptance check](#wsl-acceptance-check) for the manual pass.
 
 The Advanced action accepts one local `.bin` built for the `max_app_8MB` layout. It checks the size bound of 8064 KiB, writes at `0x10000` with `eraseAll: false`, and never writes the bootloader, partition table, NVS or SD card. A local file carries no manifest, so its address and layout are not checked; the release updater owns those checks.
 
-The stages are handoff, bootloader mode, write (0-100%) and return. The confirmation dialog is the cancel point; there is no cancel after the handoff. Quitting during the write asks first, once per write.
+The stages are bootloader handoff, bootloader mode, write (0-100%) and return. The confirmation dialog is the cancel point; there is no cancel after the bootloader handoff. Quitting during the write asks first, once per write.
 
 ## When something is missing
 

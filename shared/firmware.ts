@@ -150,8 +150,6 @@ export interface FirmwareState {
     board: string | null;
     /** Local image selected for an Advanced flash, if any. */
     image: FirmwareImageInfo | null;
-    /** Write progress, 0-100, while `phase` is `writing`. */
-    percent: number | null;
     error: FirmwareErrorInfo | null;
     /** Latest-release check and the release it found, if any. */
     release: FirmwareReleaseState;
@@ -163,7 +161,6 @@ export function idleFirmwareState(): FirmwareState {
         installedVersion: null,
         board: null,
         image: null,
-        percent: null,
         error: null,
         release: {
             status: "idle",
@@ -175,18 +172,19 @@ export function idleFirmwareState(): FirmwareState {
 
 // --- Progress --------------------------------------------------------------
 
-export type FlashPhase = "handoff" | "locating" | "writing" | "returning" | "done";
+export type FlashPhase = "downloading" | "handoff" | "locating" | "writing" | "returning" | "done";
 
 export interface FlashProgressPayload {
-    phase: FlashPhase;
     /** 0-100. A sweeping stage without a measurable percentage stays at 0. */
     percent: number;
-    /** User-facing stage copy, including the do-not-unplug warning. */
-    message: string;
+    /** Bytes written and total image bytes while the write runs. */
+    writtenBytes?: number;
+    totalBytes?: number;
 }
 
 export const FLASH_STAGE_COPY: Record<FlashPhase, string> = {
-    handoff: "Asking the deck to restart for the update…",
+    downloading: "Downloading and checking the update…",
+    handoff: "Asking the deck to enter bootloader mode…",
     locating: "Waiting for the deck's bootloader mode…",
     writing: "Writing the firmware. Do not unplug the deck.",
     returning: "The write is finished. Waiting for the deck to come back…",

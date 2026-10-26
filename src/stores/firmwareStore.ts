@@ -34,7 +34,7 @@ export const useFirmwareStore = defineStore("firmware", () => {
 
     function apply(next: FirmwareState): void {
         state.value = next;
-        if (next.phase !== "writing") {
+        if (!isFirmwareBusy(next.phase)) {
             progress.value = null;
         }
     }
@@ -43,7 +43,6 @@ export const useFirmwareStore = defineStore("firmware", () => {
         state.value = {
             ...state.value,
             phase: "error",
-            percent: null,
             error: { code: (code as FirmwareErrorCode) ?? FirmwareErrorCodes.Failed, message },
         };
     }
@@ -170,11 +169,9 @@ export const useFirmwareStore = defineStore("firmware", () => {
 
     // Main-process pushes.
     on(eventChannels.firmwareState, (payload) => apply(payload));
+    // Phase comes from `firmware:state`; progress only carries the numbers.
     on(eventChannels.flashProgress, (payload) => {
         progress.value = payload;
-        if (payload.phase === "writing") {
-            state.value = { ...state.value, phase: "writing", percent: payload.percent };
-        }
     });
 
     return {
