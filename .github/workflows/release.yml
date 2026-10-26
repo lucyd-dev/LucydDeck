@@ -75,41 +75,10 @@ jobs:
             - name: Package
               run: npx electron-builder --config config/electron-builder.json ${{ matrix.args }} --publish never
 
-            - name: Verify serialport native module in the AppImage
-              if: runner.os == 'Linux'
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  appimage=$(find release -name '*.AppImage' -print -quit)
-                  if [ -z "$appimage" ]; then
-                      echo "No AppImage under release/."
-                      exit 1
-                  fi
-                  appimage=$(realpath "$appimage")
-                  chmod +x "$appimage"
-                  work=$(mktemp -d)
-                  (cd "$work" && "$appimage" --appimage-extract >/dev/null)
-                  native=$(find "$work/squashfs-root" -path '*@serialport*' -name '*.node' -print -quit)
-                  if [ -z "$native" ]; then
-                      echo "serialport's native .node is missing from the AppImage."
-                      exit 1
-                  fi
-                  echo "Found $native in the AppImage"
-
-            - name: Verify serialport native module in the NSIS installer
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                  $installer = Get-ChildItem -Path release -Recurse -Filter '*Setup.exe' | Select-Object -First 1
-                  if (-not $installer) { throw 'No NSIS installer under release/.' }
-                  $installDir = Join-Path $env:RUNNER_TEMP 'lucyddeck-install'
-                  $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
-                  if ($process.ExitCode -ne 0) { throw "Installer failed with exit code $($process.ExitCode)" }
-                  $native = Get-ChildItem -Path $installDir -Recurse -Filter '*.node' |
-                      Where-Object { $_.FullName -like '*@serialport*' } |
-                      Select-Object -First 1
-                  if (-not $native) { throw "serialport's native .node is missing from the installed app." }
-                  Write-Host "Found $($native.FullName) in the NSIS install"
+            - name: Verify serialport native module in the installer
+              uses: ./.github/actions/verify-serialport
+              with:
+                  artifact-dir: release
 
             - name: Upload release artifacts
               shell: bash
