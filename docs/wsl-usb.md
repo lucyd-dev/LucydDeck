@@ -41,7 +41,7 @@ PlatformIO is installed with pipx and lives at `~/.local/bin/pio`.
 
 ```bash
 pipx install platformio
-git clone https://github.com/lucyd-dev/LucydDeck-firmware.git ~/Code/LucydDeck-firmware
+git clone https://github.com/lucyd-dev/LucydDeck-firmware.git <firmware-checkout>
 ```
 
 Clone into the Linux filesystem. Building across `/mnt/c` is slow, and a Windows `.pio` directory holds Windows build objects.
@@ -49,7 +49,7 @@ Clone into the Linux filesystem. Building across `/mnt/c` is slow, and a Windows
 ## Daily loop
 
 ```bash
-cd ~/Code/LucydDeck-firmware
+cd <firmware-checkout>
 pio run -e debug                 # build
 pio run -e debug -t upload       # flash
 pio device monitor -e debug      # serial log
@@ -66,7 +66,7 @@ npm run dev
 A deck whose firmware predates `CMD_ENTER_BOOTLOADER` (`0x05`) cannot restart itself from the app. Flash the first release that carries the command once with PlatformIO:
 
 ```bash
-cd ~/Code/LucydDeck-firmware
+cd <firmware-checkout>
 git pull
 pio run -e release -t upload
 ```
@@ -118,7 +118,7 @@ The release path can be tested without publishing a release. The manifest's fiel
 1. Build an image that reports the fake version. The app checks that the deck returns exactly the manifest version, so a `9.9.9` manifest needs an image built with `version.txt` set to `9.9.9`.
 
     ```bash
-    cd ~/Code/LucydDeck-firmware
+    cd <firmware-checkout>
     printf '9.9.9\n' > version.txt
     pio run -e release
     git checkout version.txt
@@ -158,7 +158,7 @@ The release path can be tested without publishing a release. The manifest's fiel
 3. In another WSL shell, start the app with the override and connect the deck.
 
     ```bash
-    cd ~/Code/LucydDeck
+    cd <main-checkout>
     LUCYD_FIRMWARE_MANIFEST=http://127.0.0.1:8765/firmware.json npm run dev
     ```
 
@@ -167,7 +167,7 @@ The release path can be tested without publishing a release. The manifest's fiel
 4. Restore the deck. The fake version is higher than every published release, so flash the real release once with PlatformIO and remove the folder.
 
     ```bash
-    cd ~/Code/LucydDeck-firmware
+    cd <firmware-checkout>
     git pull
     pio run -e release -t upload
     rm -rf /tmp/opencode/fake-release

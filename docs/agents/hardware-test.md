@@ -9,7 +9,7 @@ The serial and flashing setup is in [docs/wsl-usb.md](../wsl-usb.md). The deck's
 A worktree may have `node_modules` without the Electron download. Use the main checkout's binary and point it at the checkout you want to run:
 
 ```bash
-MAIN="$HOME/Code/LucydDeck"
+MAIN="/path/to/LucydDeck"
 APP="${APP:-$MAIN}"                         # worktree or main checkout
 ELECTRON="$MAIN/node_modules/electron/dist/electron"
 [ -x "$ELECTRON" ] || ELECTRON="$APP/node_modules/electron/dist/electron"

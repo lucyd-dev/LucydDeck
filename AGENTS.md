@@ -24,20 +24,21 @@ Deck and UI test loop: `docs/agents/hardware-test.md`; the CDP driver is `script
 
 ## Workstreams
 
-Work them in order. One workstream's spec is alive at a time, in the tracker, and only while that workstream is open. When it merges, the next one starts and writes its own spec.
+All four are done; the tracker holds their closed specs.
 
-1. **Firmware targets and delete.** Done.
-2. **UI finish.** Done.
-3. **Plugin integration.** Done.
-4. **Firmware updater.** Next. Host and firmware bootloader, last because a bad flash bricks a deck.
+1. **Firmware targets and delete.**
+2. **UI finish.**
+3. **Plugin integration.**
+4. **Firmware updater.**
 
-The tracker holds the closed specs. The next spec is the firmware updater.
+The next workstream writes its own spec in the tracker.
 
 ## Environment
 
-- Development and agent work: `~/Code/LucydDeck` in WSL.
-- Windows build check: `/mnt/c/Users/steve/Documents/Code/LucydDeckProject/LucydDeck`, a separate clone. Sync it with git and do not develop features there.
-- Firmware: `~/Code/LucydDeck-firmware` in WSL, built and flashed with PlatformIO over usbipd. The Windows clone is a fallback, not the working copy. Setup is in `docs/wsl-usb.md`.
+- Development and agent work: the main checkout in WSL.
+- Windows build check: a separate Windows clone. Sync it with git and do not develop features there. The Windows host pass, including the deck handover from usbipd, is in `docs/agents/windows-test.md`.
+- Firmware: the firmware checkout in WSL, built and flashed with PlatformIO over usbipd. A Windows clone is a fallback, not the working copy. Setup is in `docs/wsl-usb.md`.
+- A fresh worktree: `scripts/worktree-setup.sh`. It links the main checkout's `node_modules`, installs without rewriting `package-lock.json`, and points git at the commit-message hook.
 - The renderer never imports `node-hid`, `sharp` or `electron`.
 - Deck and UI testing: `docs/agents/hardware-test.md`. Use the main checkout's Electron binary if a worktree has no `node_modules/electron/dist`.
 - Plugin author docs: `docs/plugin-development.md` and `docs/plugin-api.md`.
@@ -52,7 +53,7 @@ The tracker holds the closed specs. The next spec is the firmware updater.
 - `src/`: Vue 3 renderer, Pinia stores, router, `AppShell`, board, inspector and views.
 - `scripts/cdp.mjs`: drives the running renderer over CDP for UI checks.
 
-The wire, the opcodes and the firmware gaps are in `docs/protocol.md`. The firmware source and its `wiki/` live in `~/Code/LucydDeck-firmware`.
+The wire, the opcodes and the firmware gaps are in `docs/protocol.md`. The firmware source and its `wiki/` live in the firmware repository.
 
 ## House rules
 
