@@ -12,7 +12,7 @@ This file condenses what the host relies on. Update it when a firmware change la
 
 ## Bootloader handoff
 
-`CMD_ENTER_BOOTLOADER` (`0x05`) asks the running firmware to restart into the ESP32-S3 ROM bootloader so the host can flash an app image. It takes no payload and needs no open file transfer.
+`CMD_ENTER_BOOTLOADER` (`0x05`) asks the running firmware to restart into the ESP32-S3 ROM bootloader so the host can flash an app image. It takes no payload and needs no open file transfer. Before sending it, the host cancels any transfer the deck still holds, so no `CMD_FILE_*` frame races the handoff.
 
 The contract is ack-then-restart, not a reply:
 

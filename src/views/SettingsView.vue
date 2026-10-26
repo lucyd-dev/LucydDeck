@@ -16,8 +16,6 @@ import { useConfirmStore } from "@/stores/confirmStore";
 import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useUsbStore } from "@/stores/usbStore";
 import { DEFAULT_SETTINGS_SECTION, SETTINGS_SECTION_IDS } from "@/views/settingsSections";
-import { FLASH_STAGE_COPY } from "@shared/firmware";
-import type { FlashPhase } from "@shared/firmware";
 
 const settings = useSettingsStore();
 const usb = useUsbStore();
@@ -39,13 +37,6 @@ const licenses = [
 const percent = computed(() => firmware.progress?.percent ?? 0);
 const latestRelease = computed(() => firmware.state.release.latest);
 const releaseStatus = computed(() => firmware.state.release.status);
-const stageMessage = computed(() => {
-    if (releaseStatus.value === "checking") {
-        return "Checking for the latest release…";
-    }
-    const phase = firmware.state.phase;
-    return phase in FLASH_STAGE_COPY ? FLASH_STAGE_COPY[phase as FlashPhase] : "";
-});
 const showProgress = computed(
     () =>
         firmware.isBusy ||
@@ -78,6 +69,20 @@ const releaseMessage = computed(() => {
         default:
             return "Check for the latest stable release.";
     }
+});
+
+/** Why the update cannot start right now, besides firmware state. */
+const updateBlockedReason = computed<string | undefined>(() => {
+    if (!usb.connected) {
+        return "Connect the deck to update its firmware.";
+    }
+    if (usb.syncing) {
+        return "Wait for the sync to finish before updating the firmware.";
+    }
+    if (usb.transferring) {
+        return "Wait for the file transfer to finish before updating the firmware.";
+    }
+    return undefined;
 });
 
 function boardLabel(board: string | null): string {
@@ -289,7 +294,7 @@ watch(
                         <span v-else-if="firmware.state.error !== null">
                             {{ firmware.state.error.message }}
                         </span>
-                        <span v-else>{{ stageMessage }}</span>
+                        <span v-else>{{ firmware.stageLabel }}</span>
                     </span>
                     <div class="firmware-progress__actions">
                         <span
@@ -382,7 +387,8 @@ watch(
                         <p class="settings-row__value">
                             {{
                                 firmware.updateAvailable
-                                    ? `Firmware ${latestRelease?.version} is ready to flash.`
+                                    ? (updateBlockedReason ??
+                                      `Firmware ${latestRelease?.version} is ready to flash.`)
                                     : "Check again to look for a newer release."
                             }}
                         </p>
@@ -405,7 +411,7 @@ watch(
                             variant="primary"
                             size="sm"
                             :loading="firmware.starting"
-                            :disabled="!usb.connected || firmware.isActive"
+                            :disabled="updateBlockedReason !== undefined || firmware.isActive"
                             @click="updateRelease()"
                         >
                             <Download :size="14" />
@@ -439,7 +445,12 @@ watch(
                         <Button
                             size="sm"
                             :loading="firmware.picking || firmware.starting"
-                            :disabled="!usb.connected || firmware.isActive"
+                            :disabled="
+                                !usb.connected ||
+                                usb.syncing ||
+                                usb.transferring ||
+                                firmware.isActive
+                            "
                             @click="chooseImage()"
                         >
                             <Upload :size="14" />

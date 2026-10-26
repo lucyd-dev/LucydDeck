@@ -46,6 +46,8 @@ import type { RomPortLocator } from "./flash/RomPortLocator";
 import { delay } from "./flash/delay";
 import { ReleaseSourceError, isAbortError } from "./ReleaseSource";
 import type { FirmwareReleaseSource } from "./ReleaseSource";
+import { deviceBusyMessage } from "./DeviceLock";
+import type { DeviceLock } from "./DeviceLock";
 
 export class FirmwareFlashError extends Error {
     readonly code: FirmwareErrorCode;
@@ -102,6 +104,16 @@ export interface FirmwareServiceOptions {
     now?: () => number;
     /** Platform whose USB permission advice is shown; defaults to this process. */
     platform?: NodeJS.Platform;
+    /** Shared deck ownership; an update needs an idle deck and takes the lock. */
+    lock?: DeviceLock;
+    /** Cancels a transfer the deck still holds before the bootloader handoff. */
+    transfer?: Pick<FirmwareTransferClient, "cancelOpen">;
+}
+
+/** The transfer surface a handoff needs. */
+export interface FirmwareTransferClient {
+    /** Cancel an open transfer and wait for it to stop, if one is running. */
+    cancelOpen(): Promise<void>;
 }
 
 interface LoadedImage {
@@ -125,6 +137,8 @@ interface RetainedWrite {
 type StatFile = NonNullable<FirmwareServiceOptions["statFile"]>;
 
 const HANDOFF_FAILED_MESSAGE = "The deck did not restart for the update. Replug it and try again.";
+const TRANSFER_CANCEL_FAILED_MESSAGE =
+    "The app could not stop a file transfer still open on the deck. Unplug the deck, plug it back in, then try again.";
 const USB_PORT_UNKNOWN_MESSAGE =
     "The app could not recognise the deck's USB port. Replug it and try again.";
 const UDEV_RULE = "99-lucyddeck.rules";
@@ -164,6 +178,8 @@ export class FirmwareService {
     private readonly sleep: (ms: number) => Promise<void>;
     private readonly now: () => number;
     private readonly platform: NodeJS.Platform;
+    private readonly lock: DeviceLock | undefined;
+    private readonly transfer: Pick<FirmwareTransferClient, "cancelOpen"> | undefined;
 
     private current: FirmwareState = idleFirmwareState();
     /** The release a successful check made available to flash. */
@@ -193,6 +209,8 @@ export class FirmwareService {
         this.sleep = options.sleep ?? delay;
         this.now = options.now ?? Date.now;
         this.platform = options.platform ?? process.platform;
+        this.lock = options.lock;
+        this.transfer = options.transfer;
     }
 
     state(): FirmwareState {
@@ -333,11 +351,25 @@ export class FirmwareService {
      * Download, verify and flash the release a successful check found. The
      * deck's board and version are re-read first, so a deck that changed since
      * the check is never written with a stale or older release.
+     *
+     * The update owns the deck for its whole run, so a sync cannot start in the
+     * middle of one. The lock is released however the update ends.
      */
     async update(): Promise<FirmwareState> {
         if (this.isActive()) {
             return this.state();
         }
+        if (!this.acquireDeck()) {
+            return this.busyState();
+        }
+        try {
+            return await this.performUpdate();
+        } finally {
+            this.lock?.endUpdate();
+        }
+    }
+
+    private async performUpdate(): Promise<FirmwareState> {
         this.beginOperation();
         this.retained = null;
         const pending = this.pending;
@@ -462,26 +494,33 @@ export class FirmwareService {
             return this.selectLocal(request.path);
         }
         this.assertIdle();
-        this.beginOperation();
-        this.retained = null;
-        const selected = request.path ?? this.current.image?.path;
-        if (selected === undefined) {
-            return this.setError(
-                FirmwareErrorCodes.NoImage,
-                "Choose a firmware image before flashing.",
-            );
+        if (!this.acquireDeck()) {
+            return this.busyState();
         }
-
-        const image = this.loadImage(selected);
-        this.current = { ...this.current, image: image.info, error: null };
         try {
-            return await this.flashImage(image);
-        } catch (error) {
-            log.error(`[firmware] local flash failed: ${String(error)}`);
-            return this.setError(
-                FirmwareErrorCodes.Failed,
-                "The flash could not be prepared. Try again.",
-            );
+            this.beginOperation();
+            this.retained = null;
+            const selected = request.path ?? this.current.image?.path;
+            if (selected === undefined) {
+                return this.setError(
+                    FirmwareErrorCodes.NoImage,
+                    "Choose a firmware image before flashing.",
+                );
+            }
+
+            const image = this.loadImage(selected);
+            this.current = { ...this.current, image: image.info, error: null };
+            try {
+                return await this.flashImage(image);
+            } catch (error) {
+                log.error(`[firmware] local flash failed: ${String(error)}`);
+                return this.setError(
+                    FirmwareErrorCodes.Failed,
+                    "The flash could not be prepared. Try again.",
+                );
+            }
+        } finally {
+            this.lock?.endUpdate();
         }
     }
 
@@ -498,37 +537,44 @@ export class FirmwareService {
         if (retained === null) {
             return this.state();
         }
-        this.beginOperation();
-
-        let present: SerialPortInfoLike | null = null;
+        if (!this.acquireDeck()) {
+            return this.busyState();
+        }
         try {
-            present = await this.locator.find(retained.fingerprint);
-        } catch (error) {
-            log.warn(`[firmware] could not re-check the bootloader port: ${String(error)}`);
-        }
-        if (this.cancelled) {
-            return this.state();
-        }
-        if (
-            present === null ||
-            present.path !== retained.port.path ||
-            !portMatchesFingerprint(retained.fingerprint, present)
-        ) {
-            this.retained = null;
-            return this.setError(
-                FirmwareErrorCodes.PortNotFound,
-                "The deck's bootloader port changed. Unplug the deck, plug it back in, then Retry.",
-            );
-        }
+            this.beginOperation();
 
-        this.current = { ...this.current, error: null };
-        await this.write(
-            retained.image,
-            retained.port,
-            retained.expectedVersion,
-            retained.fingerprint,
-        );
-        return this.state();
+            let present: SerialPortInfoLike | null = null;
+            try {
+                present = await this.locator.find(retained.fingerprint);
+            } catch (error) {
+                log.warn(`[firmware] could not re-check the bootloader port: ${String(error)}`);
+            }
+            if (this.cancelled) {
+                return this.state();
+            }
+            if (
+                present === null ||
+                present.path !== retained.port.path ||
+                !portMatchesFingerprint(retained.fingerprint, present)
+            ) {
+                this.retained = null;
+                return this.setError(
+                    FirmwareErrorCodes.PortNotFound,
+                    "The deck's bootloader port changed. Unplug the deck, plug it back in, then Retry.",
+                );
+            }
+
+            this.current = { ...this.current, error: null };
+            await this.write(
+                retained.image,
+                retained.port,
+                retained.expectedVersion,
+                retained.fingerprint,
+            );
+            return this.state();
+        } finally {
+            this.lock?.endUpdate();
+        }
     }
 
     /**
@@ -638,6 +684,11 @@ export class FirmwareService {
         const fingerprint = this.locator.fingerprintFor(hid);
         if (fingerprint.serialNumber === null && fingerprint.usbPath === null) {
             return this.setError(FirmwareErrorCodes.Handoff, USB_PORT_UNKNOWN_MESSAGE);
+        }
+        // A transfer the deck still holds must not be open when `0x05` arrives:
+        // cancelling it first keeps the bootloader handoff unambiguous.
+        if (!(await this.cancelOpenTransfer())) {
+            return this.state();
         }
         if (!(await this.handoff())) {
             return this.state();
@@ -972,6 +1023,32 @@ export class FirmwareService {
                 "A firmware operation is already running. Wait for it to finish.",
                 FirmwareErrorCodes.Busy,
             );
+        }
+    }
+
+    /** Take the deck for an update; false when a sync, transfer or update owns it. */
+    private acquireDeck(): boolean {
+        return this.lock === undefined || this.lock.beginUpdate();
+    }
+
+    /** One sentence and a next step for a refused update. */
+    private busyState(): Promise<FirmwareState> {
+        const holder = this.lock?.current() ?? "update";
+        return this.setError(FirmwareErrorCodes.Busy, deviceBusyMessage(holder));
+    }
+
+    /** Cancel an open transfer so no `CMD_FILE_*` frame races the handoff. */
+    private async cancelOpenTransfer(): Promise<boolean> {
+        if (this.transfer === undefined) {
+            return true;
+        }
+        try {
+            await this.transfer.cancelOpen();
+            return true;
+        } catch (error) {
+            log.error(`[firmware] could not cancel the open transfer: ${String(error)}`);
+            await this.setError(FirmwareErrorCodes.Handoff, TRANSFER_CANCEL_FAILED_MESSAGE);
+            return false;
         }
     }
 

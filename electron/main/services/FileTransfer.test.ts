@@ -18,6 +18,7 @@ import {
     type UsbCommandClient,
 } from "./FileTransfer";
 import { UsbError, UsbErrorCodes } from "./UsbService";
+import { DeviceLock } from "./DeviceLock";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -384,6 +385,81 @@ describe("FileTransfer control", () => {
     });
 });
 
+describe("FileTransfer deck ownership", () => {
+    it("refuses a transfer while a firmware update owns the deck", async () => {
+        const usb = new MockUsb();
+        const lock = new DeviceLock();
+        const transfer = new FileTransfer(usb, { lock });
+        lock.beginUpdate();
+
+        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(4))).rejects.toMatchObject({
+            code: "DEVICE_BUSY",
+            holder: "update",
+        });
+        expect(usb.calls).toHaveLength(0);
+
+        lock.endUpdate();
+    });
+
+    it("holds the deck while a transfer runs and releases it after success or failure", async () => {
+        const usb = new MockUsb();
+        const lock = new DeviceLock();
+        const transfer = new FileTransfer(usb, { lock });
+
+        await transfer.upload(TARGET_PAGE, PATH, bytes(4));
+        expect(lock.busy).toBe(false);
+
+        const gate = deferred<Uint8Array>();
+        usb.handler = (opcode) =>
+            opcode === HostCommand.FileChunk ? gate.promise : Promise.resolve(new Uint8Array());
+        const upload = transfer.upload(TARGET_PAGE, PATH, bytes(60));
+        expect(lock.transferring).toBe(true);
+
+        gate.reject(new UsbError("no ack", UsbErrorCodes.Timeout));
+        await expect(upload).rejects.toMatchObject({ code: UsbErrorCodes.Timeout });
+        expect(lock.busy).toBe(false);
+    });
+
+    it("reports a cancel-open failure so the handoff can stop", async () => {
+        const usb = new MockUsb();
+        usb.handler = async () => {
+            throw new UsbError("no ack", UsbErrorCodes.Timeout);
+        };
+        const transfer = new FileTransfer(usb);
+
+        await expect(transfer.cancelOpen()).rejects.toMatchObject({
+            code: UsbErrorCodes.Timeout,
+        });
+    });
+
+    it("cancels a transfer the deck still holds before the handoff", async () => {
+        const usb = new MockUsb();
+        const transfer = new FileTransfer(usb);
+
+        await transfer.cancelOpen();
+
+        expect(usb.calls.map((call) => call.opcode)).toEqual([HostCommand.FileCancel]);
+    });
+
+    it("cancels and waits for an active upload", async () => {
+        const usb = new MockUsb();
+        const startGate = deferred<Uint8Array>();
+        usb.handler = (opcode) =>
+            opcode === HostCommand.FileStart
+                ? startGate.promise
+                : Promise.resolve(new Uint8Array());
+        const transfer = new FileTransfer(usb);
+        const upload = transfer.upload(TARGET_PAGE, PATH, bytes(120));
+        const cancelling = transfer.cancelOpen();
+
+        expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(1);
+        startGate.resolve(new Uint8Array());
+        await expect(upload).rejects.toMatchObject({ code: FileTransferErrorCodes.Cancelled });
+        await cancelling;
+        expect(transfer.state).toBe("cancelled");
+    });
+});
+
 describe("FileTransfer limits and progress", () => {
     it("rejects files above the 4 MiB budget before transferring", async () => {
         const usb = new MockUsb();
@@ -393,6 +469,21 @@ describe("FileTransfer limits and progress", () => {
             code: FileTransferErrorCodes.TooLarge,
         });
         expect(usb.calls).toHaveLength(0);
+    });
+
+    it("emits a terminal failure so the renderer can clear the transfer state", async () => {
+        const usb = new MockUsb();
+        usb.handler = async () => {
+            throw new UsbError("no ack", UsbErrorCodes.Timeout);
+        };
+        const transfer = new FileTransfer(usb);
+        const events: TransferProgressEvent[] = [];
+        transfer.onEvent((event) => events.push(event));
+
+        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(4))).rejects.toMatchObject({
+            code: UsbErrorCodes.Timeout,
+        });
+        expect(events.at(-1)?.phase).toBe("failed");
     });
 
     it("throttles chunk progress but always emits the final chunk", async () => {

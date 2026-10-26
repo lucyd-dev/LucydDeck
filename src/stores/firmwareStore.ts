@@ -2,6 +2,7 @@ import { computed, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import {
     FirmwareErrorCodes,
+    FLASH_STAGE_COPY,
     idleFirmwareState,
     isFirmwareActive,
     isFirmwareBusy,
@@ -9,6 +10,7 @@ import {
 import type {
     FirmwareCheckRequest,
     FirmwareErrorCode,
+    FlashPhase,
     FlashProgressPayload,
     FirmwareImageInfo,
     FirmwareState,
@@ -16,6 +18,7 @@ import type {
 import { eventChannels, on } from "@/ipc/events";
 import { firmwareClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
+import { useUsbStore } from "@/stores/usbStore";
 
 /**
  * Firmware section state. The main process owns the release check and the
@@ -29,6 +32,13 @@ export const useFirmwareStore = defineStore("firmware", () => {
 
     const isBusy = computed(() => isFirmwareBusy(state.value.phase));
     const isActive = computed(() => isFirmwareActive(state.value));
+    /** A real install owns the deck; a launch check only reads device info. */
+    const installing = computed(
+        () =>
+            starting.value ||
+            state.value.phase === "downloading" ||
+            isFirmwareBusy(state.value.phase),
+    );
     const checking = computed(() => state.value.release.status === "checking");
     const updateAvailable = computed(() => state.value.release.status === "available");
     const canRetry = computed(() => state.value.error?.retryable === true);
@@ -39,6 +49,15 @@ export const useFirmwareStore = defineStore("firmware", () => {
             state.value.phase === "handoff" ||
             state.value.phase === "locating",
     );
+    /** One sentence for the stage the deck is in, shared by every surface. */
+    const stageLabel = computed(() => {
+        if (state.value.release.status === "checking") {
+            return "Checking for the latest release…";
+        }
+        return state.value.phase in FLASH_STAGE_COPY
+            ? FLASH_STAGE_COPY[state.value.phase as FlashPhase]
+            : "";
+    });
 
     function apply(next: FirmwareState): void {
         state.value = next;
@@ -101,9 +120,35 @@ export const useFirmwareStore = defineStore("firmware", () => {
         apply(result.data);
     }
 
+    /**
+     * A sync or a file transfer owns the deck. Firmware actions wait for it,
+     * whether the user reaches them from Settings or another surface.
+     */
+    function refuseWhileDeckBusy(): boolean {
+        const usb = useUsbStore();
+        if (usb.syncing) {
+            useAppStore().pushToast(
+                "warning",
+                "Wait for the sync to finish before updating the firmware.",
+            );
+            return true;
+        }
+        if (usb.transferring) {
+            useAppStore().pushToast(
+                "warning",
+                "Wait for the file transfer to finish before updating the firmware.",
+            );
+            return true;
+        }
+        return false;
+    }
+
     /** Install the release the last successful check offered. */
     async function installUpdate(): Promise<boolean> {
         if (starting.value || isActive.value) {
+            return false;
+        }
+        if (refuseWhileDeckBusy()) {
             return false;
         }
         starting.value = true;
@@ -123,6 +168,9 @@ export const useFirmwareStore = defineStore("firmware", () => {
     /** Open the picker and validate; `null` when the user cancelled. */
     async function chooseLocal(): Promise<FirmwareImageInfo | null> {
         if (isActive.value || picking.value) {
+            return null;
+        }
+        if (refuseWhileDeckBusy()) {
             return null;
         }
         picking.value = true;
@@ -148,6 +196,9 @@ export const useFirmwareStore = defineStore("firmware", () => {
         if (starting.value) {
             return false;
         }
+        if (refuseWhileDeckBusy()) {
+            return false;
+        }
         starting.value = true;
         try {
             const result = await firmwareClient.flashLocal({
@@ -171,6 +222,9 @@ export const useFirmwareStore = defineStore("firmware", () => {
     /** Write again on the bootloader port kept from a failed write. */
     async function retry(): Promise<boolean> {
         if (starting.value || isActive.value || !canRetry.value) {
+            return false;
+        }
+        if (refuseWhileDeckBusy()) {
             return false;
         }
         starting.value = true;
@@ -208,10 +262,12 @@ export const useFirmwareStore = defineStore("firmware", () => {
         starting,
         isBusy,
         isActive,
+        installing,
         checking,
         updateAvailable,
         canRetry,
         canCancel,
+        stageLabel,
         refresh,
         checkForUpdate,
         installUpdate,

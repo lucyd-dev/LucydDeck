@@ -474,7 +474,7 @@ export interface ActionTriggeredEvent {
 
 export interface TransferProgressEvent {
     type: "transfer-progress";
-    phase: "start" | "chunk" | "end" | "retry" | "cancelled";
+    phase: "start" | "chunk" | "end" | "retry" | "cancelled" | "failed";
     targetType: number;
     identity: string;
     sent: number;

@@ -7,6 +7,7 @@ import { pageLabel } from "@shared/pages";
 import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
+import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useIconStore } from "@/stores/iconStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
@@ -35,6 +36,7 @@ export const useDeviceStore = defineStore("device", () => {
     const profile = useProfileStore();
     const icons = useIconStore();
     const confirm = useConfirmStore();
+    const firmware = useFirmwareStore();
 
     const info = ref<DeviceInfo | null>(null);
     const inventory = ref<InventoryRow[]>([]);
@@ -56,8 +58,11 @@ export const useDeviceStore = defineStore("device", () => {
     const plannedProfileRemovals = computed(() =>
         plan.value === null ? 0 : plan.value.profilesToDelete.length,
     );
-    const canDelete = computed(() => usb.connected && !stale.value);
+    const canDelete = computed(() => usb.connected && !stale.value && !firmware.installing);
     const deleteDisabledReason = computed<string | undefined>(() => {
+        if (firmware.installing) {
+            return "Wait for the firmware update to finish";
+        }
         if (!usb.connected) {
             return "Connect the deck to delete device files";
         }
@@ -71,6 +76,7 @@ export const useDeviceStore = defineStore("device", () => {
             connected: usb.connected,
             stale: stale.value,
             syncing: usb.syncing,
+            updating: firmware.installing,
             planLoaded: plan.value !== null,
             pendingChanges: operations.value,
             plannedRemovals: plannedDeletions.value,
@@ -263,6 +269,10 @@ export const useDeviceStore = defineStore("device", () => {
         noun: string,
         deleteLibrary: () => Promise<boolean>,
     ): Promise<boolean> {
+        if (firmware.installing) {
+            useAppStore().pushToast("warning", "Wait for the firmware update to finish");
+            return false;
+        }
         const connected = usb.connected;
         const scan = await scanReferences(request);
         const notes = referenceNotes(request, scan, profile.activeProfile);

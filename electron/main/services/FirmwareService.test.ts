@@ -7,6 +7,8 @@ import { ErrorCode, HostCommand } from "@shared/protocol";
 import type { HidDescriptorLike } from "@shared/protocol";
 import { FirmwareService } from "./FirmwareService";
 import type { FirmwareDeviceClient, FirmwareUsbClient } from "./FirmwareService";
+import { DeviceLock } from "./DeviceLock";
+import type { FirmwareTransferClient } from "./FirmwareService";
 import type { FirmwareFlasher, FlashImageOptions } from "./flash/EsptoolFlasher";
 import type { DeckUsbFingerprint, SerialPortInfoLike } from "./flash/PortFingerprint";
 import { ReleaseSourceError } from "./ReleaseSource";
@@ -193,6 +195,21 @@ class FakeFlasher implements FirmwareFlasher {
     }
 }
 
+class FakeTransfer implements FirmwareTransferClient {
+    calls = 0;
+    fail: Error | null = null;
+
+    constructor(private readonly order: string[] = []) {}
+
+    async cancelOpen(): Promise<void> {
+        this.calls++;
+        this.order.push("cancel-transfer");
+        if (this.fail !== null) {
+            throw this.fail;
+        }
+    }
+}
+
 class FakeLocator {
     port: SerialPortInfoLike | null = PORT;
     findPort: SerialPortInfoLike | null = { ...PORT, usbPath: "1-2" };
@@ -370,6 +387,8 @@ function make(
     const flasher = new FakeFlasher();
     const locator = new FakeLocator(order);
     const releaseSource = new FakeReleaseSource();
+    const lock = new DeviceLock();
+    const transfer = new FakeTransfer(order);
     const states: FirmwareState[] = [];
     const progress: FlashProgressPayload[] = [];
     const fileSize = overrides.fileSize ?? 4096;
@@ -390,6 +409,8 @@ function make(
         }),
         readFile: overrides.readFile ?? (() => new Uint8Array(fileSize)),
         platform: overrides.platform,
+        lock,
+        transfer,
         sleep: async (ms) => {
             clock += ms;
         },
@@ -405,6 +426,8 @@ function make(
         flasher,
         locator,
         releaseSource,
+        lock,
+        transfer,
         states,
         progress,
     };
@@ -454,6 +477,58 @@ describe("FirmwareService local flash", () => {
             totalBytes: 4096,
         });
         expect(progress.at(-1)).toEqual({ percent: 100 });
+    });
+
+    it("cancels an open transfer before asking for the bootloader", async () => {
+        const order: string[] = [];
+        const { service, transfer } = make({ order });
+
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(transfer.calls).toBe(1);
+        expect(order.indexOf("cancel-transfer")).toBeGreaterThanOrEqual(0);
+        expect(order.indexOf("cancel-transfer")).toBeLessThan(order.indexOf("handoff"));
+    });
+
+    it("does not hand off when the open transfer cannot be cancelled", async () => {
+        const { service, usb, flasher, transfer } = make();
+        transfer.fail = new Error("cancel timed out");
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Handoff },
+        });
+        expect(state!.error?.message).toContain("Unplug the deck, plug it back in");
+        expect(state!.error?.message).not.toContain("cancel timed out");
+        expect(usb.calls).toHaveLength(0);
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("releases the deck after a local flash succeeds or fails", async () => {
+        const { service, lock, flasher } = make();
+
+        await service.flashLocal({ path: FILE, confirmed: true });
+        expect(lock.busy).toBe(false);
+
+        flasher.failOnce = new Error("Resource busy");
+        await service.flashLocal({ path: FILE, confirmed: true });
+        expect(lock.busy).toBe(false);
+    });
+
+    it("refuses a local flash while a sync owns the deck", async () => {
+        const { service, lock, usb, flasher } = make();
+        lock.beginSync();
+
+        const state = await service.flashLocal({ path: FILE, confirmed: true });
+
+        expect(state!.error).toMatchObject({ code: FirmwareErrorCodes.Busy });
+        expect(state!.error?.message).toContain("sync");
+        expect(usb.calls).toHaveLength(0);
+        expect(flasher.calls).toHaveLength(0);
+
+        lock.endSync();
     });
 
     it("accepts exactly 8064 KiB and refuses one byte more before the handoff", async () => {
@@ -1014,6 +1089,70 @@ describe("FirmwareService release update", () => {
         expect(state.release.status).toBe("available");
         expect(state.release.latest?.version).toBe("0.4.0");
         expect(state.release.error).toBeNull();
+    });
+
+    it("refuses an update while a sync owns the deck", async () => {
+        const { service, device, lock, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        lock.beginSync();
+
+        const state = await service.update();
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.Busy },
+        });
+        expect(state.error?.message).toContain("sync");
+        expect(releaseSource.downloadCalls).toBe(0);
+        expect(usb.calls).toHaveLength(0);
+
+        lock.endSync();
+    });
+
+    it("refuses an update while a file transfer is open", async () => {
+        const { service, device, lock, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        lock.beginTransfer();
+
+        const state = await service.update();
+
+        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.Busy });
+        expect(state.error?.message).toContain("file is being sent");
+        expect(releaseSource.downloadCalls).toBe(0);
+        expect(usb.calls).toHaveLength(0);
+
+        lock.endTransfer();
+    });
+
+    it("releases the deck after an update succeeds, fails or is cancelled", async () => {
+        const succeeded = make();
+        succeeded.device.version = "0.3.0";
+        await succeeded.service.checkForUpdate();
+        succeeded.flasher.onFlash = () => {
+            succeeded.device.version = "0.4.0";
+        };
+        await succeeded.service.update();
+        expect(succeeded.lock.busy).toBe(false);
+
+        const failed = make();
+        failed.device.version = "0.3.0";
+        await failed.service.checkForUpdate();
+        failed.releaseSource.latestError = null;
+        failed.releaseSource.downloadError = new ReleaseSourceError("offline", "offline");
+        await failed.service.update();
+        expect(failed.lock.busy).toBe(false);
+
+        const cancelled = make();
+        cancelled.device.version = "0.3.0";
+        await cancelled.service.checkForUpdate();
+        cancelled.releaseSource.deferDownload = true;
+        const running = cancelled.service.update();
+        await vi.waitFor(() => expect(cancelled.service.state().phase).toBe("downloading"));
+        await cancelled.service.cancel();
+        await running;
+        expect(cancelled.lock.busy).toBe(false);
     });
 
     it("downloads, verifies, flashes and removes the staged release", async () => {

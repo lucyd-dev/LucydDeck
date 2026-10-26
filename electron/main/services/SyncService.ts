@@ -22,6 +22,8 @@ import {
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
 import { crc32Upload } from "./usb/Crc32";
 import type { StorageService } from "./StorageService";
+import { DeviceLockError } from "./DeviceLock";
+import type { DeviceLock } from "./DeviceLock";
 
 export const SyncErrorCodes = {
     InvalidPage: "SYNC_INVALID_PAGE",
@@ -86,6 +88,8 @@ export interface SyncServiceOptions {
      * page runs that is absent from this list is reported, never blocked.
      */
     pluginCommands?: () => readonly string[];
+    /** Shared deck ownership; an execute is refused while an update runs. */
+    lock?: DeviceLock;
 }
 
 const encoder = new TextEncoder();
@@ -313,6 +317,7 @@ export class SyncService {
     private readonly device: SyncDeviceClient;
     private readonly transfer: SyncTransferClient;
     private readonly pluginCommands: () => readonly string[];
+    private readonly lock: DeviceLock | undefined;
     private readonly listeners = new Set<(payload: SyncProgressPayload) => void>();
 
     constructor(
@@ -325,6 +330,7 @@ export class SyncService {
         this.device = device;
         this.transfer = transfer;
         this.pluginCommands = options.pluginCommands ?? (() => []);
+        this.lock = options.lock;
         if (options.onProgress) {
             this.listeners.add(options.onProgress);
         }
@@ -497,8 +503,25 @@ export class SyncService {
      * activates the requested profile. Removals run only when the caller
      * passes `allowRemovals`. Aborts on the first device error; the plan can be
      * recomputed and resumed on the next run.
+     *
+     * A sync owns the deck for its whole run, so a firmware update cannot start
+     * in the middle of one. The lock is released however the plan ends.
      */
     async executePlan(plan: DiffPlan, options: ExecutePlanOptions = {}): Promise<SyncResult> {
+        if (this.lock !== undefined && !this.lock.beginSync()) {
+            throw new DeviceLockError(this.lock.current() ?? "update");
+        }
+        try {
+            return await this.executePlanLocked(plan, options);
+        } finally {
+            this.lock?.endSync();
+        }
+    }
+
+    private async executePlanLocked(
+        plan: DiffPlan,
+        options: ExecutePlanOptions = {},
+    ): Promise<SyncResult> {
         const allowRemovals = options.allowRemovals === true;
         const pagesToDelete = allowRemovals ? plan.pagesToDelete : [];
         const iconsToDelete = allowRemovals ? plan.iconsToDelete : [];

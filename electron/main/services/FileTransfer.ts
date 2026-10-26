@@ -11,6 +11,8 @@ import type { TargetType } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
 import { crc32BigEndian } from "./usb/Crc32";
 import type { UsbError } from "./UsbService";
+import { DeviceLockError } from "./DeviceLock";
+import type { DeviceLock } from "./DeviceLock";
 
 export type TransferState = "idle" | "active" | "done" | "cancelled";
 
@@ -50,6 +52,8 @@ export interface FileTransferOptions {
     /** Clock override for deterministic progress tests. */
     now?: () => number;
     onEvent?: (event: TransferProgressEvent) => void;
+    /** Shared deck ownership; a transfer is refused while an update runs. */
+    lock?: DeviceLock;
 }
 
 function textBytes(value: string): Uint8Array {
@@ -100,12 +104,15 @@ export class FileTransfer {
     private readonly crc: (bytes: Uint8Array) => Uint8Array;
     private readonly progressIntervalMs: number;
     private readonly now: () => number;
+    private readonly lock: DeviceLock | undefined;
     private readonly listeners = new Set<(event: TransferProgressEvent) => void>();
 
     private statusValue: TransferState = "idle";
     private cancelled = false;
     /** True between an ACKed `CMD_FILE_START` and `CMD_FILE_END`. */
     private transferOpen = false;
+    /** The upload in flight, so a caller can cancel it and wait for it to stop. */
+    private activeUpload: Promise<void> | null = null;
     private currentIdentity = "";
     private currentTargetType: number = 0;
     private lastProgressAt = 0;
@@ -116,6 +123,7 @@ export class FileTransfer {
         this.crc = options.crc ?? crc32BigEndian;
         this.progressIntervalMs = options.progressIntervalMs ?? 100;
         this.now = options.now ?? (() => Date.now());
+        this.lock = options.lock;
         if (options.onEvent) {
             this.listeners.add(options.onEvent);
         }
@@ -145,6 +153,28 @@ export class FileTransfer {
         identity: string,
         bytes: Uint8Array,
     ): Promise<void> {
+        if (this.activeUpload !== null) {
+            throw new FileTransferError(
+                "A file transfer is already active",
+                FileTransferErrorCodes.Busy,
+            );
+        }
+        const run = this.performUpload(targetType, identity, bytes);
+        this.activeUpload = run;
+        try {
+            await run;
+        } finally {
+            if (this.activeUpload === run) {
+                this.activeUpload = null;
+            }
+        }
+    }
+
+    private async performUpload(
+        targetType: TargetType | number,
+        identity: string,
+        bytes: Uint8Array,
+    ): Promise<void> {
         if (this.statusValue === "active") {
             throw new FileTransferError(
                 "A file transfer is already active",
@@ -170,6 +200,9 @@ export class FileTransfer {
                 `File too large after HID padding: ${wire.length} > ${FILE_TRANSFER_MAX_BYTES} bytes`,
                 FileTransferErrorCodes.TooLarge,
             );
+        }
+        if (this.lock !== undefined && !this.lock.beginTransfer()) {
+            throw new DeviceLockError(this.lock.current() ?? "update");
         }
 
         this.statusValue = "active";
@@ -202,9 +235,11 @@ export class FileTransfer {
                 throw new FileTransferError("Transfer cancelled", FileTransferErrorCodes.Cancelled);
             }
             await this.clearOpenTransfer();
+            this.emit("failed", 0, 0);
             throw error;
         } finally {
             this.currentIdentity = "";
+            this.lock?.endTransfer();
         }
     }
 
@@ -223,6 +258,31 @@ export class FileTransfer {
         // resolves as `done`, so don't advertise a cancelled transfer.
         if (!this.isDone) {
             this.emit("cancelled", 0, 0);
+        }
+    }
+
+    /**
+     * Cancel a transfer this process owns, or one the deck still holds from an
+     * earlier session, before the deck is handed to its ROM bootloader. A
+     * running upload is waited out so no `CMD_FILE_*` frame follows `0x05`.
+     */
+    async cancelOpen(): Promise<void> {
+        const active = this.activeUpload;
+        if (active !== null) {
+            await this.cancel();
+            await active.catch(() => undefined);
+            return;
+        }
+        if (this.usb.connected === false) {
+            return;
+        }
+        try {
+            await this.usb.command(HostCommand.FileCancel, new Uint8Array(), DeviceResponse.Ack);
+        } catch (error) {
+            if (isNoTransferError(error)) {
+                return;
+            }
+            throw error;
         }
     }
 

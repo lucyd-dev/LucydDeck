@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { idleFirmwareState } from "@shared/firmware";
 import type { FirmwareState } from "@shared/firmware";
 import { useFirmwareStore } from "./firmwareStore";
+import { useUsbStore } from "./usbStore";
 
 const mocks = vi.hoisted(() => ({
     listeners: new Map<string, (payload: unknown) => void>(),
@@ -251,6 +252,88 @@ describe("firmwareStore", () => {
         expect(mocks.update).toHaveBeenCalledTimes(1);
         expect(store.state.installedVersion).toBe("0.4.0");
         expect(store.state.release.status).toBe("up-to-date");
+    });
+
+    it("waits for a running sync before installing", async () => {
+        useUsbStore().syncing = true;
+        const store = useFirmwareStore();
+
+        await expect(store.installUpdate()).resolves.toBe(false);
+
+        expect(mocks.update).not.toHaveBeenCalled();
+        expect(mocks.pushToast).toHaveBeenCalledWith(
+            "warning",
+            "Wait for the sync to finish before updating the firmware.",
+        );
+    });
+
+    it("separates a launch check from an install owning the deck", () => {
+        const store = useFirmwareStore();
+
+        emit(
+            "firmware:state",
+            state({ release: { status: "checking", latest: null, error: null } }),
+        );
+        expect(store.installing).toBe(false);
+
+        emit("firmware:state", state({ phase: "downloading" }));
+        expect(store.installing).toBe(true);
+
+        emit("firmware:state", state({ phase: "writing" }));
+        expect(store.installing).toBe(true);
+
+        emit("firmware:state", state({ phase: "done" }));
+        expect(store.installing).toBe(false);
+    });
+
+    it("refuses firmware actions while a file transfer is open", async () => {
+        const image = { path: "/tmp/fw.bin", name: "fw.bin", size: 4096, address: 0x10000 };
+        useUsbStore().transferring = true;
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_WRITE_FAILED", message: "Try again.", retryable: true },
+            }),
+        );
+
+        await expect(store.installUpdate()).resolves.toBe(false);
+        await expect(store.chooseLocal()).resolves.toBeNull();
+        await expect(store.flashLocal(image)).resolves.toBe(false);
+        await expect(store.retry()).resolves.toBe(false);
+
+        expect(mocks.update).not.toHaveBeenCalled();
+        expect(mocks.flashLocal).not.toHaveBeenCalled();
+        expect(mocks.retry).not.toHaveBeenCalled();
+        expect(mocks.pushToast).toHaveBeenCalledWith(
+            "warning",
+            "Wait for the file transfer to finish before updating the firmware.",
+        );
+    });
+
+    it("refuses local firmware actions while a sync runs", async () => {
+        const image = { path: "/tmp/fw.bin", name: "fw.bin", size: 4096, address: 0x10000 };
+        useUsbStore().syncing = true;
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: { code: "FIRMWARE_WRITE_FAILED", message: "Try again.", retryable: true },
+            }),
+        );
+
+        await expect(store.chooseLocal()).resolves.toBeNull();
+        await expect(store.flashLocal(image)).resolves.toBe(false);
+        await expect(store.retry()).resolves.toBe(false);
+
+        expect(mocks.flashLocal).not.toHaveBeenCalled();
+        expect(mocks.retry).not.toHaveBeenCalled();
+        expect(mocks.pushToast).toHaveBeenCalledWith(
+            "warning",
+            "Wait for the sync to finish before updating the firmware.",
+        );
     });
 
     it("shows an update that could not start", async () => {

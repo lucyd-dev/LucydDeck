@@ -11,6 +11,7 @@ import { crc32Upload } from "./usb/Crc32";
 import { StorageService } from "./StorageService";
 import { SyncService } from "./SyncService";
 import type { SyncDeviceClient, SyncTransferClient } from "./SyncService";
+import { DeviceLock } from "./DeviceLock";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -456,6 +457,40 @@ describe("SyncService.executePlan", () => {
     function planWith(overrides: Partial<DiffPlan>): DiffPlan {
         return { ...emptyDiffPlan(), ...overrides };
     }
+
+    it("refuses to run while a firmware update owns the deck", async () => {
+        const lock = new DeviceLock();
+        const guarded = new SyncService(storage, device, transfer, {
+            onProgress: (payload) => progress.push(payload),
+            lock,
+        });
+        lock.beginUpdate();
+
+        await expect(guarded.executePlan(emptyDiffPlan())).rejects.toMatchObject({
+            code: "DEVICE_BUSY",
+            holder: "update",
+        });
+        expect(device.calls).toEqual([]);
+        expect(progress).toEqual([]);
+
+        lock.endUpdate();
+    });
+
+    it("holds the deck for the run and releases it after success or failure", async () => {
+        const lock = new DeviceLock();
+        const guarded = new SyncService(storage, device, transfer, { lock });
+
+        await guarded.executePlan(emptyDiffPlan());
+        expect(lock.busy).toBe(false);
+
+        storage.createProfile("main");
+        storage.savePage("main", "0", { buttons: {} });
+        const plan = await guarded.reconcile();
+        device.failOn = "createProfile";
+
+        await expect(guarded.executePlan(plan)).rejects.toThrow(/boom:createProfile/);
+        expect(lock.busy).toBe(false);
+    });
 
     it("is a no-op for an empty plan", async () => {
         const plan = await sync.reconcile();

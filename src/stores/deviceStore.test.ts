@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { DeviceState } from "@shared/ipc";
+import { idleFirmwareState } from "@shared/firmware";
 import { emptyDiffPlan } from "@shared/sync";
 import type { SyncResult } from "@shared/sync";
 
@@ -53,6 +54,7 @@ import { useDeviceStore } from "./deviceStore";
 import { useProfileStore } from "./profileStore";
 import { useUsbStore } from "./usbStore";
 import { useConfirmStore } from "./confirmStore";
+import { useFirmwareStore } from "./firmwareStore";
 
 function setup(): {
     store: ReturnType<typeof useDeviceStore>;
@@ -234,6 +236,26 @@ describe("deviceStore sync reading", () => {
         store.plan = emptyDiffPlan();
 
         expect(store.syncAction.label).toBe("In sync");
+        await expect(store.syncNow()).resolves.toBe(false);
+        expect(execute).not.toHaveBeenCalled();
+    });
+
+    it("refuses to sync while a firmware update owns the deck", async () => {
+        const { store } = setup();
+        const usb = useUsbStore();
+        const firmware = useFirmwareStore();
+        const execute = vi.spyOn(usb, "executePlan");
+        firmware.state = { ...idleFirmwareState(), phase: "writing" };
+        store.plan = {
+            ...emptyDiffPlan(),
+            pagesToUpload: [{ profile: "main", id: "0" }],
+        };
+
+        expect(store.syncAction).toEqual({
+            label: "Updating firmware",
+            hint: "Wait for the firmware update to finish before syncing",
+            disabled: true,
+        });
         await expect(store.syncNow()).resolves.toBe(false);
         expect(execute).not.toHaveBeenCalled();
     });

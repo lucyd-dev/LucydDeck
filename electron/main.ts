@@ -10,6 +10,7 @@ import { LATEST_MANIFEST_URL } from "@shared/firmwareRelease";
 import { StorageService } from "./main/services/StorageService";
 import { UsbService } from "./main/services/UsbService";
 import { FileTransfer } from "./main/services/FileTransfer";
+import { DeviceLock } from "./main/services/DeviceLock";
 import { DeviceService } from "./main/services/DeviceService";
 import { ImagePipelineService } from "./main/services/ImagePipelineService";
 import { SyncService } from "./main/services/SyncService";
@@ -279,7 +280,8 @@ app.whenReady().then(async () => {
     storage.ensureLayout();
 
     const usb = new UsbService();
-    const fileTransfer = new FileTransfer(usb);
+    const deviceLock = new DeviceLock();
+    const fileTransfer = new FileTransfer(usb, { lock: deviceLock });
     const device = new DeviceService(usb, fileTransfer);
     const imagePipeline = new ImagePipelineService(storage);
     const host = new PluginHost({
@@ -311,6 +313,7 @@ app.whenReady().then(async () => {
     });
     const sync = new SyncService(storage, device, fileTransfer, {
         pluginCommands: () => plugins.registeredCommands(),
+        lock: deviceLock,
     });
     // The override is a development aid and never applies to a packaged build.
     const manifestUrl = resolveManifestUrl({
@@ -327,6 +330,8 @@ app.whenReady().then(async () => {
         locator: new RomPortLocator(),
         releaseSource: new ReleaseSource({ manifestUrl }),
         pickImage: () => pickFirmwareImage(),
+        lock: deviceLock,
+        transfer: fileTransfer,
         onState: (state) => {
             if (state.phase === "handoff") {
                 quitGuard.beginFlash();
@@ -346,6 +351,7 @@ app.whenReady().then(async () => {
         firmware,
         plugins,
         commands,
+        lock: deviceLock,
     });
     commands.start();
 

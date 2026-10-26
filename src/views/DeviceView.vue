@@ -20,12 +20,14 @@ import { useSectionQuery } from "@/composables/useSectionQuery";
 import type { InventoryRow, InventoryState } from "@/device/inventory";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { useDeviceStore } from "@/stores/deviceStore";
+import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useUsbStore } from "@/stores/usbStore";
 import { DEFAULT_DEVICE_SECTION, DEVICE_SECTION_IDS } from "@/views/deviceSections";
 
 const confirm = useConfirmStore();
 const usb = useUsbStore();
 const device = useDeviceStore();
+const firmware = useFirmwareStore();
 const active = useSectionQuery("device", DEVICE_SECTION_IDS, DEFAULT_DEVICE_SECTION);
 
 const profileGroups = computed(() =>
@@ -137,13 +139,14 @@ watch(
                 <Button
                     :variant="usb.connected ? 'secondary' : 'primary'"
                     :loading="usb.busy"
+                    :disabled="firmware.installing"
                     @click="usb.toggle()"
                 >
                     <Usb :size="14" />
                     <span>{{ usb.connected ? "Disconnect" : "Connect" }}</span>
                 </Button>
                 <Button
-                    :disabled="!usb.connected || device.loading"
+                    :disabled="!usb.connected || device.loading || firmware.installing"
                     :loading="device.loading"
                     @click="device.refresh()"
                 >
@@ -151,7 +154,25 @@ watch(
                     <span>Refresh</span>
                 </Button>
                 <div class="device-sync">
-                    <template v-if="usb.syncing">
+                    <template v-if="firmware.installing">
+                        <span
+                            class="progress"
+                            role="progressbar"
+                            :aria-valuenow="firmware.progress?.percent ?? 0"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-label="Firmware update progress"
+                        >
+                            <span
+                                class="progress__bar"
+                                :style="{ width: `${firmware.progress?.percent ?? 0}%` }"
+                            ></span>
+                        </span>
+                        <span class="progress-label">
+                            {{ firmware.stageLabel || "Updating the firmware…" }}
+                        </span>
+                    </template>
+                    <template v-else-if="usb.syncing">
                         <span
                             class="progress"
                             role="progressbar"

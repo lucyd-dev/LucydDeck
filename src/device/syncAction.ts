@@ -10,6 +10,8 @@ export interface SyncSnapshot {
     connected: boolean;
     stale: boolean;
     syncing: boolean;
+    /** A firmware update owns the deck, so a sync must wait. */
+    updating: boolean;
     planLoaded: boolean;
     /** Pending uploads, profile creates, renames and the active-profile switch. */
     pendingChanges: number;
@@ -57,6 +59,13 @@ function profileRemovalHint(count: number | undefined): string {
  * holds neither changes nor removals.
  */
 export function syncAction(snapshot: SyncSnapshot): SyncReading {
+    if (snapshot.updating) {
+        return {
+            label: "Updating firmware",
+            hint: "Wait for the firmware update to finish before syncing",
+            disabled: true,
+        };
+    }
     if (!snapshot.connected) {
         return { label: "Sync", hint: "Connect the deck before syncing", disabled: true };
     }

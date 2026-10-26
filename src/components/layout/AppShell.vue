@@ -113,7 +113,7 @@ watch(
                     class="device-chip"
                     :class="`device-chip--${app.deviceStatus.state}`"
                     type="button"
-                    :disabled="usb.busy"
+                    :disabled="usb.busy || firmware.installing"
                     :title="usb.connected ? 'Disconnect the deck' : 'Connect the deck'"
                     @click="usb.toggle()"
                 >

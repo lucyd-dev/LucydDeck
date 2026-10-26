@@ -21,6 +21,8 @@ import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
 import type { SyncService } from "../services/SyncService";
 import type { FirmwareService } from "../services/FirmwareService";
+import { DeviceLockError } from "../services/DeviceLock";
+import type { DeviceLock } from "../services/DeviceLock";
 import type { PluginService } from "../plugins/PluginService";
 import type { CommandRouter } from "../plugins/CommandRouter";
 
@@ -46,6 +48,8 @@ export interface IpcServices {
     firmware: FirmwareService;
     plugins: PluginService;
     commands: CommandRouter;
+    /** Shared deck ownership: an update disables sync and every device write. */
+    lock: DeviceLock;
 }
 
 /**
@@ -56,6 +60,14 @@ export interface IpcServices {
 export function registerIpcHandlers(services: IpcServices): void {
     const { storage, usb, device, fileTransfer, imagePipeline, sync, firmware, plugins, commands } =
         services;
+    const { lock } = services;
+
+    /** A device write must wait while a firmware update owns the deck. */
+    const assertDeckWritable = (): void => {
+        if (lock.updating) {
+            throw new DeviceLockError("update");
+        }
+    };
 
     // Bridge service events to every renderer window.
     usb.onEvent((payload) => broadcastEvent(eventChannels.usb, payload));
@@ -225,10 +237,12 @@ export function registerIpcHandlers(services: IpcServices): void {
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
     register(channels.usb.connect, async () => {
+        assertDeckWritable();
         await usb.connect();
         return { ok: true, data: undefined };
     });
     register(channels.usb.disconnect, async () => {
+        assertDeckWritable();
         await usb.disconnect();
         return { ok: true, data: undefined };
     });
@@ -247,26 +261,32 @@ export function registerIpcHandlers(services: IpcServices): void {
         data: await device.listProfiles(),
     }));
     register(channels.usb.createProfile, async ({ name }) => {
+        assertDeckWritable();
         await device.createProfile(name);
         return { ok: true, data: undefined };
     });
     register(channels.usb.renameProfile, async ({ oldName, newName }) => {
+        assertDeckWritable();
         await device.renameProfile(oldName, newName);
         return { ok: true, data: undefined };
     });
     register(channels.usb.deleteProfile, async ({ name }) => {
+        assertDeckWritable();
         await device.deleteProfile(name);
         return { ok: true, data: undefined };
     });
     register(channels.usb.setActiveProfile, async ({ name }) => {
+        assertDeckWritable();
         await device.setActiveProfile(name);
         return { ok: true, data: undefined };
     });
     register(channels.usb.setActivePage, async ({ id }) => {
+        assertDeckWritable();
         await device.setActivePage(id);
         return { ok: true, data: undefined };
     });
     register(channels.usb.uploadPage, async ({ profile, id }) => {
+        assertDeckWritable();
         const page = storage.loadPage(profile, id);
         const validation = validatePageConfig(page);
         if (!validation.ok) {
@@ -280,6 +300,7 @@ export function registerIpcHandlers(services: IpcServices): void {
         return { ok: true, data: undefined };
     });
     register(channels.usb.uploadIcon, async ({ name }) => {
+        assertDeckWritable();
         const file = resolveIconFile(storage, name);
         if (file === null) {
             throw new Error(`Icon not found: "${iconBaseName(name)}"`);
@@ -288,6 +309,7 @@ export function registerIpcHandlers(services: IpcServices): void {
         return { ok: true, data: undefined };
     });
     register(channels.usb.deleteFile, async (request) => {
+        assertDeckWritable();
         if (!usb.connected) {
             throw new Error("Device is not connected");
         }
