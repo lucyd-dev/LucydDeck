@@ -61,6 +61,18 @@ The app allows you to configure your deck and manage plugins.
 
 See the [Firmware Repository](https://github.com/lucyd-dev/LucydDeck-firmware) for more information on how to build, upload and monitor the firmware/device.
 
+### Updating the deck firmware
+
+The app checks the latest stable firmware release when it starts and whenever you choose **Check for updates** in **Settings → Firmware**. When a newer release exists for your deck, the Settings icon shows a dot. The section shows the deck's firmware version, the latest release, the release date and a link to the release notes.
+
+**Update** downloads the image, checks its size and SHA-256 against the published manifest, writes only the app slot over USB, and waits for the deck to return on the new version. Profiles, pages, icons and the active page stay on the deck.
+
+A failed write keeps the deck's bootloader port and offers **Retry**, which writes again without a second handoff. Every failure names a next step, and the underlying tool output stays in the app log. On Linux, a USB permission failure names the udev rule to install.
+
+Only stable releases newer than the deck's firmware version are offered. The launch check is quiet if the release server or the network is unavailable; a manual check reports the failure. A deck whose firmware version cannot be read, a release with no entry for the deck's board, and every older release are refused rather than flashed.
+
+The first release with in-app updates has to be flashed once with PlatformIO; the firmware wiki covers the [release process](https://github.com/lucyd-dev/LucydDeck-firmware/wiki/Releasing) and the [manifest reference](https://github.com/lucyd-dev/LucydDeck-firmware/wiki/Firmware-Manifest). From that release onward the app owns updates. Developers can still flash a local `.bin` from **Settings → Firmware → Advanced**, and can test the update path against a fake release; see [docs/wsl-usb.md](docs/wsl-usb.md).
+
 ## ✨Features (v1.0.0 Roadmap)
 
 ### Desktop App (Vue + Electron)
@@ -68,7 +80,7 @@ See the [Firmware Repository](https://github.com/lucyd-dev/LucydDeck-firmware) f
 - **Intuitive UI:** Drag-and-drop style customization.
 - **Page Management:** Organize buttons across multiple virtual pages.
 - **Plugin overview:** Manage your plugins for more functionality. Start with [Build your first plugin](docs/plugin-development.md); the full reference is [docs/plugin-api.md](docs/plugin-api.md).
-- **Device Management:** Integrated serial monitor, connection diagnostics, and "one-click" firmware flashing/updates.
+- **Device Management:** Deck firmware versions, in-app updates from the latest stable release, and a local image path for development.
 
 ### Firmware & Hardware
 

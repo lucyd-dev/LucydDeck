@@ -25,7 +25,9 @@
         "dist:linux": "electron-builder --config config/electron-builder.json --linux --x64"
     },
     "dependencies": {
+        "esptool-js": "^0.7.0",
         "node-hid": "^3.4.0",
+        "serialport": "^13.0.0",
         "sharp": "^0.34.5",
         "vue": "^3.5.42"
     },
@@ -56,6 +58,7 @@
     "main": "dist-electron/main.js",
     "allowScripts": {
         "@parcel/watcher@2.6.0": true,
+        "@serialport/bindings-cpp@13.0.0": true,
         "electron@44.3.0": true,
         "electron-winstaller@5.4.0": true,
         "node-hid@3.4.0": true,

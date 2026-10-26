@@ -8,6 +8,7 @@ import Tooltip from "@/components/ui/Tooltip.vue";
 import InspectorPanel from "@/components/inspector/InspectorPanel.vue";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
+import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
 import { NARROW_QUERY } from "@/layout";
@@ -15,6 +16,7 @@ import { NARROW_QUERY } from "@/layout";
 const route = useRoute();
 const app = useAppStore();
 const confirm = useConfirmStore();
+const firmware = useFirmwareStore();
 const profile = useProfileStore();
 const usb = useUsbStore();
 
@@ -43,6 +45,7 @@ function onWindowFocus(): void {
 onMounted(() => {
     void profile.initProfiles();
     void usb.refreshStatus();
+    void firmware.checkForUpdate({ silent: true });
     media = window.matchMedia(NARROW_QUERY);
     onMediaChange(media);
     media.addEventListener("change", onMediaChange);
@@ -84,10 +87,19 @@ watch(
                         class="sidebar__view"
                         :class="{ 'sidebar__view--active': route.name === view.name }"
                         :to="view.to"
-                        :aria-label="view.label"
+                        :aria-label="
+                            view.name === 'settings' && firmware.updateAvailable
+                                ? 'Settings (firmware update available)'
+                                : view.label
+                        "
                         :aria-current="route.name === view.name ? 'page' : undefined"
                     >
                         <component :is="view.icon" :size="18" />
+                        <span
+                            v-if="view.name === 'settings' && firmware.updateAvailable"
+                            class="sidebar__view-dot"
+                            aria-hidden="true"
+                        ></span>
                     </RouterLink>
                 </Tooltip>
             </nav>
@@ -101,7 +113,7 @@ watch(
                     class="device-chip"
                     :class="`device-chip--${app.deviceStatus.state}`"
                     type="button"
-                    :disabled="usb.busy"
+                    :disabled="usb.busy || firmware.installing"
                     :title="usb.connected ? 'Disconnect the deck' : 'Connect the deck'"
                     @click="usb.toggle()"
                 >

@@ -7,6 +7,7 @@ function snapshot(overrides: Partial<SyncSnapshot> = {}): SyncSnapshot {
         connected: true,
         stale: false,
         syncing: false,
+        updating: false,
         planLoaded: true,
         pendingChanges: 0,
         plannedRemovals: 0,
@@ -35,6 +36,22 @@ describe("syncAction", () => {
         expect(syncAction(snapshot({ syncing: true }))).toEqual({
             label: "Syncing",
             hint: "A sync is already running",
+            disabled: true,
+        });
+    });
+
+    it("reports the update even while the deck is between modes", () => {
+        expect(syncAction(snapshot({ updating: true, connected: false }))).toEqual({
+            label: "Updating firmware",
+            hint: "Wait for the firmware update to finish before syncing",
+            disabled: true,
+        });
+    });
+
+    it("waits for a firmware update to finish", () => {
+        expect(syncAction(snapshot({ updating: true, pendingChanges: 2 }))).toEqual({
+            label: "Updating firmware",
+            hint: "Wait for the firmware update to finish before syncing",
             disabled: true,
         });
     });

@@ -1,6 +1,12 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
 import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 import type { AppSettings } from "./settings";
+import type {
+    FirmwareCheckRequest,
+    FlashLocalRequest,
+    FlashProgressPayload,
+    FirmwareState,
+} from "./firmware";
 import type { DiffPlan, SyncResult } from "./sync";
 import type {
     PluginCommand,
@@ -102,7 +108,11 @@ export const channels = {
     },
     firmware: {
         getState: "firmware:getState",
+        check: "firmware:check",
         update: "firmware:update",
+        flashLocal: "firmware:flashLocal",
+        retry: "firmware:retry",
+        cancel: "firmware:cancel",
     },
 } as const;
 
@@ -353,9 +363,13 @@ export interface RequestMap {
     [channels.updater.state]: undefined;
     [channels.updater.check]: undefined;
 
-    // firmware (stub — Step 5)
+    // firmware (release update and a local image)
     [channels.firmware.getState]: undefined;
+    [channels.firmware.check]: FirmwareCheckRequest;
     [channels.firmware.update]: undefined;
+    [channels.firmware.flashLocal]: FlashLocalRequest;
+    [channels.firmware.retry]: undefined;
+    [channels.firmware.cancel]: undefined;
 }
 
 export interface ResponseMap {
@@ -424,7 +438,11 @@ export interface ResponseMap {
 
     // firmware
     [channels.firmware.getState]: IpcResponse<FirmwareState>;
+    [channels.firmware.check]: IpcResponse<FirmwareState>;
     [channels.firmware.update]: IpcResponse<FirmwareState>;
+    [channels.firmware.flashLocal]: IpcResponse<FirmwareState | null>;
+    [channels.firmware.retry]: IpcResponse<FirmwareState>;
+    [channels.firmware.cancel]: IpcResponse<FirmwareState>;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +474,7 @@ export interface ActionTriggeredEvent {
 
 export interface TransferProgressEvent {
     type: "transfer-progress";
-    phase: "start" | "chunk" | "end" | "retry" | "cancelled";
+    phase: "start" | "chunk" | "end" | "retry" | "cancelled" | "failed";
     targetType: number;
     identity: string;
     sent: number;
@@ -503,10 +521,17 @@ export interface UpdaterState {
     version?: string;
 }
 
-export interface FirmwareState {
-    state: "idle" | "flashing" | "error";
-    version?: string;
-}
+export type {
+    FirmwareCheckRequest,
+    FirmwareErrorInfo,
+    FirmwareImageInfo,
+    FirmwarePhase,
+    FirmwareReleaseInfo,
+    FirmwareReleaseState,
+    FirmwareReleaseStatus,
+    FirmwareState,
+} from "./firmware";
+export type { FlashPhase, FlashProgressPayload } from "./firmware";
 
 export interface ToastPayload {
     level: "info" | "success" | "warning" | "error";
@@ -530,22 +555,12 @@ export type PluginEventPayload =
     | { type: "registrations" }
     | { type: "log"; handle: string; level: PluginLogLevel; message: string };
 
-export interface FirmwareStatePayload {
-    state: FirmwareState["state"];
-    version?: string;
-}
-
-export interface FlashProgressPayload {
-    phase: string;
-    percent: number;
-}
-
 export interface EventPayloadMap {
     [eventChannels.usb]: UsbEventPayload;
     [eventChannels.toast]: ToastPayload;
     [eventChannels.syncProgress]: SyncProgressPayload;
     [eventChannels.plugin]: PluginEventPayload;
-    [eventChannels.firmwareState]: FirmwareStatePayload;
+    [eventChannels.firmwareState]: FirmwareState;
     [eventChannels.flashProgress]: FlashProgressPayload;
 }
 

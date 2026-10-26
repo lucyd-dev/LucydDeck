@@ -1,0 +1,51 @@
+name: Verify serialport artifact
+description: Check that the packaged installer contains serialport's native .node.
+
+inputs:
+    artifact-dir:
+        description: Directory holding the electron-builder output.
+        required: false
+        default: release
+
+runs:
+    using: composite
+    steps:
+        - name: Check the AppImage
+          if: runner.os == 'Linux'
+          shell: bash
+          env:
+              ARTIFACT_DIR: ${{ inputs.artifact-dir }}
+          run: |
+              set -euo pipefail
+              appimage=$(find "$ARTIFACT_DIR" -name '*.AppImage' -print -quit)
+              if [ -z "$appimage" ]; then
+                  echo "No AppImage under $ARTIFACT_DIR."
+                  exit 1
+              fi
+              appimage=$(realpath "$appimage")
+              chmod +x "$appimage"
+              work=$(mktemp -d)
+              (cd "$work" && "$appimage" --appimage-extract >/dev/null)
+              native=$(find "$work/squashfs-root" -path '*@serialport*' -name '*.node' -print -quit)
+              if [ -z "$native" ]; then
+                  echo "serialport's native .node is missing from the AppImage."
+                  exit 1
+              fi
+              echo "Found $native in the AppImage"
+
+        - name: Check the NSIS installer
+          if: runner.os == 'Windows'
+          shell: pwsh
+          env:
+              ARTIFACT_DIR: ${{ inputs.artifact-dir }}
+          run: |
+              $installer = Get-ChildItem -Path $env:ARTIFACT_DIR -Recurse -Filter '*Setup.exe' | Select-Object -First 1
+              if (-not $installer) { throw "No NSIS installer under $env:ARTIFACT_DIR." }
+              $installDir = Join-Path $env:RUNNER_TEMP 'lucyddeck-install'
+              $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+              if ($process.ExitCode -ne 0) { throw "Installer failed with exit code $($process.ExitCode)" }
+              $native = Get-ChildItem -Path $installDir -Recurse -Filter '*.node' |
+                  Where-Object { $_.FullName -like '*@serialport*' } |
+                  Select-Object -First 1
+              if (-not $native) { throw "serialport's native .node is missing from the installed app." }
+              Write-Host "Found $($native.FullName) in the NSIS install"

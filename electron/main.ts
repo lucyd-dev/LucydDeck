@@ -6,12 +6,19 @@ import path from "node:path";
 import type { AppSettings } from "@shared/settings";
 import { WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from "@shared/settings";
 import { eventChannels } from "@shared/ipc";
+import { LATEST_MANIFEST_URL } from "@shared/firmwareRelease";
 import { StorageService } from "./main/services/StorageService";
 import { UsbService } from "./main/services/UsbService";
 import { FileTransfer } from "./main/services/FileTransfer";
+import { DeviceLock } from "./main/services/DeviceLock";
 import { DeviceService } from "./main/services/DeviceService";
 import { ImagePipelineService } from "./main/services/ImagePipelineService";
 import { SyncService } from "./main/services/SyncService";
+import { FirmwareService } from "./main/services/FirmwareService";
+import { EsptoolFlasher } from "./main/services/flash/EsptoolFlasher";
+import { RomPortLocator } from "./main/services/flash/RomPortLocator";
+import { QuitGuard } from "./main/services/flash/QuitGuard";
+import { ReleaseSource, resolveManifestUrl } from "./main/services/ReleaseSource";
 import { PluginHost } from "./main/plugins/PluginHost";
 import { PluginService } from "./main/plugins/PluginService";
 import { CommandRouter } from "./main/plugins/CommandRouter";
@@ -50,7 +57,45 @@ function pluginRuntimePath(): string {
 let win: BrowserWindow | null;
 let storageService: StorageService | null = null;
 let pluginService: PluginService | null = null;
+let firmwareService: FirmwareService | null = null;
 let quitting = false;
+const quitGuard = new QuitGuard();
+
+/** Ask once per flash whether to quit while the deck is busy. */
+async function askQuitDuringFlash(): Promise<boolean> {
+    const options = {
+        type: "warning" as const,
+        title: "Firmware flash in progress",
+        message: "A firmware flash is running right now.",
+        detail: "Quitting now can leave the deck without a working firmware. Keep the app open until the flash finishes.",
+        buttons: ["Keep flashing", "Quit anyway"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+    };
+    const result =
+        win === null
+            ? await dialog.showMessageBox(options)
+            : await dialog.showMessageBox(win, options);
+    return result.response === 1;
+}
+
+/**
+ * Stop a quit or window close during a write. Returns true when the caller
+ * must wait for the confirmation; a confirmed answer runs `proceed`.
+ */
+function blockQuitDuringFlash(event: { preventDefault: () => void }, proceed: () => void): boolean {
+    if (firmwareService?.isBusy() !== true || quitGuard.isConfirmed()) {
+        return false;
+    }
+    event.preventDefault();
+    void quitGuard.confirm(askQuitDuringFlash).then((confirmed) => {
+        if (confirmed) {
+            proceed();
+        }
+    });
+    return true;
+}
 
 /** Ask the renderer to flush a pending autosave; timeout keeps quit responsive. */
 async function flushEditor(window: BrowserWindow): Promise<boolean> {
@@ -71,6 +116,9 @@ async function flushEditor(window: BrowserWindow): Promise<boolean> {
 
 app.on("before-quit", (event) => {
     if (quitting) {
+        return;
+    }
+    if (blockQuitDuringFlash(event, () => app.quit())) {
         return;
     }
     const window = win;
@@ -99,6 +147,16 @@ app.on("before-quit", (event) => {
               });
     void flush.finally(finish);
 });
+
+/** Pick one local `.bin` image; the service validates the app-slot bound. */
+async function pickFirmwareImage(): Promise<string | null> {
+    const result = await dialog.showOpenDialog({
+        title: "Choose firmware image",
+        properties: ["openFile"],
+        filters: [{ name: "Firmware image", extensions: ["bin"] }],
+    });
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+}
 
 async function createWindow(settings: AppSettings, storage: StorageService) {
     const window = new BrowserWindow({
@@ -152,6 +210,15 @@ async function createWindow(settings: AppSettings, storage: StorageService) {
 
         // Closing the window directly skips `before-quit`, so flush here too.
         if (quitting) {
+            return;
+        }
+        if (
+            blockQuitDuringFlash(event, () => {
+                if (!window.isDestroyed()) {
+                    window.close();
+                }
+            })
+        ) {
             return;
         }
         if (closing) {
@@ -213,7 +280,8 @@ app.whenReady().then(async () => {
     storage.ensureLayout();
 
     const usb = new UsbService();
-    const fileTransfer = new FileTransfer(usb);
+    const deviceLock = new DeviceLock();
+    const fileTransfer = new FileTransfer(usb, { lock: deviceLock });
     const device = new DeviceService(usb, fileTransfer);
     const imagePipeline = new ImagePipelineService(storage);
     const host = new PluginHost({
@@ -245,7 +313,34 @@ app.whenReady().then(async () => {
     });
     const sync = new SyncService(storage, device, fileTransfer, {
         pluginCommands: () => plugins.registeredCommands(),
+        lock: deviceLock,
     });
+    // The override is a development aid and never applies to a packaged build.
+    const manifestUrl = resolveManifestUrl({
+        packaged: app.isPackaged,
+        override: process.env.LUCYD_FIRMWARE_MANIFEST,
+    });
+    if (manifestUrl !== LATEST_MANIFEST_URL) {
+        log.info(`[firmware] using development manifest ${manifestUrl}`);
+    }
+    const firmware = new FirmwareService({
+        usb,
+        device,
+        flasher: new EsptoolFlasher(),
+        locator: new RomPortLocator(),
+        releaseSource: new ReleaseSource({ manifestUrl }),
+        pickImage: () => pickFirmwareImage(),
+        lock: deviceLock,
+        transfer: fileTransfer,
+        onState: (state) => {
+            if (state.phase === "handoff") {
+                quitGuard.beginFlash();
+            }
+            broadcastEvent(eventChannels.firmwareState, state);
+        },
+        onProgress: (progress) => broadcastEvent(eventChannels.flashProgress, progress),
+    });
+    firmwareService = firmware;
     registerIpcHandlers({
         storage,
         usb,
@@ -253,8 +348,10 @@ app.whenReady().then(async () => {
         fileTransfer,
         imagePipeline,
         sync,
+        firmware,
         plugins,
         commands,
+        lock: deviceLock,
     });
     commands.start();
 

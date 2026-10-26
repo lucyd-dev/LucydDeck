@@ -59,4 +59,15 @@ describe("shared/ipc contract", () => {
         expect(channels.settings.openLogsFolder).toBe("settings:openLogsFolder");
         expect(channels.usb.deleteFile).toBe("usb:deleteFile");
     });
+
+    it("exposes the firmware channels and keeps updater reserved", () => {
+        expect(channels.firmware.getState).toBe("firmware:getState");
+        expect(channels.firmware.check).toBe("firmware:check");
+        expect(channels.firmware.update).toBe("firmware:update");
+        expect(channels.firmware.flashLocal).toBe("firmware:flashLocal");
+        expect(channels.firmware.retry).toBe("firmware:retry");
+        expect(channels.firmware.cancel).toBe("firmware:cancel");
+        expect(channels.updater.state).toBe("updater:state");
+        expect(channels.updater.check).toBe("updater:check");
+    });
 });

@@ -139,3 +139,44 @@ _Avoid_: Storage, workspace, cache
 **Plugin state**:
 A value a plugin publishes to describe what it is doing, such as muted or live. The app shows it. The deck does not.
 _Avoid_: Status, flag
+
+**Firmware release**:
+One published firmware build, named by a version and described by the manifest the updater reads.
+
+**Firmware manifest**:
+The published description of a release: its version, board, image size and checksum. The updater reads it before downloading anything.
+_Avoid_: Descriptor, metadata, release file
+
+**Deck firmware version**:
+The version a deck reports for the firmware it is running.
+_Avoid_: Firmware build, device version
+
+**Flash**:
+To write a firmware image to a deck over its USB cable. The updater does everything over USB.
+_Avoid_: Upload, push, burn, install
+
+**Firmware update**:
+Checking for a newer release, downloading it, and flashing it. The check is automatic; the flash happens only when the user asks.
+_Avoid_: Upgrade, OTA
+
+**Bootloader mode**:
+The deck's built-in USB mode that accepts a firmware image while the app firmware is not running. A bad app flash cannot remove it.
+_Also_: ROM loader
+_Avoid_: Download mode, DFU, recovery mode, serial mode
+
+**Bootloader port**:
+The serial port the deck exposes while it is in bootloader mode. On Linux the app identifies it by the USB serial number and physical path recorded before the handoff. On Windows the COM port's serial is a PnP instance id, not the HID's USB serial, so the app ignores the HID serial and accepts the recorded `303A:1001` only on a port that appeared after the handoff; a pre-existing port is never selected by PID. The app keeps the matching port after a failed write so Retry writes again without another handoff.
+_Avoid_: ROM port, loader port, retained ROM port
+
+**Bootloader handoff**:
+The acknowledged restart from the running firmware into bootloader mode. The app sends `CMD_ENTER_BOOTLOADER`, the deck answers, then the HID interface disappears.
+_Short form_: handoff (in code and stage names)
+_Avoid_: reset, reboot
+
+**App slot**:
+The part of the deck's flash that holds the application firmware. A flash writes only this part, so the bootloader, partition table, NVS and SD card stay.
+_Avoid_: App partition, app image area
+
+**App image**:
+The application firmware binary written to the app slot.
+_Avoid_: App binary, firmware.bin

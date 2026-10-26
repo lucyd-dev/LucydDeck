@@ -10,6 +10,23 @@ This file condenses what the host relies on. Update it when a firmware change la
 - The host sequence rises by one per frame and wraps at `0x7FFF` to `0`. The M-bit stays clear. It never restarts at 1 on a HID reconnect, because a reconnect raises no USB event. The device clears its baseline on USB start or resume and on `CMD_RESET_SEQUENCE` (`0x04`), and between clears it requires exactly `previous + 1`. The app sends the reset when it opens the deck and again before retrying a command the deck answered with `ERR_SEQUENCE`. Firmware without the command answers `ERR_UNKNOWN_COMMAND`, and the app keeps using the running counter. The device sets the M-bit except on the last frame of a stream.
 - One outstanding request at a time. Reassemble a stream by the expected opcode. `0xA0` can arrive at any moment and is never acked.
 
+## Bootloader handoff
+
+`CMD_ENTER_BOOTLOADER` (`0x05`) asks the running firmware to restart into the ESP32-S3 ROM bootloader so the host can flash an app image. It takes no payload and needs no open file transfer. Before sending it, the host cancels any transfer the deck still holds, so no `CMD_FILE_*` frame races the handoff.
+
+The contract is ack-then-restart, not a reply:
+
+1. The device answers `RESP_ACK` (`0xFF`).
+2. It waits about 100 ms so the ack leaves the USB stack.
+3. It calls `usb_persist_restart(RESTART_BOOTLOADER)`.
+4. Nothing follows the ack. The HID interface disappearing is success; a missing second response is expected and must not be treated as a timeout or a failure.
+
+The ROM loader re-enumerates as `303A:1001` (`USB JTAG/serial debug unit`), which is also the running app's VID:PID. The host therefore records the deck's USB identity and the serial ports present **before** sending `0x05`, then selects the serial port that carries that identity. On Linux that is the serial number plus the physical port path. On Windows the COM port reports a PnP instance id as its serial, not the USB serial, so the host ignores the recorded serial and accepts only a port with the bootloader's `303A:1001` that was absent before the handoff; a pre-existing port is never selected by PID. Under usbipd, on Linux, the loader can appear on a different vhci path; the serial number carries the identity across that re-enumeration, with the path as a corroborating match on native Linux.
+
+Firmware older than this command answers `ERR_UNKNOWN_COMMAND`; the deck then stays in app mode. `protocol_version` stays 1. The first release that carries `0x05` is installed once with PlatformIO (see `docs/wsl-usb.md`); after that the app owns updates.
+
+The app-only guarantee sits with the host. A local `.bin` carries no manifest, so the Advanced local path checks only the size bound of `0x7E0000` bytes (8064 KiB) and always writes at `0x10000`. The release updater checks the manifest's address, layout and checksum when it lands. esptool writes with `eraseAll: false`; no path writes the bootloader, partition table, NVS or SD card.
+
 ## Opcodes
 
 Host to device:
@@ -21,6 +38,7 @@ Host to device:
 | `0x02`         | images list                    |
 | `0x03`         | profiles list                  |
 | `0x04`         | reset sequence                 |
+| `0x05`         | enter bootloader               |
 | `0x20`-`0x22`  | profile create, rename, delete |
 | `0x23`, `0x24` | page delete, icon delete       |
 | `0x30`-`0x33`  | file start, chunk, end, cancel |

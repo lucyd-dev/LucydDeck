@@ -99,6 +99,11 @@ jobs:
             - name: Package
               run: npx electron-builder --config config/electron-builder.json ${{ matrix.args }} --publish never
 
+            - name: Verify serialport native module in the installer
+              uses: ./.github/actions/verify-serialport
+              with:
+                  artifact-dir: release
+
             - name: Upload artifacts
               uses: actions/upload-artifact@v4
               with:

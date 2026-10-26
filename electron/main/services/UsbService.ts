@@ -138,6 +138,8 @@ export class UsbService {
     private readonly backoffMs: number[];
 
     private connection: HidConnection | null = null;
+    /** Last device descriptor matched by `connect`; kept while the HID handle drops. */
+    private lastDevice: HidDescriptorLike | null = null;
     private readonly sequence = new SequenceProvider();
     private pending: PendingCommand | null = null;
     private readonly queue: QueuedCommand[] = [];
@@ -182,6 +184,29 @@ export class UsbService {
 
     get connected(): boolean {
         return this.connection !== null;
+    }
+
+    /**
+     * The HID descriptor matched by the last successful `connect`. It stays
+     * available after the interface drops so the flasher can record the deck's
+     * identity before asking it to restart into bootloader mode.
+     */
+    hidFingerprint(): HidDescriptorLike | null {
+        return this.lastDevice === null ? null : { ...this.lastDevice };
+    }
+
+    /**
+     * True while a matching HID interface is enumerated. The firmware's
+     * bootloader restart makes it disappear; the flasher waits for that before
+     * looking for the loader port, so it cannot pick the app's own CDC port.
+     */
+    async hidPresent(): Promise<boolean | null> {
+        try {
+            return findUsbDevice(await this.transport.list(), this.pids) !== null;
+        } catch (error) {
+            log.warn(`[usb] could not check HID presence: ${String(error)}`);
+            return null;
+        }
     }
 
     private emit(event: UsbEventPayload): void {
@@ -268,6 +293,7 @@ export class UsbService {
         }
 
         this.connection = connection;
+        this.lastDevice = found.device;
         // The host sequence is deliberately not reset here: opening a HID
         // handle does not re-enumerate the device, so the firmware keeps
         // expecting the next value of the counter we were already using.
@@ -281,6 +307,34 @@ export class UsbService {
             state: DeviceState.Connected,
             label: describeDevice(found.device, found.pid),
         });
+    }
+
+    /**
+     * A user-requested connect. A failed attempt keeps the background scan
+     * alive, unless the failure was a disconnect superseding the attempt.
+     */
+    async connectWithScanning(): Promise<void> {
+        this.cancelReconnect();
+        try {
+            await this.connect();
+        } catch (error) {
+            if (!this.manualStop) {
+                this.resumeScanning();
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Keep looking for a deck after an operation left the app disconnected.
+     * A firmware flash owns the HID handle and may leave the deck on the bus
+     * after the flash's own wait has given up; this restarts the background
+     * scan so the deck is picked up whenever it comes back.
+     */
+    resumeScanning(): void {
+        this.manualStop = false;
+        this.cancelReconnect();
+        this.scheduleReconnect();
     }
 
     async disconnect(): Promise<void> {

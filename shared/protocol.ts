@@ -127,6 +127,9 @@ export const DEVICE_VID = 0x303a;
  */
 export const DEVICE_PIDS = [0x822e, 0x1001] as const;
 
+/** The ESP32-S3 ROM bootloader's product ID (`303A:1001`). */
+export const BOOTLOADER_PID = 0x1001;
+
 /** Vendor HID usage page / usage of the vendor pipe. */
 export const DEVICE_USAGE_PAGE = 0xff00;
 export const DEVICE_USAGE = 0x01;
@@ -141,6 +144,11 @@ export enum HostCommand {
     GetProfilesList = 0x03,
     /** Clears the device's host-sequence baseline; any sequence is accepted. */
     ResetSequence = 0x04,
+    /**
+     * Acknowledges, waits about 100 ms, then restarts into the ROM bootloader.
+     * Nothing follows the ack; the HID interface disappearing is success.
+     */
+    EnterBootloader = 0x05,
     ProfileCreate = 0x20,
     ProfileRename = 0x21,
     ProfileDelete = 0x22,
@@ -285,6 +293,9 @@ export interface HidDescriptorLike {
     path?: string;
     product?: string;
     manufacturer?: string;
+    serialNumber?: string;
+    /** Windows device instance id, when node-hid exposes one. */
+    pnpId?: string;
 }
 
 export interface DeviceMatch {

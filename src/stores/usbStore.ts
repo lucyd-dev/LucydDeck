@@ -15,6 +15,7 @@ export const useUsbStore = defineStore("usb", () => {
     const deviceInfo = ref<DeviceInfo | null>(null);
     const busy = ref(false);
     const syncing = ref(false);
+    const transferring = ref(false);
     const syncProgress = ref<SyncProgressPayload | null>(null);
 
     const connected = computed(() => status.value.state === DeviceState.Connected);
@@ -116,6 +117,19 @@ export const useUsbStore = defineStore("usb", () => {
     }
 
     // Main-process push events.
+    on(eventChannels.usb, (payload) => {
+        if (payload.type === "transfer-progress") {
+            transferring.value =
+                payload.phase === "start" || payload.phase === "chunk" || payload.phase === "retry";
+            return;
+        }
+        if (payload.type === "status") {
+            setStatus(payload.status);
+            if (payload.status.state !== DeviceState.Connected) {
+                transferring.value = false;
+            }
+        }
+    });
     on(eventChannels.syncProgress, (payload) => {
         syncProgress.value = payload;
     });
@@ -125,6 +139,7 @@ export const useUsbStore = defineStore("usb", () => {
         deviceInfo,
         busy,
         syncing,
+        transferring,
         syncProgress,
         connected,
         setStatus,
