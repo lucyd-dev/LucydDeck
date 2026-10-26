@@ -139,3 +139,26 @@ _Avoid_: Storage, workspace, cache
 **Plugin state**:
 A value a plugin publishes to describe what it is doing, such as muted or live. The app shows it. The deck does not.
 _Avoid_: Status, flag
+
+**Firmware release**:
+One published firmware build, named by a version and described by the manifest the updater reads.
+
+**Firmware manifest**:
+The published description of a release: its version, board, image size and checksum. The updater reads it before downloading anything.
+_Avoid_: Descriptor, metadata, release file
+
+**Deck firmware version**:
+The version a deck reports for the firmware it is running.
+_Avoid_: Firmware build, device version
+
+**Flash**:
+To write a firmware image to a deck over its USB cable. The updater does everything over USB.
+_Avoid_: Upload, push, burn, install
+
+**Firmware update**:
+Checking for a newer release, downloading it, and flashing it. The check is automatic; the flash happens only when the user asks.
+_Avoid_: Upgrade, OTA
+
+**Bootloader mode**:
+The deck's built-in USB mode that accepts a firmware image while the app firmware is not running. A bad app flash cannot remove it.
+_Avoid_: Download mode, DFU, recovery mode, serial mode
