@@ -20,6 +20,9 @@ jobs:
               id: release
               uses: googleapis/release-please-action@v4
               with:
+                  # A PAT, not GITHUB_TOKEN: PRs opened with GITHUB_TOKEN never
+                  # trigger the CI workflow, so a release PR would go untested.
+                  token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
                   config-file: config/release-please-config.json
                   manifest-file: config/release-please-manifest.json
 
