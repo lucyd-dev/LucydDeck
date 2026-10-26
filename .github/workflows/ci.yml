@@ -13,6 +13,9 @@ concurrency:
 jobs:
     lint-typecheck:
         name: Lint & Typecheck
+        # A release-please commit is built and published by the release workflow,
+        # so building it again here only duplicates that work.
+        if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
@@ -50,6 +53,7 @@ jobs:
 
     build-artifacts:
         name: Build & Upload (${{ matrix.name }})
+        if: "${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
         strategy:
             fail-fast: false
             matrix:
