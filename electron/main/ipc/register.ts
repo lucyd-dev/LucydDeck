@@ -238,7 +238,7 @@ export function registerIpcHandlers(services: IpcServices): void {
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
     register(channels.usb.connect, async () => {
         assertDeckWritable();
-        await usb.connect();
+        await usb.connectWithScanning();
         return { ok: true, data: undefined };
     });
     register(channels.usb.disconnect, async () => {

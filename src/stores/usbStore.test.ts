@@ -85,4 +85,18 @@ describe("usbStore transfer state", () => {
 
         expect(usb.transferring).toBe(false);
     });
+
+    it("applies a status event so a background reconnect is visible", () => {
+        const usb = useUsbStore();
+        const status = {
+            state: DeviceState.Connected,
+            label: "LucydDeck (0x303a:0x1001)",
+        };
+
+        emit("usb:event", { type: "status", status });
+
+        expect(usb.connected).toBe(true);
+        expect(usb.status).toEqual(status);
+        expect(mocks.setDeviceStatus).toHaveBeenCalledWith(status);
+    });
 });

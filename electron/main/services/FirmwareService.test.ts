@@ -33,6 +33,7 @@ class FakeUsb implements FirmwareUsbClient {
     connected = true;
     readonly calls: HostCommand[] = [];
     readonly order: string[];
+    scanCalls = 0;
     commandError: Error | null = null;
     disconnectCalls = 0;
     connectCalls = 0;
@@ -88,6 +89,10 @@ class FakeUsb implements FirmwareUsbClient {
     finishHandoff(): void {
         this.finishCommand?.();
         this.finishCommand = null;
+    }
+
+    resumeScanning(): void {
+        this.scanCalls++;
     }
 
     async disconnect(): Promise<void> {
@@ -579,6 +584,22 @@ describe("FirmwareService local flash", () => {
         expect(flasher.calls).toHaveLength(0);
     });
 
+    it("keeps the bootstrap instruction when the deck is read again", async () => {
+        const { service, usb } = make();
+        usb.commandError = Object.assign(new Error("unknown command"), {
+            firmwareCode: ErrorCode.UnknownCommand,
+        });
+        await service.flashLocal({ path: FILE, confirmed: true });
+
+        const state = await service.refreshDeckInfo();
+
+        expect(state).toMatchObject({
+            phase: "error",
+            error: { code: FirmwareErrorCodes.FirmwareTooOld },
+            installedVersion: "0.4.0",
+        });
+    });
+
     it("waits for the HID interface to drop before looking for the loader", async () => {
         const order: string[] = [];
         const { service, usb } = make({ order });
@@ -604,7 +625,7 @@ describe("FirmwareService local flash", () => {
     });
 
     it("stops when the loader port does not appear", async () => {
-        const { service, usb, flasher, locator } = make();
+        const { service, usb, device, flasher, locator } = make();
         locator.port = null;
 
         const state = await service.flashLocal({ path: FILE, confirmed: true });
@@ -615,6 +636,16 @@ describe("FirmwareService local flash", () => {
         });
         expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
         expect(flasher.calls).toHaveLength(0);
+        expect(usb.scanCalls).toBe(1);
+
+        usb.connected = true;
+        const recovered = await service.refreshDeckInfo();
+
+        expect(recovered).toMatchObject({
+            phase: "idle",
+            installedVersion: device.version,
+            error: null,
+        });
     });
 
     it("does not claim a new version when the deck comes back unreadable", async () => {
@@ -791,8 +822,19 @@ describe("FirmwareService local flash", () => {
         });
         expect(state!.error?.message).toContain("Unplug it, plug it back in");
         expect(state!.error?.retryable).toBeUndefined();
+        expect(usb.scanCalls).toBe(1);
         await service.retry();
         expect(flasher.calls).toHaveLength(1);
+
+        usb.connected = true;
+        const recovered = await service.refreshDeckInfo();
+
+        expect(recovered).toMatchObject({
+            phase: "done",
+            installedVersion: "0.4.0",
+            error: null,
+        });
+        expect(recovered.release.status).toBe("idle");
     });
 
     it("does nothing when Retry has no retained write", async () => {

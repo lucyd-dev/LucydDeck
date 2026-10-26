@@ -72,6 +72,8 @@ export interface FirmwareUsbClient {
     ): Promise<Uint8Array>;
     disconnect(): Promise<void>;
     connect(): Promise<void>;
+    /** Restart the background scan after an operation left the app disconnected. */
+    resumeScanning(): void;
 }
 
 /** Narrow view of `DeviceService`. */
@@ -142,6 +144,22 @@ const TRANSFER_CANCEL_FAILED_MESSAGE =
 const USB_PORT_UNKNOWN_MESSAGE =
     "The app could not recognise the deck's USB port. Replug it and try again.";
 const UDEV_RULE = "99-lucyddeck.rules";
+
+/**
+ * Flash errors that a readable deck clears. Actionable errors such as an old
+ * firmware or a version mismatch stay until the user acts on them.
+ */
+const RECOVERABLE_ERRORS = new Set<FirmwareErrorCode>([
+    FirmwareErrorCodes.NotConnected,
+    FirmwareErrorCodes.Handoff,
+    FirmwareErrorCodes.PortNotFound,
+    FirmwareErrorCodes.PortPermission,
+    FirmwareErrorCodes.PortBusy,
+    FirmwareErrorCodes.Loader,
+    FirmwareErrorCodes.Write,
+    FirmwareErrorCodes.NoReturn,
+    FirmwareErrorCodes.Cancelled,
+]);
 
 function cloneState(state: FirmwareState): FirmwareState {
     return {
@@ -234,23 +252,26 @@ export class FirmwareService {
         }
         const info = await this.readDeckInfo();
         if (info !== null) {
-            // A deck replugged after "did not come back" is back; show the
-            // version it reports instead of keeping the stale error. A deck
-            // that returns after a failed write is in app mode, so its
-            // retained bootloader port is gone.
+            // A deck that is readable again clears a connection or write
+            // failure. "Did not come back" still means the write succeeded, so
+            // it goes to done; other recoverable errors return to idle. An
+            // actionable error (old firmware, version mismatch) stays put.
+            const error = this.current.error;
+            const wasError = this.current.phase === "error" && error !== null;
             const recovered =
-                this.current.phase === "error" &&
-                this.current.error?.code === FirmwareErrorCodes.NoReturn;
-            const wasRetryable =
-                this.current.phase === "error" && this.current.error?.retryable === true;
-            if (recovered || wasRetryable) {
+                wasError &&
+                error !== null &&
+                (error.retryable === true || RECOVERABLE_ERRORS.has(error.code));
+            const wroteFirmware =
+                recovered && error !== null && error.code === FirmwareErrorCodes.NoReturn;
+            if (recovered) {
                 this.retained = null;
             }
             this.current = {
                 ...this.current,
-                ...(recovered
+                ...(wroteFirmware
                     ? { phase: "done" as const, error: null }
-                    : wasRetryable
+                    : recovered
                       ? { phase: "idle" as const, error: null }
                       : {}),
                 installedVersion: info.firmwareVersion || null,
@@ -1063,6 +1084,12 @@ export class FirmwareService {
             error: { code, message, ...(retryable ? { retryable: true } : {}) },
         };
         this.emitState();
+        // A flash can leave the app disconnected (failed handoff, no return).
+        // Keep the scan alive so the deck is noticed whenever it reappears.
+        // A connected deck has nothing to scan for.
+        if (!this.usb.connected) {
+            this.usb.resumeScanning();
+        }
         return this.state();
     }
 

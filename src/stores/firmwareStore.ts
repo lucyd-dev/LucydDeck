@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
 import {
     FirmwareErrorCodes,
@@ -29,6 +29,7 @@ export const useFirmwareStore = defineStore("firmware", () => {
     const progress = ref<FlashProgressPayload | null>(null);
     const picking = ref(false);
     const starting = ref(false);
+    const usb = useUsbStore();
 
     const isBusy = computed(() => isFirmwareBusy(state.value.phase));
     const isActive = computed(() => isFirmwareActive(state.value));
@@ -125,7 +126,6 @@ export const useFirmwareStore = defineStore("firmware", () => {
      * whether the user reaches them from Settings or another surface.
      */
     function refuseWhileDeckBusy(): boolean {
-        const usb = useUsbStore();
         if (usb.syncing) {
             useAppStore().pushToast(
                 "warning",
@@ -247,6 +247,17 @@ export const useFirmwareStore = defineStore("firmware", () => {
             apply(result.data);
         }
     }
+
+    // A deck that reappears refreshes its version. A flash failure is
+    // recovery, not a new operation; the service clears the stale error.
+    watch(
+        () => usb.connected,
+        (connected) => {
+            if (connected && !isActive.value) {
+                void refresh();
+            }
+        },
+    );
 
     // Main-process pushes.
     on(eventChannels.firmwareState, (payload) => apply(payload));

@@ -123,8 +123,11 @@ export const useUsbStore = defineStore("usb", () => {
                 payload.phase === "start" || payload.phase === "chunk" || payload.phase === "retry";
             return;
         }
-        if (payload.type === "status" && payload.status.state !== DeviceState.Connected) {
-            transferring.value = false;
+        if (payload.type === "status") {
+            setStatus(payload.status);
+            if (payload.status.state !== DeviceState.Connected) {
+                transferring.value = false;
+            }
         }
     });
     on(eventChannels.syncProgress, (payload) => {

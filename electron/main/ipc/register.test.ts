@@ -50,6 +50,11 @@ describe("IPC deck ownership guards", () => {
     let dataDir = "";
     let lock: DeviceLock;
     let device: { deleteProfile: ReturnType<typeof vi.fn> };
+    let usb: {
+        connected: boolean;
+        onEvent: () => () => void;
+        connectWithScanning: ReturnType<typeof vi.fn>;
+    };
 
     beforeEach(() => {
         mocks.handlers.clear();
@@ -58,6 +63,11 @@ describe("IPC deck ownership guards", () => {
         storage.ensureLayout();
         lock = new DeviceLock();
         device = { deleteProfile: vi.fn(async () => undefined) };
+        usb = {
+            connected: true,
+            onEvent: () => () => undefined,
+            connectWithScanning: vi.fn(async () => undefined),
+        };
 
         const sync = new SyncService(
             storage,
@@ -66,7 +76,7 @@ describe("IPC deck ownership guards", () => {
             { lock },
         );
         const firmware = new FirmwareService({
-            usb: {} as never,
+            usb: { resumeScanning: vi.fn(), connected: true } as never,
             device: {} as never,
             flasher: {} as never,
             locator: {} as never,
@@ -77,7 +87,7 @@ describe("IPC deck ownership guards", () => {
 
         registerIpcHandlers({
             storage,
-            usb: { onEvent: () => () => undefined, connected: true } as never,
+            usb: usb as never,
             device: device as never,
             fileTransfer: { onEvent: () => () => undefined } as never,
             imagePipeline: {} as never,
@@ -126,5 +136,12 @@ describe("IPC deck ownership guards", () => {
         expect(lock.syncing).toBe(true);
 
         lock.endSync();
+    });
+
+    it("makes a chip connect keep scanning", async () => {
+        const result = await invoke(channels.usb.connect, undefined);
+
+        expect(result).toEqual({ ok: true, data: undefined });
+        expect(usb.connectWithScanning).toHaveBeenCalledOnce();
     });
 });

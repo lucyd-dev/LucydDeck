@@ -43,6 +43,9 @@ vi.mock("@/ipc/client", () => ({
         listProfiles: mocks.listDeviceProfiles,
         listImages: mocks.listImages,
     },
+    firmwareClient: {
+        state: vi.fn(async () => ({ ok: true, data: idleFirmwareState() })),
+    },
 }));
 
 vi.mock("@/ipc/events", () => ({

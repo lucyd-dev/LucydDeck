@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted } from "vue";
 import {
     CheckCircle2,
     Download,
@@ -158,15 +158,6 @@ async function chooseImage(): Promise<void> {
 onMounted(() => {
     void firmware.refresh();
 });
-
-watch(
-    () => usb.connected,
-    (connected) => {
-        if (connected) {
-            void firmware.refresh();
-        }
-    },
-);
 </script>
 
 <template>

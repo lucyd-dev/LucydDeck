@@ -313,6 +313,34 @@ export class UsbService {
         });
     }
 
+    /**
+     * A user-requested connect. A failed attempt keeps the background scan
+     * alive, unless the failure was a disconnect superseding the attempt.
+     */
+    async connectWithScanning(): Promise<void> {
+        this.cancelReconnect();
+        try {
+            await this.connect();
+        } catch (error) {
+            if (!this.manualStop) {
+                this.resumeScanning();
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Keep looking for a deck after an operation left the app disconnected.
+     * A firmware flash owns the HID handle and may leave the deck on the bus
+     * after the flash's own wait has given up; this restarts the background
+     * scan so the deck is picked up whenever it comes back.
+     */
+    resumeScanning(): void {
+        this.manualStop = false;
+        this.cancelReconnect();
+        this.scheduleReconnect();
+    }
+
     async disconnect(): Promise<void> {
         this.connectToken++;
         this.manualStop = true;

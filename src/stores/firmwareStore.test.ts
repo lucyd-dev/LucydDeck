@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { idleFirmwareState } from "@shared/firmware";
 import type { FirmwareState } from "@shared/firmware";
+import { DeviceState } from "@shared/ipc";
 import { useFirmwareStore } from "./firmwareStore";
 import { useUsbStore } from "./usbStore";
 
 const mocks = vi.hoisted(() => ({
     listeners: new Map<string, (payload: unknown) => void>(),
     pushToast: vi.fn(),
+    setDeviceStatus: vi.fn(),
     state: vi.fn(),
     check: vi.fn(),
     update: vi.fn(),
@@ -28,7 +30,12 @@ vi.mock("@/ipc/client", () => ({
 }));
 
 vi.mock("@/ipc/events", () => ({
-    eventChannels: { firmwareState: "firmware:state", flashProgress: "flash:progress" },
+    eventChannels: {
+        usb: "usb:event",
+        syncProgress: "sync:progress",
+        firmwareState: "firmware:state",
+        flashProgress: "flash:progress",
+    },
     on: (channel: string, handler: (payload: unknown) => void) => {
         mocks.listeners.set(channel, handler);
         return 1;
@@ -36,7 +43,10 @@ vi.mock("@/ipc/events", () => ({
 }));
 
 vi.mock("@/stores/appStore", () => ({
-    useAppStore: () => ({ pushToast: mocks.pushToast }),
+    useAppStore: () => ({
+        pushToast: mocks.pushToast,
+        setDeviceStatus: mocks.setDeviceStatus,
+    }),
 }));
 
 const RELEASE = {
@@ -347,6 +357,51 @@ describe("firmwareStore", () => {
         await expect(store.installUpdate()).resolves.toBe(false);
         expect(mocks.pushToast).toHaveBeenCalledWith("error", "There is no update to install.");
         expect(store.state.error).toMatchObject({ code: "FIRMWARE_NO_UPDATE" });
+    });
+
+    it("refreshes the installed version when a deck connects while idle", async () => {
+        mocks.state.mockResolvedValue({
+            ok: true,
+            data: state({ installedVersion: "0.4.1" }),
+        });
+        const store = useFirmwareStore();
+
+        emit("usb:event", {
+            type: "status",
+            status: { state: DeviceState.Connected, label: "LucydDeck" },
+        });
+
+        await vi.waitFor(() => expect(mocks.state).toHaveBeenCalled());
+        expect(store.state.installedVersion).toBe("0.4.1");
+    });
+
+    it("leaves the error state when a lost deck is detected again", async () => {
+        mocks.state.mockResolvedValue({
+            ok: true,
+            data: state({ phase: "idle", installedVersion: "0.4.1" }),
+        });
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({
+                phase: "error",
+                error: {
+                    code: "FIRMWARE_NO_RETURN",
+                    message: "The deck did not come back.",
+                },
+            }),
+        );
+        expect(store.state.phase).toBe("error");
+
+        emit("usb:event", {
+            type: "status",
+            status: { state: DeviceState.Connected, label: "LucydDeck" },
+        });
+
+        await vi.waitFor(() => expect(mocks.state).toHaveBeenCalled());
+        expect(store.state.phase).toBe("idle");
+        expect(store.state.error).toBeNull();
+        expect(store.state.installedVersion).toBe("0.4.1");
     });
 
     it("offers Retry only for a write that kept its bootloader port", () => {

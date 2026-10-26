@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     DEVICE_PIDS,
     DEVICE_USAGE,
@@ -334,5 +334,51 @@ describe("UsbService failures", () => {
         await usb.disconnect();
         await expect(pending).rejects.toMatchObject({ code: UsbErrorCodes.NotConnected });
         expect(usb.connected).toBe(false);
+    });
+});
+
+describe("UsbService.resumeScanning", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("keeps scanning after a disconnected attempt and connects when the deck appears", async () => {
+        vi.useFakeTimers();
+        const { transport, usb } = makeService({
+            autoReconnect: true,
+            reconnectBackoffMs: [10],
+        });
+        const deck = transport.devices[0]!;
+        transport.devices = [];
+
+        await usb.disconnect();
+        usb.resumeScanning();
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(usb.connected).toBe(false);
+
+        transport.devices = [deck];
+        await vi.advanceTimersByTimeAsync(10);
+
+        expect(usb.connected).toBe(true);
+        expect(usb.status().state).toBe("connected");
+    });
+
+    it("keeps scanning when a user connect finds no deck", async () => {
+        vi.useFakeTimers();
+        const { transport, usb } = makeService({
+            autoReconnect: true,
+            reconnectBackoffMs: [10],
+        });
+        const deck = transport.devices[0]!;
+        transport.devices = [];
+
+        await expect(usb.connectWithScanning()).rejects.toMatchObject({
+            code: UsbErrorCodes.NoDevice,
+        });
+        transport.devices = [deck];
+        await vi.advanceTimersByTimeAsync(10);
+
+        expect(usb.connected).toBe(true);
     });
 });
