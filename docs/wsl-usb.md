@@ -111,6 +111,70 @@ The WSL pass on 2026-10-26 flashed a local `firmware.bin`, watched handoff, boot
 
 Native Linux packages are supported, but their install layer (udev rule, `brltty`, AppImage) is documented and **unverified**; Windows is the hardware acceptance gate.
 
+## Local fake update
+
+The release path can be tested without publishing a release. The manifest's fields, limits and refusals are in the [Firmware Manifest](https://github.com/lucyd-dev/LucydDeck-firmware/wiki/Firmware-Manifest) reference, and the release walk-through is [Releasing](https://github.com/lucyd-dev/LucydDeck-firmware/wiki/Releasing). A development build honours `LUCYD_FIRMWARE_MANIFEST`; a packaged build ignores it and always reads the published manifest. The image is resolved from the same directory as the manifest, so both files can be served from one local folder.
+
+1. Build an image that reports the fake version. The app checks that the deck returns exactly the manifest version, so a `9.9.9` manifest needs an image built with `version.txt` set to `9.9.9`.
+
+    ```bash
+    cd ~/Code/LucydDeck-firmware
+    printf '9.9.9\n' > version.txt
+    pio run -e release
+    git checkout version.txt
+    mkdir -p /tmp/opencode/fake-release
+    cp .pio/build/release/firmware.bin /tmp/opencode/fake-release/LucydDeck-firmware-v9.9.9.bin
+    ```
+
+2. Write `firmware.json` beside the image and serve the folder.
+
+    ```bash
+    python3 - <<'PY'
+    import hashlib, json, pathlib
+
+    folder = pathlib.Path("/tmp/opencode/fake-release")
+    image = folder / "LucydDeck-firmware-v9.9.9.bin"
+    manifest = {
+        "schemaVersion": 1,
+        "version": "9.9.9",
+        "releaseUrl": "http://127.0.0.1:8765/notes.html",
+        "boards": {
+            "WAVESHARE_ESP32_S3_TOUCH_LCD_4_3": {
+                "asset": image.name,
+                "size": image.stat().st_size,
+                "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                "chip": "esp32s3",
+                "address": 65536,
+                "layout": "max_app_8MB",
+            }
+        },
+    }
+    (folder / "firmware.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (folder / "notes.html").write_text("<h1>Fake release</h1>\n")
+    PY
+    python3 -m http.server 8765 --directory /tmp/opencode/fake-release
+    ```
+
+3. In another WSL shell, start the app with the override and connect the deck.
+
+    ```bash
+    cd ~/Code/LucydDeck
+    LUCYD_FIRMWARE_MANIFEST=http://127.0.0.1:8765/firmware.json npm run dev
+    ```
+
+    Settings → Firmware should show `Version 9.9.9 is available`, the Settings item should carry the dot, and the local notes page should be the release link. Choose **Update to 9.9.9**, watch the download, handoff, write and return, and confirm the section spells out the version the deck now reports. **Check for updates** afterwards should say the deck is up to date. Profiles, pages, icons and the active page stay on the deck.
+
+4. Restore the deck. The fake version is higher than every published release, so flash the real release once with PlatformIO and remove the folder.
+
+    ```bash
+    cd ~/Code/LucydDeck-firmware
+    git pull
+    pio run -e release -t upload
+    rm -rf /tmp/opencode/fake-release
+    ```
+
+The manifest version must be newer than the deck's firmware version and match the version the image reports. To test only the "update available" state, any newer version works; for the flash and post-flash confirmation, build the image with the same version. The override changes nothing in a packaged build and does not alter the default release URL.
+
 ## Local flash reference
 
 See the [WSL acceptance check](#wsl-acceptance-check) for the manual pass.

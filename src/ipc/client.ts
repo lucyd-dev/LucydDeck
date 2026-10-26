@@ -10,7 +10,7 @@ import type { PluginConfigValues } from "@shared/plugins";
 import type { AppSettings } from "@shared/settings";
 import type { PageConfig } from "@shared/types";
 import type { DiffPlan } from "@shared/sync";
-import type { FlashLocalRequest } from "@shared/firmware";
+import type { FirmwareCheckRequest, FlashLocalRequest } from "@shared/firmware";
 
 /**
  * Typed wrappers over `window.lucyd`. The renderer calls these instead of
@@ -119,6 +119,7 @@ export const updaterClient = {
 
 export const firmwareClient = {
     state: () => invoke(channels.firmware.getState, undefined),
+    check: (request: FirmwareCheckRequest = {}) => invoke(channels.firmware.check, request),
     update: () => invoke(channels.firmware.update, undefined),
     flashLocal: (request: FlashLocalRequest = {}) => invoke(channels.firmware.flashLocal, request),
     cancel: () => invoke(channels.firmware.cancel, undefined),

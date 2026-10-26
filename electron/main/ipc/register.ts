@@ -445,10 +445,18 @@ export function registerIpcHandlers(services: IpcServices): void {
         return { ok: true, data: undefined };
     });
 
-    // --- firmware (local image) -----------------------------------------
+    // --- firmware (release update and local image) ----------------------
     register(channels.firmware.getState, async () => ({
         ok: true,
         data: await firmware.refreshDeckInfo(),
+    }));
+    register(channels.firmware.check, async (request) => ({
+        ok: true,
+        data: await firmware.checkForUpdate(request ?? {}),
+    }));
+    register(channels.firmware.update, async () => ({
+        ok: true,
+        data: await firmware.update(),
     }));
     register(channels.firmware.flashLocal, async (request) => ({
         ok: true,
@@ -462,7 +470,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     // --- stubs for later steps -----------------------------------------
     notImplemented(channels.updater.state, "5");
     notImplemented(channels.updater.check, "5");
-    notImplemented(channels.firmware.update, "5");
 }
 
 const REPOSITORY_URL = "https://github.com/lucyd-dev/LucydDeck";

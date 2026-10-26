@@ -6,6 +6,7 @@ import path from "node:path";
 import type { AppSettings } from "@shared/settings";
 import { WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from "@shared/settings";
 import { eventChannels } from "@shared/ipc";
+import { LATEST_MANIFEST_URL } from "@shared/firmwareRelease";
 import { StorageService } from "./main/services/StorageService";
 import { UsbService } from "./main/services/UsbService";
 import { FileTransfer } from "./main/services/FileTransfer";
@@ -16,6 +17,7 @@ import { FirmwareService } from "./main/services/FirmwareService";
 import { EsptoolFlasher } from "./main/services/flash/EsptoolFlasher";
 import { RomPortLocator } from "./main/services/flash/RomPortLocator";
 import { QuitGuard } from "./main/services/flash/QuitGuard";
+import { ReleaseSource, resolveManifestUrl } from "./main/services/ReleaseSource";
 import { PluginHost } from "./main/plugins/PluginHost";
 import { PluginService } from "./main/plugins/PluginService";
 import { CommandRouter } from "./main/plugins/CommandRouter";
@@ -310,11 +312,20 @@ app.whenReady().then(async () => {
     const sync = new SyncService(storage, device, fileTransfer, {
         pluginCommands: () => plugins.registeredCommands(),
     });
+    // The override is a development aid and never applies to a packaged build.
+    const manifestUrl = resolveManifestUrl({
+        packaged: app.isPackaged,
+        override: process.env.LUCYD_FIRMWARE_MANIFEST,
+    });
+    if (manifestUrl !== LATEST_MANIFEST_URL) {
+        log.info(`[firmware] using development manifest ${manifestUrl}`);
+    }
     const firmware = new FirmwareService({
         usb,
         device,
         flasher: new EsptoolFlasher(),
         locator: new RomPortLocator(),
+        releaseSource: new ReleaseSource({ manifestUrl }),
         pickImage: () => pickFirmwareImage(),
         onState: (state) => {
             if (state.phase === "handoff") {

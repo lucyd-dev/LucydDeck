@@ -60,8 +60,10 @@ describe("shared/ipc contract", () => {
         expect(channels.usb.deleteFile).toBe("usb:deleteFile");
     });
 
-    it("exposes the local-firmware channels and keeps updater reserved", () => {
+    it("exposes the firmware channels and keeps updater reserved", () => {
         expect(channels.firmware.getState).toBe("firmware:getState");
+        expect(channels.firmware.check).toBe("firmware:check");
+        expect(channels.firmware.update).toBe("firmware:update");
         expect(channels.firmware.flashLocal).toBe("firmware:flashLocal");
         expect(channels.firmware.cancel).toBe("firmware:cancel");
         expect(channels.updater.state).toBe("updater:state");

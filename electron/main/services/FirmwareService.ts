@@ -1,14 +1,14 @@
 // ---------------------------------------------------------------------------
-// The local-firmware state machine.
+// The firmware update state machine.
 //
-// One explicit path: a local app image passes the app-slot size bound, the user
-// confirms, the app asks the deck to restart into its ROM bootloader, finds the
-// loader's serial port by the identity recorded from the HID interface, writes
-// the app image with esptool, and waits for the deck to come back so it can
-// read the new firmware version.
+// Two entry points share one flash path. A release update reads the newest
+// stable manifest, checks the deck's board and version, downloads and verifies
+// the image, then hands the deck to its ROM bootloader and writes the app slot.
+// An Advanced flash takes a local image through the same handoff, write and
+// return, skipping the release source and its version policy.
 //
-// All platform and esptool detail stays behind `FirmwareFlasher` and
-// `RomPortLocator`, so this module is tested with fakes.
+// All network, platform and esptool detail stays behind `FirmwareReleaseSource`,
+// `FirmwareFlasher` and `RomPortLocator`, so this module is tested with fakes.
 // ---------------------------------------------------------------------------
 
 import fs from "node:fs";
@@ -23,12 +23,17 @@ import {
     validateFlashSize,
 } from "@shared/firmware";
 import type {
+    FirmwareCheckRequest,
     FirmwareErrorCode,
+    FirmwareErrorInfo,
     FirmwareImageInfo,
+    FirmwareReleaseInfo,
     FirmwareState,
     FlashLocalRequest,
     FlashProgressPayload,
 } from "@shared/firmware";
+import { evaluateRelease, normalizeVersion } from "@shared/firmwareRelease";
+import type { FirmwareBoardEntry, FirmwareManifest } from "@shared/firmwareRelease";
 import { DeviceResponse, ErrorCode, HostCommand } from "@shared/protocol";
 import type { HidDescriptorLike } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
@@ -37,6 +42,8 @@ import type { FirmwareFlasher } from "./flash/EsptoolFlasher";
 import type { DeckUsbFingerprint, SerialPortInfoLike } from "./flash/PortFingerprint";
 import type { RomPortLocator } from "./flash/RomPortLocator";
 import { delay } from "./flash/delay";
+import { ReleaseSourceError, isAbortError } from "./ReleaseSource";
+import type { FirmwareReleaseSource } from "./ReleaseSource";
 
 export class FirmwareFlashError extends Error {
     readonly code: FirmwareErrorCode;
@@ -73,6 +80,7 @@ export interface FirmwareServiceOptions {
     device: FirmwareDeviceClient;
     flasher: FirmwareFlasher;
     locator: Pick<RomPortLocator, "fingerprintFor" | "waitFor">;
+    releaseSource: FirmwareReleaseSource;
     /** Opens the native picker; returns an absolute path or `null`. */
     pickImage: () => Promise<string | null>;
     onState?: (state: FirmwareState) => void;
@@ -97,6 +105,11 @@ interface LoadedImage {
     bytes: Uint8Array;
 }
 
+interface PendingRelease {
+    manifest: FirmwareManifest;
+    entry: FirmwareBoardEntry;
+}
+
 type StatFile = NonNullable<FirmwareServiceOptions["statFile"]>;
 
 const HANDOFF_FAILED_MESSAGE = "The deck did not restart for the update. Replug it and try again.";
@@ -108,18 +121,25 @@ function cloneState(state: FirmwareState): FirmwareState {
         ...state,
         image: state.image === null ? null : { ...state.image },
         error: state.error === null ? null : { ...state.error },
+        release: {
+            ...state.release,
+            latest: state.release.latest === null ? null : { ...state.release.latest },
+            error: state.release.error === null ? null : { ...state.release.error },
+        },
     };
 }
 
 /**
- * Owns the firmware state machine and the local-flash flow. One flash at a
- * time; the renderer only sees state transitions and progress.
+ * Owns the firmware state machine: the release check, the release update and
+ * the local image path. One operation at a time; the renderer only sees state
+ * transitions and progress.
  */
 export class FirmwareService {
     private readonly usb: FirmwareUsbClient;
     private readonly device: FirmwareDeviceClient;
     private readonly flasher: FirmwareFlasher;
     private readonly locator: Pick<RomPortLocator, "fingerprintFor" | "waitFor">;
+    private readonly releaseSource: FirmwareReleaseSource;
     private readonly pickImage: () => Promise<string | null>;
     private readonly onState: (state: FirmwareState) => void;
     private readonly onProgress: (progress: FlashProgressPayload) => void;
@@ -132,12 +152,17 @@ export class FirmwareService {
     private readonly now: () => number;
 
     private current: FirmwareState = idleFirmwareState();
+    /** The release a successful check made available to flash. */
+    private pending: PendingRelease | null = null;
+    /** Aborts a manifest fetch or a download that the user cancelled. */
+    private abort: AbortController | null = null;
 
     constructor(options: FirmwareServiceOptions) {
         this.usb = options.usb;
         this.device = options.device;
         this.flasher = options.flasher;
         this.locator = options.locator;
+        this.releaseSource = options.releaseSource;
         this.pickImage = options.pickImage;
         this.onState = options.onState ?? (() => undefined);
         this.onProgress = options.onProgress ?? (() => undefined);
@@ -159,7 +184,16 @@ export class FirmwareService {
         return isFirmwareBusy(this.current.phase);
     }
 
-    /** Read the deck's installed version and board when a deck is connected. */
+    /** Check, download and flash all keep a second operation out. */
+    isActive(): boolean {
+        return (
+            this.isBusy() ||
+            this.current.phase === "downloading" ||
+            this.current.release.status === "checking"
+        );
+    }
+
+    /** Read the deck's firmware version and board when a deck is connected. */
     async refreshDeckInfo(): Promise<FirmwareState> {
         if (!this.usb.connected) {
             return this.state();
@@ -177,8 +211,197 @@ export class FirmwareService {
                 installedVersion: info.firmwareVersion || null,
                 board: info.board || null,
             };
+            this.reconcileRelease();
         }
         return this.state();
+    }
+
+    /**
+     * Read the newest stable release for this deck. A launch check is silent on
+     * failure; a manual check stores the failure for the Firmware section.
+     */
+    async checkForUpdate(request: FirmwareCheckRequest = {}): Promise<FirmwareState> {
+        const silent = request.silent === true;
+        if (this.isActive()) {
+            return this.state();
+        }
+        if (!this.usb.connected) {
+            this.pending = null;
+            this.setReleaseStatus("no-deck");
+            return this.state();
+        }
+
+        const previous = this.current.release;
+        this.setReleaseStatus("checking");
+        const controller = new AbortController();
+        this.abort = controller;
+        try {
+            const info = await this.readDeckInfo();
+            if (controller.signal.aborted) {
+                return this.state();
+            }
+            if (info === null) {
+                this.pending = null;
+                this.setReleaseStatus("no-deck");
+                return this.state();
+            }
+            this.current = {
+                ...this.current,
+                installedVersion: info.firmwareVersion || null,
+                board: info.board || null,
+            };
+
+            const { manifest, publishedAt } = await this.releaseSource.latest(controller.signal);
+            const evaluation = evaluateRelease(manifest, info.board, info.firmwareVersion);
+            const latest: FirmwareReleaseInfo = {
+                version: evaluation.latestVersion,
+                notesUrl: manifest.releaseUrl,
+                publishedAt,
+            };
+            this.pending =
+                evaluation.status === "available" && evaluation.entry !== null
+                    ? { manifest, entry: evaluation.entry }
+                    : null;
+            this.current = {
+                ...this.current,
+                release: {
+                    status: evaluation.status,
+                    latest,
+                    error: null,
+                },
+            };
+            this.emitState();
+            return this.state();
+        } catch (error) {
+            if (isAbortError(error)) {
+                return this.state();
+            }
+            log.warn(`[firmware] update check failed: ${String(error)}`);
+            if (silent) {
+                // A launch check leaves the last known release alone, including
+                // a previous "update available" hint.
+                this.current = { ...this.current, release: previous };
+                this.emitState();
+                return this.state();
+            }
+            this.pending = null;
+            this.current = {
+                ...this.current,
+                release: {
+                    status: "error",
+                    latest: previous.latest,
+                    error: mapReleaseError(error),
+                },
+            };
+            this.emitState();
+            return this.state();
+        } finally {
+            if (this.abort === controller) {
+                this.abort = null;
+            }
+        }
+    }
+
+    /**
+     * Download, verify and flash the release a successful check found. The
+     * deck's board and version are re-read first, so a deck that changed since
+     * the check is never written with a stale or older release.
+     */
+    async update(): Promise<FirmwareState> {
+        if (this.isActive()) {
+            return this.state();
+        }
+        const pending = this.pending;
+        if (pending === null || this.current.release.status !== "available") {
+            return this.setError(
+                FirmwareErrorCodes.NoUpdate,
+                "There is no update available. Check for updates, then try again.",
+            );
+        }
+        if (!this.usb.connected) {
+            return this.setError(
+                FirmwareErrorCodes.NotConnected,
+                "Connect the deck, then try again.",
+            );
+        }
+
+        const info = await this.readDeckInfo();
+        if (info === null) {
+            return this.setError(
+                FirmwareErrorCodes.NotConnected,
+                "The app could not read the deck. Replug it and try again.",
+            );
+        }
+        this.current = {
+            ...this.current,
+            installedVersion: info.firmwareVersion || null,
+            board: info.board || null,
+        };
+        const evaluation = evaluateRelease(pending.manifest, info.board, info.firmwareVersion);
+        if (evaluation.status !== "available") {
+            this.pending = null;
+            this.setReleaseStatus(evaluation.status);
+            return this.state();
+        }
+
+        this.current = {
+            ...this.current,
+            phase: "downloading",
+            percent: null,
+            error: null,
+        };
+        this.emitState();
+
+        const controller = new AbortController();
+        this.abort = controller;
+        let staged: string | null = null;
+        try {
+            staged = await this.releaseSource.download(pending.entry, controller.signal);
+            const bytes = this.readFile(staged);
+            if (bytes.length !== pending.entry.size) {
+                throw new FirmwareFlashError(
+                    "The downloaded update did not finish saving. Try again.",
+                    FirmwareErrorCodes.Checksum,
+                );
+            }
+            const sizeCheck = validateFlashSize(bytes.length);
+            if (!sizeCheck.ok) {
+                throw new FirmwareFlashError(sizeCheck.message, FirmwareErrorCodes.ImageRejected);
+            }
+            const image: LoadedImage = {
+                info: {
+                    path: staged,
+                    name: pending.entry.asset,
+                    size: bytes.length,
+                    address: pending.entry.address,
+                },
+                bytes,
+            };
+            return await this.flashImage(image, pending.manifest.version);
+        } catch (error) {
+            if (isAbortError(error)) {
+                this.current = { ...this.current, phase: "idle", percent: null };
+                this.emitState();
+                return this.state();
+            }
+            log.error(`[firmware] update failed: ${String(error)}`);
+            if (error instanceof FirmwareFlashError) {
+                return this.setError(error.code, error.message);
+            }
+            const failure = mapReleaseError(error);
+            return this.setError(failure.code, failure.message);
+        } finally {
+            if (this.abort === controller) {
+                this.abort = null;
+            }
+            if (staged !== null) {
+                try {
+                    this.releaseSource.remove(staged);
+                } catch (error) {
+                    log.warn(`[firmware] could not remove the staged update: ${String(error)}`);
+                }
+            }
+        }
     }
 
     /**
@@ -223,7 +446,53 @@ export class FirmwareService {
 
         const image = this.loadImage(selected);
         this.current = { ...this.current, image: image.info, percent: null, error: null };
+        return this.flashImage(image);
+    }
 
+    /**
+     * Cancel a check, a download or a local selection before the handoff. There
+     * is no cancel once the write owns the deck.
+     */
+    async cancel(): Promise<FirmwareState> {
+        if (this.isBusy()) {
+            return this.state();
+        }
+        const checking = this.current.release.status === "checking";
+        const downloading = this.current.phase === "downloading";
+        if (checking || downloading) {
+            this.abort?.abort();
+            this.current = {
+                ...this.current,
+                ...(downloading ? { phase: "idle" as const, percent: null } : {}),
+                ...(checking
+                    ? {
+                          release: {
+                              ...this.current.release,
+                              status:
+                                  this.pending === null
+                                      ? ("idle" as const)
+                                      : ("available" as const),
+                              error: null,
+                          },
+                      }
+                    : {}),
+            };
+            this.emitState();
+            return this.state();
+        }
+        this.current = {
+            ...this.current,
+            phase: "idle",
+            image: null,
+            percent: null,
+            error: null,
+        };
+        this.emitState();
+        return this.state();
+    }
+
+    /** Hand the deck to its bootloader and write `image` at its address. */
+    private async flashImage(image: LoadedImage, expectedVersion?: string): Promise<FirmwareState> {
         if (!this.usb.connected) {
             return this.setError(
                 FirmwareErrorCodes.NotConnected,
@@ -254,23 +523,7 @@ export class FirmwareService {
         if (port === null) {
             return this.state();
         }
-        await this.write(image, port);
-        return this.state();
-    }
-
-    /** Cancel a selection before the handoff. There is no cancel after it. */
-    async cancel(): Promise<FirmwareState> {
-        if (this.isBusy()) {
-            return this.state();
-        }
-        this.current = {
-            ...this.current,
-            phase: "idle",
-            image: null,
-            percent: null,
-            error: null,
-        };
-        this.emitState();
+        await this.write(image, port, expectedVersion);
         return this.state();
     }
 
@@ -289,7 +542,7 @@ export class FirmwareService {
             if (isFirmwareError(error, ErrorCode.UnknownCommand)) {
                 await this.setError(
                     FirmwareErrorCodes.FirmwareTooOld,
-                    "This deck's firmware is too old to update from the app. Install the first update-ready release once, then try again.",
+                    "This deck's firmware is too old to update from the app. Flash the first update-ready release once, then try again.",
                 );
                 return false;
             }
@@ -346,7 +599,11 @@ export class FirmwareService {
         return port;
     }
 
-    private async write(image: LoadedImage, port: SerialPortInfoLike): Promise<void> {
+    private async write(
+        image: LoadedImage,
+        port: SerialPortInfoLike,
+        expectedVersion?: string,
+    ): Promise<void> {
         this.current = { ...this.current, phase: "writing", percent: 0 };
         this.emitState();
         this.emitProgress("writing", 0);
@@ -369,10 +626,10 @@ export class FirmwareService {
             return;
         }
 
-        await this.finishReturn();
+        await this.finishReturn(expectedVersion);
     }
 
-    private async finishReturn(): Promise<void> {
+    private async finishReturn(expectedVersion?: string): Promise<void> {
         this.current = { ...this.current, phase: "returning", percent: 100 };
         this.emitState();
         this.emitProgress("returning", 100);
@@ -393,6 +650,43 @@ export class FirmwareService {
             );
             return;
         }
+
+        if (expectedVersion !== undefined) {
+            const expected = normalizeVersion(expectedVersion);
+            const actual = normalizeVersion(info.firmwareVersion);
+            if (expected === null || actual === null || actual !== expected) {
+                this.current = {
+                    ...this.current,
+                    installedVersion: info.firmwareVersion,
+                    board: info.board || this.current.board,
+                    percent: 100,
+                };
+                this.reconcileRelease();
+                await this.setError(
+                    FirmwareErrorCodes.VersionMismatch,
+                    `The deck came back on ${info.firmwareVersion} instead of ${expectedVersion}. Replug it, then check the version.`,
+                );
+                return;
+            }
+            this.pending = null;
+            this.current = {
+                ...this.current,
+                phase: "done",
+                installedVersion: actual,
+                board: info.board || this.current.board,
+                percent: 100,
+                error: null,
+                release: {
+                    ...this.current.release,
+                    status: "up-to-date",
+                    error: null,
+                },
+            };
+            this.emitState();
+            this.emitProgress("done", 100);
+            return;
+        }
+
         this.current = {
             ...this.current,
             phase: "done",
@@ -401,6 +695,7 @@ export class FirmwareService {
             percent: 100,
             error: null,
         };
+        this.reconcileRelease();
         this.emitState();
         this.emitProgress("done", 100);
     }
@@ -436,6 +731,34 @@ export class FirmwareService {
             }
         }
         return null;
+    }
+
+    /** Keep the release verdict in step with a version read outside a check. */
+    private reconcileRelease(): void {
+        const pending = this.pending;
+        if (pending === null) {
+            return;
+        }
+        const evaluation = evaluateRelease(
+            pending.manifest,
+            this.current.board,
+            this.current.installedVersion,
+        );
+        this.current = {
+            ...this.current,
+            release: { ...this.current.release, status: evaluation.status, error: null },
+        };
+        if (evaluation.status !== "available") {
+            this.pending = null;
+        }
+    }
+
+    private setReleaseStatus(status: FirmwareState["release"]["status"]): void {
+        this.current = {
+            ...this.current,
+            release: { ...this.current.release, status, error: null },
+        };
+        this.emitState();
     }
 
     private loadImage(filePath: string): LoadedImage {
@@ -474,9 +797,9 @@ export class FirmwareService {
     }
 
     private assertIdle(): void {
-        if (this.isBusy()) {
+        if (this.isActive()) {
             throw new FirmwareFlashError(
-                "A firmware write is already running.",
+                "A firmware operation is already running.",
                 FirmwareErrorCodes.Busy,
             );
         }
@@ -504,6 +827,42 @@ export class FirmwareService {
             message: FLASH_STAGE_COPY[phase],
         });
     }
+}
+
+/** Turn a release source failure into one sentence and a next step. */
+function mapReleaseError(error: unknown): FirmwareErrorInfo {
+    if (error instanceof FirmwareFlashError) {
+        return { code: error.code, message: error.message };
+    }
+    if (error instanceof ReleaseSourceError) {
+        if (error.reason === "offline") {
+            return {
+                code: FirmwareErrorCodes.Download,
+                message:
+                    "Could not reach the firmware release server. Check your internet connection, then try again.",
+            };
+        }
+        if (error.reason === "manifest" || error.reason === "response") {
+            return {
+                code: FirmwareErrorCodes.ReleaseUnreadable,
+                message: "The latest firmware release could not be read. Try again later.",
+            };
+        }
+        if (error.reason === "size" || error.reason === "checksum") {
+            return {
+                code: FirmwareErrorCodes.Checksum,
+                message: "The downloaded firmware did not match the published release. Try again.",
+            };
+        }
+        return {
+            code: FirmwareErrorCodes.Download,
+            message: "The downloaded update could not be saved. Try again.",
+        };
+    }
+    return {
+        code: FirmwareErrorCodes.Failed,
+        message: "The update could not be prepared. Try again.",
+    };
 }
 
 /** Turn an esptool/serial failure into one sentence and a next step. */

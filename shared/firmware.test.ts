@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { APP_SLOT_SIZE, idleFirmwareState, isFirmwareBusy, validateFlashSize } from "./firmware";
+import {
+    APP_SLOT_SIZE,
+    idleFirmwareState,
+    isFirmwareActive,
+    isFirmwareBusy,
+    validateFlashSize,
+} from "./firmware";
 
 describe("validateFlashSize", () => {
     it("accepts an app image inside the slot", () => {
@@ -32,8 +38,36 @@ describe("isFirmwareBusy", () => {
     });
 });
 
+describe("isFirmwareActive", () => {
+    it("counts a check and a download as active but not as a flash", () => {
+        expect(isFirmwareActive(idleFirmwareState())).toBe(false);
+        expect(
+            isFirmwareActive({
+                ...idleFirmwareState(),
+                release: {
+                    status: "checking",
+                    latest: null,
+                    error: null,
+                },
+            }),
+        ).toBe(true);
+        expect(
+            isFirmwareActive({
+                ...idleFirmwareState(),
+                phase: "downloading",
+            }),
+        ).toBe(true);
+        expect(
+            isFirmwareActive({
+                ...idleFirmwareState(),
+                phase: "writing",
+            }),
+        ).toBe(true);
+    });
+});
+
 describe("idleFirmwareState", () => {
-    it("starts with nothing selected and no deck reading", () => {
+    it("starts with nothing selected, no deck reading and no release", () => {
         expect(idleFirmwareState()).toEqual({
             phase: "idle",
             installedVersion: null,
@@ -41,6 +75,11 @@ describe("idleFirmwareState", () => {
             image: null,
             percent: null,
             error: null,
+            release: {
+                status: "idle",
+                latest: null,
+                error: null,
+            },
         });
     });
 });

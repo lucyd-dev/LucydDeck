@@ -45,8 +45,8 @@ The tracker holds the closed specs. The next spec is the firmware updater.
 
 ## Code map
 
-- `shared/`: wire, schema, action grammar, sync planner, IPC contract. Unit tested.
-- `electron/main/services/`: `StorageService`, `UsbService`, `FileTransfer`, `DeviceService`, `ImagePipelineService`, `SyncService`, `FirmwareService`.
+- `shared/`: wire, schema, action grammar, sync planner, firmware release policy, IPC contract. Unit tested.
+- `electron/main/services/`: `StorageService`, `UsbService`, `FileTransfer`, `DeviceService`, `ImagePipelineService`, `SyncService`, `FirmwareService`, `ReleaseSource`.
 - `electron/main/services/flash/`: the esptool adapter, USB port fingerprint, ROM-port locator and quit guard for local firmware flashes.
 - `electron/main/ipc/register.ts`: every channel. `electron/preload.ts` exposes `window.lucyd`.
 - `src/`: Vue 3 renderer, Pinia stores, router, `AppShell`, board, inspector and views.

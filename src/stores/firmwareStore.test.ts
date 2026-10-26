@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
     listeners: new Map<string, (payload: unknown) => void>(),
     pushToast: vi.fn(),
     state: vi.fn(),
+    check: vi.fn(),
+    update: vi.fn(),
     flashLocal: vi.fn(),
     cancel: vi.fn(),
 }));
@@ -15,6 +17,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/ipc/client", () => ({
     firmwareClient: {
         state: mocks.state,
+        check: mocks.check,
+        update: mocks.update,
         flashLocal: mocks.flashLocal,
         cancel: mocks.cancel,
     },
@@ -32,6 +36,12 @@ vi.mock("@/stores/appStore", () => ({
     useAppStore: () => ({ pushToast: mocks.pushToast }),
 }));
 
+const RELEASE = {
+    version: "0.4.0",
+    notesUrl: "https://github.com/lucyd-dev/LucydDeck-firmware/releases/tag/v0.4.0",
+    publishedAt: "2026-10-26T02:51:50.000Z",
+};
+
 function state(overrides: Partial<FirmwareState> = {}): FirmwareState {
     return { ...idleFirmwareState(), ...overrides };
 }
@@ -46,6 +56,8 @@ describe("firmwareStore", () => {
         mocks.listeners.clear();
         vi.resetAllMocks();
         mocks.state.mockResolvedValue({ ok: true, data: state() });
+        mocks.check.mockResolvedValue({ ok: true, data: state() });
+        mocks.update.mockResolvedValue({ ok: true, data: state() });
         mocks.cancel.mockResolvedValue({ ok: true, data: state() });
     });
 
@@ -156,5 +168,96 @@ describe("firmwareStore", () => {
 
         expect(mocks.cancel).toHaveBeenCalledTimes(1);
         expect(store.state.phase).toBe("idle");
+    });
+
+    it("marks an available release for the Settings dot", async () => {
+        mocks.check.mockResolvedValue({
+            ok: true,
+            data: state({
+                release: { status: "available", latest: RELEASE, error: null },
+            }),
+        });
+        const store = useFirmwareStore();
+
+        await store.checkForUpdate();
+
+        expect(mocks.check).toHaveBeenCalledWith({});
+        expect(store.updateAvailable).toBe(true);
+        expect(store.state.release.latest?.version).toBe("0.4.0");
+    });
+
+    it("sends a quiet launch check and keeps its failure quiet", async () => {
+        mocks.check.mockResolvedValue({
+            ok: false,
+            error: "offline",
+            code: "FIRMWARE_DOWNLOAD_FAILED",
+        });
+        const store = useFirmwareStore();
+
+        await store.checkForUpdate({ silent: true });
+
+        expect(mocks.check).toHaveBeenCalledWith({ silent: true });
+        expect(mocks.pushToast).not.toHaveBeenCalled();
+        expect(store.state.release.status).toBe("idle");
+    });
+
+    it("shows a manual check failure as a toast and a release error", async () => {
+        mocks.check.mockResolvedValue({
+            ok: false,
+            error: "Could not reach the firmware release server.",
+            code: "FIRMWARE_DOWNLOAD_FAILED",
+        });
+        const store = useFirmwareStore();
+
+        await store.checkForUpdate();
+
+        expect(mocks.pushToast).toHaveBeenCalledWith(
+            "error",
+            "Could not reach the firmware release server.",
+        );
+        expect(store.state.release).toMatchObject({
+            status: "error",
+            error: { code: "FIRMWARE_DOWNLOAD_FAILED" },
+        });
+    });
+
+    it("stops offering an update when the deck is up to date", async () => {
+        const store = useFirmwareStore();
+        emit(
+            "firmware:state",
+            state({ release: { status: "up-to-date", latest: RELEASE, error: null } }),
+        );
+
+        expect(store.updateAvailable).toBe(false);
+    });
+
+    it("installs the offered release and reports completion", async () => {
+        mocks.update.mockResolvedValue({
+            ok: true,
+            data: state({
+                phase: "done",
+                installedVersion: "0.4.0",
+                release: { status: "up-to-date", latest: RELEASE, error: null },
+            }),
+        });
+        const store = useFirmwareStore();
+
+        await expect(store.installUpdate()).resolves.toBe(true);
+        expect(mocks.update).toHaveBeenCalledTimes(1);
+        expect(store.state.installedVersion).toBe("0.4.0");
+        expect(store.state.release.status).toBe("up-to-date");
+    });
+
+    it("shows an update that could not start", async () => {
+        mocks.update.mockResolvedValue({
+            ok: false,
+            error: "There is no update to install.",
+            code: "FIRMWARE_NO_UPDATE",
+        });
+        const store = useFirmwareStore();
+
+        await expect(store.installUpdate()).resolves.toBe(false);
+        expect(mocks.pushToast).toHaveBeenCalledWith("error", "There is no update to install.");
+        expect(store.state.error).toMatchObject({ code: "FIRMWARE_NO_UPDATE" });
     });
 });

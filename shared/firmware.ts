@@ -6,6 +6,8 @@
 // that falls outside it before the bootloader handoff.
 // ---------------------------------------------------------------------------
 
+import type { ReleaseEligibilityStatus } from "./firmwareRelease";
+
 /** Fixed address of `app0` in the `max_app_8MB` partition layout. */
 export const APP_SLOT_ADDRESS = 0x10000;
 
@@ -48,6 +50,8 @@ export function validateFlashSize(size: number): FlashSizeCheck {
 export type FirmwarePhase =
     /** Nothing selected. */
     | "idle"
+    /** A release image is being downloaded and verified before the handoff. */
+    | "downloading"
     /** A local image passed the app-slot check and waits for confirmation. */
     | "ready"
     /** The handoff command was sent; the HID interface is going away. */
@@ -60,8 +64,28 @@ export type FirmwarePhase =
     | "returning"
     /** The deck returned and the installed version was read. */
     | "done"
-    /** The flash stopped with a message and a next step. */
+    /** The operation stopped with a message and a next step. */
     | "error";
+
+export type FirmwareReleaseStatus =
+    "idle" | "checking" | "no-deck" | ReleaseEligibilityStatus | "error";
+
+export interface FirmwareReleaseInfo {
+    /** Latest stable version the manifest publishes. */
+    version: string;
+    /** Release notes page from the manifest. */
+    notesUrl: string;
+    /** ISO timestamp the release server reports, when it reports one. */
+    publishedAt: string | null;
+}
+
+export interface FirmwareReleaseState {
+    status: FirmwareReleaseStatus;
+    /** Details of the latest release once a manifest was read. */
+    latest: FirmwareReleaseInfo | null;
+    /** A manual check's failure; a launch check never sets it. */
+    error: FirmwareErrorInfo | null;
+}
 
 export interface FirmwareImageInfo {
     path: string;
@@ -85,15 +109,29 @@ export const FirmwareErrorCodes = {
     Write: "FIRMWARE_WRITE_FAILED",
     NoReturn: "FIRMWARE_NO_RETURN",
     NoVersion: "FIRMWARE_NO_VERSION",
+    NoUpdate: "FIRMWARE_NO_UPDATE",
+    ReleaseUnreadable: "FIRMWARE_RELEASE_UNREADABLE",
+    Download: "FIRMWARE_DOWNLOAD_FAILED",
+    Checksum: "FIRMWARE_CHECKSUM_MISMATCH",
+    VersionMismatch: "FIRMWARE_VERSION_MISMATCH",
     Failed: "FIRMWARE_FAILED",
 } as const;
 
 export type FirmwareErrorCode = (typeof FirmwareErrorCodes)[keyof typeof FirmwareErrorCodes];
 
-/** Phases in which a flash owns the deck and the UI must not start another. */
+/** Phases in which a flash owns the deck and quitting needs confirmation. */
 export function isFirmwareBusy(phase: FirmwarePhase): boolean {
     return (
         phase === "handoff" || phase === "locating" || phase === "writing" || phase === "returning"
+    );
+}
+
+/** Check, download and flash all keep a second firmware operation out. */
+export function isFirmwareActive(state: Pick<FirmwareState, "phase" | "release">): boolean {
+    return (
+        isFirmwareBusy(state.phase) ||
+        state.phase === "downloading" ||
+        state.release.status === "checking"
     );
 }
 
@@ -115,6 +153,8 @@ export interface FirmwareState {
     /** Write progress, 0-100, while `phase` is `writing`. */
     percent: number | null;
     error: FirmwareErrorInfo | null;
+    /** Latest-release check and the release it found, if any. */
+    release: FirmwareReleaseState;
 }
 
 export function idleFirmwareState(): FirmwareState {
@@ -125,6 +165,11 @@ export function idleFirmwareState(): FirmwareState {
         image: null,
         percent: null,
         error: null,
+        release: {
+            status: "idle",
+            latest: null,
+            error: null,
+        },
     };
 }
 
@@ -159,4 +204,12 @@ export interface FlashLocalRequest {
     path?: string;
     /** Start the flash for `path` after the user confirmed the preview. */
     confirmed?: boolean;
+}
+
+export interface FirmwareCheckRequest {
+    /**
+     * A launch check. A failure leaves the last known release state alone and
+     * never surfaces a message; a manual check reports the failure.
+     */
+    silent?: boolean;
 }

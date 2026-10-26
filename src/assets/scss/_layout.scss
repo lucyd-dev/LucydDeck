@@ -54,6 +54,7 @@
 }
 
 .sidebar__view {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -67,6 +68,17 @@
         color var(--transition-fast),
         background-color var(--transition-fast),
         border-color var(--transition-fast);
+}
+
+.sidebar__view-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-bg-elevated);
 }
 
 .sidebar__view:hover {

@@ -181,6 +181,21 @@
     margin: var(--space-md) 0 0;
 }
 
+.firmware-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+    margin: var(--space-md) 0 0;
+    color: var(--color-text-dim);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.firmware-status a {
+    color: var(--color-accent);
+}
+
 .firmware-progress {
     display: flex;
     flex-direction: column;
@@ -214,6 +229,13 @@
 
 .firmware-progress__icon--error {
     color: var(--color-error);
+}
+
+.firmware-progress__actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: var(--space-xs);
 }
 
 .firmware-progress__percent {

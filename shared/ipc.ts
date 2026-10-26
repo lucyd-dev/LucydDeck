@@ -1,7 +1,12 @@
 import type { PageConfig, PageMeta, ProfileMeta } from "./types";
 import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 import type { AppSettings } from "./settings";
-import type { FlashLocalRequest, FlashProgressPayload, FirmwareState } from "./firmware";
+import type {
+    FirmwareCheckRequest,
+    FlashLocalRequest,
+    FlashProgressPayload,
+    FirmwareState,
+} from "./firmware";
 import type { DiffPlan, SyncResult } from "./sync";
 import type {
     PluginCommand,
@@ -103,6 +108,7 @@ export const channels = {
     },
     firmware: {
         getState: "firmware:getState",
+        check: "firmware:check",
         update: "firmware:update",
         flashLocal: "firmware:flashLocal",
         cancel: "firmware:cancel",
@@ -356,8 +362,9 @@ export interface RequestMap {
     [channels.updater.state]: undefined;
     [channels.updater.check]: undefined;
 
-    // firmware (local image; release update is a later step)
+    // firmware (release update and a local image)
     [channels.firmware.getState]: undefined;
+    [channels.firmware.check]: FirmwareCheckRequest;
     [channels.firmware.update]: undefined;
     [channels.firmware.flashLocal]: FlashLocalRequest;
     [channels.firmware.cancel]: undefined;
@@ -429,6 +436,7 @@ export interface ResponseMap {
 
     // firmware
     [channels.firmware.getState]: IpcResponse<FirmwareState>;
+    [channels.firmware.check]: IpcResponse<FirmwareState>;
     [channels.firmware.update]: IpcResponse<FirmwareState>;
     [channels.firmware.flashLocal]: IpcResponse<FirmwareState | null>;
     [channels.firmware.cancel]: IpcResponse<FirmwareState>;
@@ -511,9 +519,13 @@ export interface UpdaterState {
 }
 
 export type {
+    FirmwareCheckRequest,
     FirmwareErrorInfo,
     FirmwareImageInfo,
     FirmwarePhase,
+    FirmwareReleaseInfo,
+    FirmwareReleaseState,
+    FirmwareReleaseStatus,
     FirmwareState,
 } from "./firmware";
 export type { FlashPhase, FlashProgressPayload } from "./firmware";

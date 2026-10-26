@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { APP_SLOT_ADDRESS, APP_SLOT_SIZE, FirmwareErrorCodes } from "@shared/firmware";
 import type { FlashProgressPayload, FirmwareState } from "@shared/firmware";
+import type { FirmwareBoardEntry, FirmwareManifest } from "@shared/firmwareRelease";
 import type { DeviceInfo } from "@shared/ipc";
 import { ErrorCode, HostCommand } from "@shared/protocol";
 import type { HidDescriptorLike } from "@shared/protocol";
@@ -8,6 +9,8 @@ import { FirmwareService } from "./FirmwareService";
 import type { FirmwareDeviceClient, FirmwareUsbClient } from "./FirmwareService";
 import type { FirmwareFlasher, FlashImageOptions } from "./flash/EsptoolFlasher";
 import type { DeckUsbFingerprint, SerialPortInfoLike } from "./flash/PortFingerprint";
+import { ReleaseSourceError } from "./ReleaseSource";
+import type { FirmwareReleaseSource, LatestRelease } from "./ReleaseSource";
 
 vi.mock("electron-log/main", () => ({
     default: {
@@ -84,6 +87,7 @@ class FakeUsb implements FirmwareUsbClient {
 
 class FakeDevice implements FirmwareDeviceClient {
     version = "0.4.0";
+    board = "WAVESHARE_ESP32_S3_TOUCH_LCD_4_3";
     calls = 0;
     fail = false;
 
@@ -95,7 +99,7 @@ class FakeDevice implements FirmwareDeviceClient {
         return {
             firmwareVersion: this.version,
             protocolVersion: "1",
-            board: "WAVESHARE_ESP32_S3_TOUCH_LCD_4_3",
+            board: this.board,
             freeSpaceKb: 2048,
         };
     }
@@ -112,6 +116,8 @@ class FakeFlasher implements FirmwareFlasher {
     readonly calls: FlashCall[] = [];
     failOnce: Error | null = null;
     defer = false;
+    /** Runs after a successful write, before the service reads the version. */
+    onFlash: (() => void) | null = null;
     private release: (() => void) | null = null;
 
     flash(port: SerialPortInfoLike, image: Uint8Array, options: FlashImageOptions): Promise<void> {
@@ -125,11 +131,13 @@ class FakeFlasher implements FirmwareFlasher {
             options.onProgress(0, image.length);
             options.onProgress(Math.floor(image.length / 2), image.length);
             options.onProgress(image.length, image.length);
+            this.onFlash?.();
             return Promise.resolve();
         }
         return new Promise<void>((resolve) => {
             this.release = () => {
                 options.onProgress(image.length, image.length);
+                this.onFlash?.();
                 resolve();
             };
         });
@@ -167,12 +175,106 @@ class FakeLocator {
     }
 }
 
+const BOARD = "WAVESHARE_ESP32_S3_TOUCH_LCD_4_3";
+const STAGED = "/tmp/lucyddeck-staged/LucydDeck-firmware-v0.4.0.bin";
+const RELEASE_URL = "https://github.com/lucyd-dev/LucydDeck-firmware/releases/tag/v0.4.0";
+
+function releaseEntry(overrides: Partial<FirmwareBoardEntry> = {}): FirmwareBoardEntry {
+    return {
+        asset: "LucydDeck-firmware-v0.4.0.bin",
+        size: 4096,
+        sha256: "a".repeat(64),
+        chip: "esp32s3",
+        address: APP_SLOT_ADDRESS,
+        layout: "max_app_8MB",
+        ...overrides,
+    };
+}
+
+function releaseManifest(
+    overrides: Partial<FirmwareManifest> & { boards?: Record<string, FirmwareBoardEntry> } = {},
+): FirmwareManifest {
+    return {
+        schemaVersion: 1,
+        version: "0.4.0",
+        releaseUrl: RELEASE_URL,
+        ...overrides,
+        boards: overrides.boards ?? { [BOARD]: releaseEntry() },
+    };
+}
+
+class FakeReleaseSource implements FirmwareReleaseSource {
+    latestResult: LatestRelease = {
+        manifest: releaseManifest(),
+        publishedAt: "2026-10-26T02:51:50.000Z",
+    };
+    latestError: Error | null = null;
+    downloadError: Error | null = null;
+    downloadPath: string | null = STAGED;
+    latestCalls = 0;
+    downloadCalls = 0;
+    readonly removed: string[] = [];
+
+    async latest(): Promise<LatestRelease> {
+        this.latestCalls++;
+        if (this.latestError !== null) {
+            throw this.latestError;
+        }
+        return this.latestResult;
+    }
+
+    download(_entry: FirmwareBoardEntry, signal?: AbortSignal): Promise<string> {
+        this.downloadCalls++;
+        if (this.downloadError !== null) {
+            return Promise.reject(this.downloadError);
+        }
+        return new Promise((resolve, reject) => {
+            const finish = (): void => {
+                if (this.downloadPath === null) {
+                    reject(new Error("no staged file"));
+                    return;
+                }
+                resolve(this.downloadPath);
+            };
+            if (signal?.aborted === true) {
+                reject(abortError());
+                return;
+            }
+            if (this.deferDownload) {
+                this.finishDownload = finish;
+                signal?.addEventListener("abort", () => reject(abortError()), { once: true });
+                return;
+            }
+            finish();
+        });
+    }
+
+    remove(file: string): void {
+        this.removed.push(file);
+    }
+
+    deferDownload = false;
+    private finishDownload: (() => void) | null = null;
+
+    finish(): void {
+        this.finishDownload?.();
+        this.finishDownload = null;
+    }
+}
+
+function abortError(): Error {
+    const error = new Error("aborted");
+    error.name = "AbortError";
+    return error;
+}
+
 function make(overrides: { fileSize?: number; pick?: string | null; order?: string[] } = {}) {
     const order = overrides.order ?? [];
     const usb = new FakeUsb(order);
     const device = new FakeDevice();
     const flasher = new FakeFlasher();
     const locator = new FakeLocator(order);
+    const releaseSource = new FakeReleaseSource();
     const states: FirmwareState[] = [];
     const progress: FlashProgressPayload[] = [];
     const fileSize = overrides.fileSize ?? 4096;
@@ -182,6 +284,7 @@ function make(overrides: { fileSize?: number; pick?: string | null; order?: stri
         device,
         flasher,
         locator,
+        releaseSource,
         pickImage: async () => (overrides.pick === undefined ? FILE : overrides.pick),
         onState: (state) => states.push(state),
         onProgress: (event) => progress.push(event),
@@ -199,7 +302,16 @@ function make(overrides: { fileSize?: number; pick?: string | null; order?: stri
             return clock;
         },
     });
-    return { service, usb, device, flasher, locator, states, progress };
+    return {
+        service,
+        usb,
+        device,
+        flasher,
+        locator,
+        releaseSource,
+        states,
+        progress,
+    };
 }
 
 describe("FirmwareService local flash", () => {
@@ -389,5 +501,272 @@ describe("FirmwareService local flash", () => {
         await expect(service.cancel()).resolves.toMatchObject({ phase: "writing" });
         flasher.finish();
         await flash;
+    });
+});
+
+describe("FirmwareService release update", () => {
+    it("finds a newer release for the deck's board", async () => {
+        const { service, device, releaseSource } = make();
+        device.version = "0.3.0";
+
+        const state = await service.checkForUpdate();
+
+        expect(releaseSource.latestCalls).toBe(1);
+        expect(state).toMatchObject({
+            installedVersion: "0.3.0",
+            board: BOARD,
+            release: {
+                status: "available",
+                latest: {
+                    version: "0.4.0",
+                    notesUrl: RELEASE_URL,
+                    publishedAt: "2026-10-26T02:51:50.000Z",
+                },
+                error: null,
+            },
+        });
+    });
+
+    it("does not read a release without a connected deck", async () => {
+        const { service, usb, releaseSource } = make();
+        usb.connected = false;
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("no-deck");
+        expect(releaseSource.latestCalls).toBe(0);
+    });
+
+    it("says no firmware is published for an unknown board", async () => {
+        const { service, device, releaseSource } = make();
+        device.version = "0.3.0";
+        releaseSource.latestResult = {
+            manifest: releaseManifest({
+                boards: { SOME_OTHER_BOARD: releaseEntry() },
+            }),
+            publishedAt: null,
+        };
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("no-firmware");
+        expect(state.release.latest?.version).toBe("0.4.0");
+        await expect(service.update()).resolves.toMatchObject({
+            error: { code: FirmwareErrorCodes.NoUpdate },
+        });
+    });
+
+    it("says the deck's board could not be read", async () => {
+        const { service, device } = make();
+        device.version = "0.3.0";
+        device.board = "";
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("no-board");
+    });
+
+    it("refuses a release built for another chip", async () => {
+        const { service, device, releaseSource } = make();
+        device.version = "0.3.0";
+        releaseSource.latestResult = {
+            manifest: releaseManifest({
+                boards: { [BOARD]: releaseEntry({ chip: "esp32" }) },
+            }),
+            publishedAt: null,
+        };
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("incompatible");
+        await expect(service.update()).resolves.toMatchObject({
+            error: { code: FirmwareErrorCodes.NoUpdate },
+        });
+    });
+
+    it("reports an equal version as up to date", async () => {
+        const { service, device } = make();
+        device.version = "0.4.0";
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("up-to-date");
+    });
+
+    it("reports an installed version newer than the latest release", async () => {
+        const { service, device } = make();
+        device.version = "0.5.0";
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("newer-installed");
+    });
+
+    it("offers nothing for an unreadable installed version", async () => {
+        const { service, device } = make();
+        device.version = "dev build";
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("unknown");
+        await expect(service.update()).resolves.toMatchObject({
+            error: { code: FirmwareErrorCodes.NoUpdate },
+        });
+    });
+
+    it("keeps a launch check silent on failure", async () => {
+        const { service, releaseSource } = make();
+        releaseSource.latestError = new ReleaseSourceError("offline", "offline");
+
+        const state = await service.checkForUpdate({ silent: true });
+
+        expect(state.release.status).toBe("idle");
+        expect(state.release.error).toBeNull();
+    });
+
+    it("shows a manual check failure with a next step", async () => {
+        const { service, releaseSource } = make();
+        releaseSource.latestError = new ReleaseSourceError("offline", "offline");
+
+        const state = await service.checkForUpdate();
+
+        expect(state.release.status).toBe("error");
+        expect(state.release.error).toMatchObject({ code: FirmwareErrorCodes.Download });
+        expect(state.release.error?.message).toContain("internet connection");
+    });
+
+    it("leaves a known update alone when a silent check fails", async () => {
+        const { service, device, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+
+        releaseSource.latestError = new ReleaseSourceError("offline", "offline");
+        const state = await service.checkForUpdate({ silent: true });
+
+        expect(state.release.status).toBe("available");
+        expect(state.release.latest?.version).toBe("0.4.0");
+        expect(state.release.error).toBeNull();
+    });
+
+    it("downloads, verifies, flashes and removes the staged release", async () => {
+        const { service, device, flasher, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        flasher.onFlash = () => {
+            device.version = "0.4.0";
+        };
+
+        const state = await service.update();
+
+        expect(state).toMatchObject({
+            phase: "done",
+            installedVersion: "0.4.0",
+            image: null,
+            error: null,
+            release: { status: "up-to-date" },
+        });
+        expect(releaseSource.downloadCalls).toBe(1);
+        expect(usb.calls).toEqual([HostCommand.EnterBootloader]);
+        expect(flasher.calls[0]).toMatchObject({ address: APP_SLOT_ADDRESS, size: 4096 });
+        expect(releaseSource.removed).toEqual([STAGED]);
+    });
+
+    it("offers nothing on a second check after the update", async () => {
+        const { service, device, flasher } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        flasher.onFlash = () => {
+            device.version = "0.4.0";
+        };
+        await service.update();
+
+        const checked = await service.checkForUpdate();
+        const again = await service.update();
+
+        expect(checked.release.status).toBe("up-to-date");
+        expect(again.error).toMatchObject({ code: FirmwareErrorCodes.NoUpdate });
+    });
+
+    it("refuses an update that was never offered", async () => {
+        const { service, flasher } = make();
+
+        const state = await service.update();
+
+        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.NoUpdate });
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("re-reads the deck before flashing and stops when it is current", async () => {
+        const { service, device, flasher, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        device.version = "0.4.0";
+
+        const state = await service.update();
+
+        expect(state.release.status).toBe("up-to-date");
+        expect(releaseSource.downloadCalls).toBe(0);
+        expect(flasher.calls).toHaveLength(0);
+    });
+
+    it("reports a damaged download without touching the deck", async () => {
+        const { service, device, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        releaseSource.downloadError = new ReleaseSourceError("bad sha", "checksum");
+
+        const state = await service.update();
+
+        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.Checksum });
+        expect(state.release.status).toBe("available");
+        expect(usb.calls).toHaveLength(0);
+        expect(releaseSource.removed).toEqual([]);
+    });
+
+    it("removes the staged release when the write fails", async () => {
+        const { service, device, flasher, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        flasher.failOnce = new Error("Resource busy");
+
+        const state = await service.update();
+
+        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.PortBusy });
+        expect(state.release.status).toBe("available");
+        expect(releaseSource.removed).toEqual([STAGED]);
+    });
+
+    it("removes a download cancelled before the handoff", async () => {
+        const { service, device, usb, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+        releaseSource.deferDownload = true;
+
+        const running = service.update();
+        await vi.waitFor(() => expect(service.state().phase).toBe("downloading"));
+        await service.cancel();
+        await running;
+
+        expect(usb.calls).toHaveLength(0);
+        expect(releaseSource.downloadCalls).toBe(1);
+        expect(releaseSource.removed).toEqual([]);
+        expect(service.state()).toMatchObject({
+            phase: "idle",
+            release: { status: "available" },
+        });
+    });
+
+    it("reports a deck that comes back on the wrong version", async () => {
+        const { service, device, releaseSource } = make();
+        device.version = "0.3.0";
+        await service.checkForUpdate();
+
+        const state = await service.update();
+
+        expect(state.error).toMatchObject({ code: FirmwareErrorCodes.VersionMismatch });
+        expect(state.error?.message).toContain("0.3.0");
+        expect(state.error?.message).toContain("0.4.0");
+        expect(state.release.status).toBe("available");
+        expect(releaseSource.removed).toEqual([STAGED]);
     });
 });

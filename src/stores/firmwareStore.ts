@@ -1,7 +1,13 @@
 import { computed, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
-import { FirmwareErrorCodes, idleFirmwareState, isFirmwareBusy } from "@shared/firmware";
+import {
+    FirmwareErrorCodes,
+    idleFirmwareState,
+    isFirmwareActive,
+    isFirmwareBusy,
+} from "@shared/firmware";
 import type {
+    FirmwareCheckRequest,
     FirmwareErrorCode,
     FlashProgressPayload,
     FirmwareImageInfo,
@@ -12,8 +18,8 @@ import { firmwareClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
 
 /**
- * Firmware section state. The main process owns the flash; this store only
- * mirrors its state events and sends the two user actions (choose, confirm).
+ * Firmware section state. The main process owns the release check and the
+ * flash; this store mirrors its state events and sends the user actions.
  */
 export const useFirmwareStore = defineStore("firmware", () => {
     const state = shallowRef<FirmwareState>(idleFirmwareState());
@@ -22,6 +28,9 @@ export const useFirmwareStore = defineStore("firmware", () => {
     const starting = ref(false);
 
     const isBusy = computed(() => isFirmwareBusy(state.value.phase));
+    const isActive = computed(() => isFirmwareActive(state.value));
+    const checking = computed(() => state.value.release.status === "checking");
+    const updateAvailable = computed(() => state.value.release.status === "available");
 
     function apply(next: FirmwareState): void {
         state.value = next;
@@ -44,6 +53,20 @@ export const useFirmwareStore = defineStore("firmware", () => {
         fail(message, code);
     }
 
+    function failCheck(message: string, code?: string): void {
+        state.value = {
+            ...state.value,
+            release: {
+                ...state.value.release,
+                status: "error",
+                error: {
+                    code: (code as FirmwareErrorCode) ?? FirmwareErrorCodes.Failed,
+                    message,
+                },
+            },
+        };
+    }
+
     async function refresh(): Promise<void> {
         const result = await firmwareClient.state();
         if (result.ok) {
@@ -53,9 +76,46 @@ export const useFirmwareStore = defineStore("firmware", () => {
         }
     }
 
+    /** Ask for the newest stable release. A launch check stays quiet on failure. */
+    async function checkForUpdate(request: FirmwareCheckRequest = {}): Promise<void> {
+        const silent = request.silent === true;
+        if (isActive.value) {
+            return;
+        }
+        const result = await firmwareClient.check(silent ? { silent: true } : {});
+        if (!result.ok) {
+            if (silent) {
+                return;
+            }
+            useAppStore().pushToast("error", result.error);
+            failCheck(result.error, result.code);
+            return;
+        }
+        apply(result.data);
+    }
+
+    /** Install the release the last successful check offered. */
+    async function installUpdate(): Promise<boolean> {
+        if (starting.value || isActive.value) {
+            return false;
+        }
+        starting.value = true;
+        try {
+            const result = await firmwareClient.update();
+            if (!result.ok) {
+                failWithToast(result.error, result.code);
+                return false;
+            }
+            apply(result.data);
+            return result.data.phase === "done";
+        } finally {
+            starting.value = false;
+        }
+    }
+
     /** Open the picker and validate; `null` when the user cancelled. */
     async function chooseLocal(): Promise<FirmwareImageInfo | null> {
-        if (isBusy.value || picking.value) {
+        if (isActive.value || picking.value) {
             return null;
         }
         picking.value = true;
@@ -123,7 +183,12 @@ export const useFirmwareStore = defineStore("firmware", () => {
         picking,
         starting,
         isBusy,
+        isActive,
+        checking,
+        updateAvailable,
         refresh,
+        checkForUpdate,
+        installUpdate,
         chooseLocal,
         flashLocal,
         cancel,
