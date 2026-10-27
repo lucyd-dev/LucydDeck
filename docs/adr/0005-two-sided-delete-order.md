@@ -6,4 +6,4 @@ With the deck connected, deleting a page or icon sends the deck delete and then 
 
 - Most pages are deleted before they were ever synced, so the flag is the common path, not an edge case.
 - Device → Files keeps its current behaviour and still reports a missing file as an error.
-- Profile delete stays one-sided; sync removes the deck profile under issue #7.
+- Profile delete was one-sided when this ADR was written; ADR-0009 makes it two-sided with the same deck-first order. Sync still removes deck profiles with no library counterpart under issue #7.

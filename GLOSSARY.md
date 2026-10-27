@@ -77,15 +77,19 @@ Sending a library profile's new name to the deck with `CMD_PROFILE_RENAME`, whic
 _Avoid_: Move, recreate
 
 **Delete**:
-Removing a page or icon from the library and from the deck in the same action. While the deck is disconnected, the library copy goes and the deck copy stays.
+Removing a page, icon or profile, with its pages, from the library and from the deck in the same action. While the deck is disconnected, the library copy goes and the deck copy stays.
 _Avoid_: Remove, discard
+
+**Partial delete**:
+A delete where one side changed and the other did not; the result says which copy remains.
+_Avoid_: Half delete, failed delete
 
 **Library**:
 The local collection of profiles, pages and icons that the app edits.
 _Avoid_: Local store, file store
 
 **Deck copy**:
-The firmware's file for a page or icon, as opposed to the library copy.
+The firmware's file for a page or icon, or its profile directory, as opposed to the library copy.
 _Avoid_: Device copy, remote copy
 
 **Remove**:
