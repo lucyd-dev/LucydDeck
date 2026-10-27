@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { channels } from "@shared/ipc";
 import { emptyDiffPlan } from "@shared/sync";
+import { DeleteService } from "../services/DeleteService";
 import { DeviceLock } from "../services/DeviceLock";
 import { FirmwareService } from "../services/FirmwareService";
 import { StorageService } from "../services/StorageService";
@@ -48,8 +49,12 @@ async function invoke(channel: string, payload: unknown): Promise<unknown> {
 
 describe("IPC deck ownership guards", () => {
     let dataDir = "";
+    let storage: StorageService;
     let lock: DeviceLock;
-    let device: { deleteProfile: ReturnType<typeof vi.fn> };
+    let device: {
+        deletePage: ReturnType<typeof vi.fn>;
+        deleteProfile: ReturnType<typeof vi.fn>;
+    };
     let usb: {
         connected: boolean;
         onEvent: () => () => void;
@@ -59,10 +64,14 @@ describe("IPC deck ownership guards", () => {
     beforeEach(() => {
         mocks.handlers.clear();
         dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lucyddeck-ipc-test-"));
-        const storage = new StorageService({ dataDir });
+        storage = new StorageService({ dataDir });
         storage.ensureLayout();
+        storage.createProfile("main");
         lock = new DeviceLock();
-        device = { deleteProfile: vi.fn(async () => undefined) };
+        device = {
+            deletePage: vi.fn(async () => "deleted"),
+            deleteProfile: vi.fn(async () => undefined),
+        };
         usb = {
             connected: true,
             onEvent: () => () => undefined,
@@ -84,6 +93,12 @@ describe("IPC deck ownership guards", () => {
             pickImage: async () => null,
             lock,
         });
+        const deletes = new DeleteService({
+            storage,
+            device: device as never,
+            lock,
+            isConnected: () => usb.connected,
+        });
 
         registerIpcHandlers({
             storage,
@@ -93,6 +108,7 @@ describe("IPC deck ownership guards", () => {
             imagePipeline: {} as never,
             sync,
             firmware,
+            deletes,
             plugins: { onEvent: () => () => undefined } as never,
             commands: {} as never,
             lock,
@@ -137,6 +153,44 @@ describe("IPC deck ownership guards", () => {
 
         lock.endSync();
     });
+
+    const holders = [
+        {
+            name: "sync",
+            hold: (lock: DeviceLock) => lock.beginSync(),
+            release: (lock: DeviceLock) => lock.endSync(),
+        },
+        {
+            name: "update",
+            hold: (lock: DeviceLock) => lock.beginUpdate(),
+            release: (lock: DeviceLock) => lock.endUpdate(),
+        },
+    ];
+
+    it.each(holders)(
+        "refuses a page delete with DEVICE_BUSY while a $name owns the deck",
+        async ({ hold, release }) => {
+            expect(hold(lock)).toBe(true);
+
+            const refused = await invoke(channels.delete.page, { profile: "main", id: "0" });
+
+            expect(refused).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+            expect(device.deletePage).not.toHaveBeenCalled();
+
+            release(lock);
+            const allowed = await invoke(channels.delete.page, { profile: "main", id: "0" });
+
+            expect(allowed).toEqual({
+                ok: true,
+                data: {
+                    deck: { status: "deleted" },
+                    library: { status: "deleted" },
+                    remaining: "none",
+                },
+            });
+            expect(device.deletePage).toHaveBeenCalledWith("main", "0", { allowMissing: true });
+        },
+    );
 
     it("makes a chip connect keep scanning", async () => {
         const result = await invoke(channels.usb.connect, undefined);

@@ -60,6 +60,10 @@ describe("shared/ipc contract", () => {
         expect(channels.usb.deleteFile).toBe("usb:deleteFile");
     });
 
+    it("exposes the one-owner delete channels", () => {
+        expect(channels.delete.page).toBe("delete:page");
+    });
+
     it("exposes the firmware channels and keeps updater reserved", () => {
         expect(channels.firmware.getState).toBe("firmware:getState");
         expect(channels.firmware.check).toBe("firmware:check");

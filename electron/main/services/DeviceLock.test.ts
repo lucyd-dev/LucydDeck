@@ -64,6 +64,47 @@ describe("DeviceLock", () => {
         expect(lock.busy).toBe(false);
     });
 
+    it("lets a direct write own an idle deck and keeps sync and update out", () => {
+        const lock = new DeviceLock();
+
+        expect(lock.beginWrite()).toBe(true);
+        expect(lock.writing).toBe(true);
+        expect(lock.current()).toBe("write");
+        expect(lock.beginSync()).toBe(false);
+        expect(lock.beginUpdate()).toBe(false);
+
+        lock.endWrite();
+        expect(lock.busy).toBe(false);
+        expect(lock.beginSync()).toBe(true);
+    });
+
+    it("refuses a direct write while a sync or an update owns the deck", () => {
+        const lock = new DeviceLock();
+
+        expect(lock.beginSync()).toBe(true);
+        expect(lock.beginWrite()).toBe(false);
+        lock.endSync();
+
+        expect(lock.beginUpdate()).toBe(true);
+        expect(lock.beginWrite()).toBe(false);
+        lock.endUpdate();
+
+        expect(lock.beginTransfer()).toBe(true);
+        expect(lock.beginWrite()).toBe(false);
+    });
+
+    it("nests a transfer inside a direct write", () => {
+        const lock = new DeviceLock();
+
+        expect(lock.beginWrite()).toBe(true);
+        expect(lock.beginTransfer()).toBe(true);
+        expect(lock.current()).toBe("write");
+
+        lock.endTransfer();
+        lock.endWrite();
+        expect(lock.busy).toBe(false);
+    });
+
     it("ignores a release from an operation that does not own the deck", () => {
         const lock = new DeviceLock();
         lock.beginSync();
@@ -79,6 +120,7 @@ describe("DeviceLock", () => {
         expect(deviceBusyMessage("sync")).toContain("A sync is running");
         expect(deviceBusyMessage("update")).toContain("firmware operation");
         expect(deviceBusyMessage("transfer")).toContain("file is being sent");
+        expect(deviceBusyMessage("write")).toContain("busy with another change");
 
         const error = new DeviceLockError("update");
         expect(error.code).toBe("DEVICE_BUSY");

@@ -6,7 +6,6 @@ import { PageDocumentHistory, clonePageConfig } from "@/editor/pageDocument";
 import { validateActionString } from "@shared/actions";
 import { emptyButtonConfig, emptyPageConfig, isValidBoardIndex } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
-import { pageLabel } from "@shared/pages";
 import type { ButtonConfig, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 
 /** Delay between the last edit and the autosave write. */
@@ -452,35 +451,30 @@ export const useProfileStore = defineStore("profile", () => {
         await loadPage(id);
     }
 
-    /** Delete a page file; the deck keeps its own copy, deleted from the Device view. */
-    async function removePage(id: string): Promise<boolean> {
-        const profile = activeProfile.value;
-        if (profile === "" || !pages.value.some((page) => page.id === id)) {
-            return false;
-        }
-        const isCurrent = id === currentPageId.value;
+    /**
+     * Apply the in-memory aftermath of a page delete the main process already
+     * made: drop its history and, when it was the open page, open the lowest
+     * remaining one or leave the editor blank. A page whose library copy
+     * survived keeps its editor state, so the delete can be retried.
+     */
+    async function applyPageDeleted(profileName: string, id: string): Promise<void> {
+        const isCurrent = profileName === activeProfile.value && id === currentPageId.value;
         if (isCurrent) {
-            // Autosave would write the page back the moment the delete lands.
+            // A pending autosave would write the page back the moment it lands.
             clearAutosaveTimer();
         }
-        const result = await storageClient.deletePage(profile, id);
-        if (!result.ok) {
-            useAppStore().pushToast("error", result.error);
-            return false;
-        }
 
-        const key = pageHistoryKey(profile, id);
+        const key = pageHistoryKey(profileName, id);
         history.clear(key);
         historyVersion.value++;
         deferredPages.delete(key);
-        useAppStore().pushToast("success", `Deleted ${pageLabel(id)}`);
 
-        if (activeProfile.value !== profile) {
-            return true;
+        if (activeProfile.value !== profileName) {
+            return;
         }
-        await refreshPages(profile);
-        if (!isCurrent || activeProfile.value !== profile) {
-            return true;
+        await refreshPages(profileName);
+        if (!isCurrent || activeProfile.value !== profileName) {
+            return;
         }
 
         const next = pages.value[0]?.id ?? null;
@@ -496,7 +490,6 @@ export const useProfileStore = defineStore("profile", () => {
             externalChange.value = null;
             changeRevision++;
         }
-        return true;
     }
 
     function selectKey(index: string | null, extend = false): void {
@@ -983,7 +976,7 @@ export const useProfileStore = defineStore("profile", () => {
         initProfiles,
         selectPage,
         createPage,
-        removePage,
+        applyPageDeleted,
         selectKey,
         isKeySelected,
         setLabel,

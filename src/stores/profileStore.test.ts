@@ -4,7 +4,6 @@ import { watch } from "vue";
 
 const mocks = vi.hoisted(() => ({
     savePage: vi.fn(),
-    deletePage: vi.fn(),
     loadPage: vi.fn(),
     listPages: vi.fn(),
     listProfiles: vi.fn(),
@@ -58,7 +57,6 @@ describe("profileStore autosave and history", () => {
             ],
         });
         mocks.listProfiles.mockReset().mockResolvedValue({ ok: true, data: [] });
-        mocks.deletePage.mockReset().mockResolvedValue({ ok: true, data: undefined });
         mocks.createProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "new" } });
         mocks.renameProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "renamed" } });
         mocks.deleteProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
@@ -180,12 +178,12 @@ describe("profileStore autosave and history", () => {
         expect(mocks.savePage).toHaveBeenCalledTimes(1);
     });
 
-    it("deletes the open page and opens the lowest remaining one", async () => {
+    it("opens the lowest remaining page after the open page's library copy went", async () => {
         const store = setupStore();
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "1", mtimeMs: 2000 }] });
 
-        expect(await store.removePage("0")).toBe(true);
-        expect(mocks.deletePage).toHaveBeenCalledWith("main", "0");
+        await store.applyPageDeleted("main", "0");
+
         expect(store.currentPageId).toBe("1");
         expect(mocks.loadPage).toHaveBeenLastCalledWith("main", "1");
     });
@@ -194,7 +192,8 @@ describe("profileStore autosave and history", () => {
         const store = setupStore();
         mocks.listPages.mockResolvedValue({ ok: true, data: [] });
 
-        expect(await store.removePage("0")).toBe(true);
+        await store.applyPageDeleted("main", "0");
+
         expect(store.currentPageId).toBeNull();
         expect(store.currentPage).toEqual({ buttons: {} });
         expect(store.dirty).toBe(false);
@@ -203,7 +202,8 @@ describe("profileStore autosave and history", () => {
     it("keeps the open page when another one is deleted", async () => {
         const store = setupStore();
 
-        expect(await store.removePage("1")).toBe(true);
+        await store.applyPageDeleted("main", "1");
+
         expect(store.currentPageId).toBe("0");
         expect(mocks.loadPage).not.toHaveBeenCalled();
     });
@@ -212,18 +212,19 @@ describe("profileStore autosave and history", () => {
         const store = setupStore();
         store.setLabel("A");
 
-        await store.removePage("0");
+        await store.applyPageDeleted("main", "0");
         await vi.advanceTimersByTimeAsync(400);
 
         expect(mocks.savePage).not.toHaveBeenCalled();
     });
 
-    it("reports a failed delete and keeps the page open", async () => {
+    it("leaves the editor alone when the delete belonged to another profile", async () => {
         const store = setupStore();
-        mocks.deletePage.mockResolvedValue({ ok: false, error: "Page not found" });
 
-        expect(await store.removePage("0")).toBe(false);
+        await store.applyPageDeleted("work", "1");
+
         expect(store.currentPageId).toBe("0");
+        expect(mocks.listPages).not.toHaveBeenCalled();
     });
 
     it("opens a newly created profile without carrying the previous page id", async () => {

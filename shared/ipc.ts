@@ -8,6 +8,7 @@ import type {
     FirmwareState,
 } from "./firmware";
 import type { DiffPlan, SyncResult } from "./sync";
+import type { DeleteResult } from "./delete";
 import type {
     PluginCommand,
     PluginConfigField,
@@ -51,12 +52,14 @@ export const channels = {
         listPages: "storage:listPages",
         loadPage: "storage:loadPage",
         savePage: "storage:savePage",
-        deletePage: "storage:deletePage",
         exportProfile: "storage:exportProfile",
         importProfile: "storage:importProfile",
         getDefaultProfile: "storage:getDefaultProfile",
         setDefaultProfile: "storage:setDefaultProfile",
         scanReferences: "storage:scanReferences",
+    },
+    delete: {
+        page: "delete:page",
     },
     icons: {
         list: "icons:list",
@@ -158,6 +161,12 @@ export interface ExportProfileRequest {
 export interface SetDefaultProfileRequest {
     /** `null` clears the persisted default. */
     name: string | null;
+}
+
+/** Delete one page from both copies. The main process owns the transaction. */
+export interface DeletePageRequest {
+    profile: string;
+    id: string;
 }
 
 export interface IconRemoveRequest {
@@ -308,12 +317,14 @@ export interface RequestMap {
     [channels.storage.listPages]: ProfileNameRequest;
     [channels.storage.loadPage]: PageRefRequest;
     [channels.storage.savePage]: SavePageRequest;
-    [channels.storage.deletePage]: PageRefRequest;
     [channels.storage.exportProfile]: ExportProfileRequest;
     [channels.storage.importProfile]: undefined;
     [channels.storage.getDefaultProfile]: undefined;
     [channels.storage.setDefaultProfile]: SetDefaultProfileRequest;
     [channels.storage.scanReferences]: ReferenceQuery;
+
+    // delete (one main-side owner per entity; deck copy first, then library)
+    [channels.delete.page]: DeletePageRequest;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
@@ -381,12 +392,14 @@ export interface ResponseMap {
     [channels.storage.listPages]: IpcResponse<PageMeta[]>;
     [channels.storage.loadPage]: IpcResponse<PageConfig>;
     [channels.storage.savePage]: IpcResponse<void>;
-    [channels.storage.deletePage]: IpcResponse<void>;
     [channels.storage.exportProfile]: IpcResponse<{ path: string } | null>;
     [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
     [channels.storage.getDefaultProfile]: IpcResponse<string | null>;
     [channels.storage.setDefaultProfile]: IpcResponse<void>;
     [channels.storage.scanReferences]: IpcResponse<ReferenceScanResult>;
+
+    // delete
+    [channels.delete.page]: IpcResponse<DeleteResult>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;

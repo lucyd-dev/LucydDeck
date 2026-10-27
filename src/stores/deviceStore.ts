@@ -4,7 +4,7 @@ import type { DeviceInfo, ReferenceQuery, ReferenceScanResult } from "@shared/ip
 import { diffPlanDeletions, diffPlanOperations, planRemovesProfiles } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
 import { pageLabel } from "@shared/pages";
-import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
+import { deleteClient, iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { useFirmwareStore } from "@/stores/firmwareStore";
@@ -23,7 +23,7 @@ import type {
     LocalInventory,
     LocalProfileSummary,
 } from "@/device/inventory";
-import { deleteConfirmation, referenceNotes } from "@/device/references";
+import { deleteConfirmation, deleteOutcome, referenceNotes } from "@/device/references";
 import { syncAction as readSyncAction } from "@/device/syncAction";
 
 /**
@@ -58,10 +58,20 @@ export const useDeviceStore = defineStore("device", () => {
     const plannedProfileRemovals = computed(() =>
         plan.value === null ? 0 : plan.value.profilesToDelete.length,
     );
-    const canDelete = computed(() => usb.connected && !stale.value && !firmware.installing);
-    const deleteDisabledReason = computed<string | undefined>(() => {
+    /** Why no deck write may start: a sync or a firmware update owns the deck. */
+    const deckWriteBlockedReason = computed<string | undefined>(() => {
         if (firmware.installing) {
             return "Wait for the firmware update to finish";
+        }
+        if (usb.syncing) {
+            return "Wait for the sync to finish";
+        }
+        return undefined;
+    });
+    const deleteDisabledReason = computed<string | undefined>(() => {
+        const busy = deckWriteBlockedReason.value;
+        if (busy !== undefined) {
+            return busy;
         }
         if (!usb.connected) {
             return "Connect the deck to delete device files";
@@ -71,6 +81,7 @@ export const useDeviceStore = defineStore("device", () => {
         }
         return undefined;
     });
+    const canDelete = computed(() => deleteDisabledReason.value === undefined);
     const syncAction = computed(() =>
         readSyncAction({
             connected: usb.connected,
@@ -315,15 +326,56 @@ export const useDeviceStore = defineStore("device", () => {
         }
     }
 
-    /** Delete a page from the library and, when connected, from the deck. */
+    /**
+     * Delete a page through the main-process owner: the deck copy goes first,
+     * then the library copy, and the result says which copy remains. The
+     * renderer confirms once and reports the result; it deletes neither copy.
+     *
+     * A deck failure or a library failure leaves the page, its editor state and
+     * the inventory in place, so the retry is the same action again.
+     */
     async function deletePage(id: string): Promise<boolean> {
         const profileName = profile.activeProfile;
         if (profileName === "" || !profile.pages.some((page) => page.id === id)) {
             return false;
         }
-        return deleteTarget({ kind: "page", profile: profileName, id }, pageLabel(id), () =>
-            profile.removePage(id),
-        );
+        const blocked = deckWriteBlockedReason.value;
+        if (blocked !== undefined) {
+            useAppStore().pushToast("warning", blocked);
+            return false;
+        }
+
+        const noun = pageLabel(id);
+        const request = { kind: "page" as const, profile: profileName, id };
+        const scan = await scanReferences(request);
+        const notes = referenceNotes(request, scan, profileName);
+        const confirmed = await confirm.ask({
+            title: "Delete page",
+            message: [deleteConfirmation(noun, usb.connected), ...notes].join(" "),
+            confirmLabel: "Delete page",
+            danger: true,
+        });
+        if (!confirmed) {
+            return false;
+        }
+
+        // A pending or in-flight save would write the page back after the
+        // delete lands, so settle it before asking the main process.
+        await profile.flushPending();
+
+        const result = await deleteClient.page(profileName, id);
+        if (!result.ok) {
+            useAppStore().pushToast("error", result.error);
+            return false;
+        }
+        const outcome = deleteOutcome(noun, result.data);
+        useAppStore().pushToast(outcome.level, outcome.message);
+        if (result.data.library.status !== "deleted") {
+            return false;
+        }
+        await profile.applyPageDeleted(profileName, id);
+        await refresh();
+        return true;
     }
 
     /** Delete an icon from the library and, when connected, from the deck. */
@@ -344,6 +396,7 @@ export const useDeviceStore = defineStore("device", () => {
         plannedProfileRemovals,
         canDelete,
         deleteDisabledReason,
+        deckWriteBlockedReason,
         syncAction,
         refresh,
         syncNow,

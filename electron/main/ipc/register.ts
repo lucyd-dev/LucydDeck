@@ -21,6 +21,7 @@ import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
 import type { SyncService } from "../services/SyncService";
 import type { FirmwareService } from "../services/FirmwareService";
+import type { DeleteService } from "../services/DeleteService";
 import { DeviceLockError } from "../services/DeviceLock";
 import type { DeviceLock } from "../services/DeviceLock";
 import type { PluginService } from "../plugins/PluginService";
@@ -46,6 +47,7 @@ export interface IpcServices {
     imagePipeline: ImagePipelineService;
     sync: SyncService;
     firmware: FirmwareService;
+    deletes: DeleteService;
     plugins: PluginService;
     commands: CommandRouter;
     /** Shared deck ownership: an update disables sync and every device write. */
@@ -58,8 +60,18 @@ export interface IpcServices {
  * with a stable code where available.
  */
 export function registerIpcHandlers(services: IpcServices): void {
-    const { storage, usb, device, fileTransfer, imagePipeline, sync, firmware, plugins, commands } =
-        services;
+    const {
+        storage,
+        usb,
+        device,
+        fileTransfer,
+        imagePipeline,
+        sync,
+        firmware,
+        deletes,
+        plugins,
+        commands,
+    } = services;
     const { lock } = services;
 
     /** A device write must wait while a firmware update owns the deck. */
@@ -187,15 +199,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     );
 
     register(
-        channels.storage.deletePage,
-        ({ profile, id }) => {
-            storage.deletePage(profile, id);
-            return { ok: true, data: undefined };
-        },
-        true,
-    );
-
-    register(
         channels.storage.exportProfile,
         async ({ name }) => ({
             ok: true,
@@ -233,6 +236,12 @@ export function registerIpcHandlers(services: IpcServices): void {
         (query) => ({ ok: true, data: storage.scanReferences(query) }),
         true,
     );
+
+    // --- delete (one owner for both copies) -----------------------------
+    register(channels.delete.page, async ({ profile, id }) => ({
+        ok: true,
+        data: await deletes.deletePage(profile, id),
+    }));
 
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));

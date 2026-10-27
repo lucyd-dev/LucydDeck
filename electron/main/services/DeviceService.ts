@@ -11,6 +11,7 @@ import {
     type DeviceProfileEntry,
 } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
+import type { DeckDeleteStatus } from "@shared/delete";
 import { iconBaseName } from "@shared/icons";
 import { isValidEntityName } from "@shared/names";
 import { validateName } from "./StorageService";
@@ -207,11 +208,11 @@ export class DeviceService {
         profile: string,
         id: string | number,
         options: DeleteOptions = {},
-    ): Promise<void> {
+    ): Promise<DeckDeleteStatus> {
         this.assertName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
-        await this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
+        return this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
     }
 
     /**
@@ -229,7 +230,7 @@ export class DeviceService {
         opcode: HostCommand.PageDelete | HostCommand.IconDelete,
         identity: string,
         options: DeleteOptions,
-    ): Promise<void> {
+    ): Promise<DeckDeleteStatus> {
         const identityBytes = textBytes(identity);
         if (identity === "" || identityBytes.length > PAYLOAD_MAX) {
             throw new DeviceError(
@@ -239,6 +240,7 @@ export class DeviceService {
         }
         try {
             await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
+            return "deleted";
         } catch (error) {
             // The postcondition of a delete is that the file is gone, and it
             // already holds when the deck answers that it never had it. A page
@@ -249,7 +251,7 @@ export class DeviceService {
                 (isFirmwareError(error, ErrorCode.FileNotFound) ||
                     isFirmwareError(error, ErrorCode.ProfileNotFound))
             ) {
-                return;
+                return "missing";
             }
             throw error;
         }

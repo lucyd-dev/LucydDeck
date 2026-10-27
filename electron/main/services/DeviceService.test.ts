@@ -173,7 +173,7 @@ describe("DeviceService file deletion", () => {
     it("encodes CMD_PAGE_DELETE and CMD_ICON_DELETE with an identity payload", async () => {
         const { usb, device } = makeService();
 
-        await device.deletePage("gaming", 3);
+        await expect(device.deletePage("gaming", 3)).resolves.toBe("deleted");
         expect(usb.calls.at(-1)?.opcode).toBe(HostCommand.PageDelete);
         expect(new TextDecoder().decode(usb.lastPayload())).toBe("gaming/3");
 
@@ -207,9 +207,9 @@ describe("DeviceService file deletion", () => {
         );
 
         await expect(device.deleteIcon("github", { allowMissing: true })).resolves.toBeUndefined();
-        await expect(
-            device.deletePage("gaming", 3, { allowMissing: true }),
-        ).resolves.toBeUndefined();
+        await expect(device.deletePage("gaming", 3, { allowMissing: true })).resolves.toBe(
+            "missing",
+        );
 
         // Without the flag the same answer stays an error.
         await expect(device.deleteIcon("github")).rejects.toMatchObject({
@@ -225,9 +225,9 @@ describe("DeviceService file deletion", () => {
             ErrorCode.ProfileNotFound,
         );
 
-        await expect(
-            device.deletePage("draft", 0, { allowMissing: true }),
-        ).resolves.toBeUndefined();
+        await expect(device.deletePage("draft", 0, { allowMissing: true })).resolves.toBe(
+            "missing",
+        );
         await expect(device.deletePage("draft", 0)).rejects.toMatchObject({
             code: "ERR_PROFILE_NOT_FOUND",
         });

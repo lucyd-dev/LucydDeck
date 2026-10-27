@@ -46,8 +46,8 @@ The next workstream writes its own spec in the tracker.
 
 ## Code map
 
-- `shared/`: wire, schema, action grammar, sync planner, firmware release policy, IPC contract. Unit tested.
-- `electron/main/services/`: `StorageService`, `UsbService`, `FileTransfer`, `DeviceLock`, `DeviceService`, `ImagePipelineService`, `SyncService`, `FirmwareService`, `ReleaseSource`.
+- `shared/`: wire, schema, action grammar, sync planner, delete result, firmware release policy, IPC contract. Unit tested.
+- `electron/main/services/`: `StorageService`, `UsbService`, `FileTransfer`, `DeviceLock`, `DeviceService`, `ImagePipelineService`, `SyncService`, `DeleteService`, `FirmwareService`, `ReleaseSource`.
 - `electron/main/services/flash/`: the esptool adapter, USB port fingerprint, ROM-port locator and quit guard for local firmware flashes.
 - `electron/main/ipc/register.ts`: every channel. `electron/preload.ts` exposes `window.lucyd`.
 - `src/`: Vue 3 renderer, Pinia stores, router, `AppShell`, board, inspector and views.

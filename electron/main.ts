@@ -15,6 +15,7 @@ import { DeviceService } from "./main/services/DeviceService";
 import { ImagePipelineService } from "./main/services/ImagePipelineService";
 import { SyncService } from "./main/services/SyncService";
 import { FirmwareService } from "./main/services/FirmwareService";
+import { DeleteService } from "./main/services/DeleteService";
 import { EsptoolFlasher } from "./main/services/flash/EsptoolFlasher";
 import { RomPortLocator } from "./main/services/flash/RomPortLocator";
 import { QuitGuard } from "./main/services/flash/QuitGuard";
@@ -315,6 +316,12 @@ app.whenReady().then(async () => {
         pluginCommands: () => plugins.registeredCommands(),
         lock: deviceLock,
     });
+    const deletes = new DeleteService({
+        storage,
+        device,
+        lock: deviceLock,
+        isConnected: () => usb.connected,
+    });
     // The override is a development aid and never applies to a packaged build.
     const manifestUrl = resolveManifestUrl({
         packaged: app.isPackaged,
@@ -349,6 +356,7 @@ app.whenReady().then(async () => {
         imagePipeline,
         sync,
         firmware,
+        deletes,
         plugins,
         commands,
         lock: deviceLock,
