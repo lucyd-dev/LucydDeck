@@ -21,9 +21,9 @@ export interface DeleteOutcome {
 /** The sentence shape differs only in what happens to the deck copy. */
 export function deleteConfirmation(noun: string, connected: boolean): string {
     if (connected) {
-        return `${noun} is removed from the library and from the deck. This cannot be undone.`;
+        return `${noun} is deleted from the library and from the deck. This cannot be undone.`;
     }
-    return `${noun} is removed from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
+    return `${noun} is deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
 }
 
 /**

@@ -56,13 +56,13 @@ describe("referenceSentence", () => {
 describe("deleteConfirmation", () => {
     it("promises both copies go while the deck is connected", () => {
         expect(deleteConfirmation("Page 4", true)).toBe(
-            "Page 4 is removed from the library and from the deck. This cannot be undone.",
+            "Page 4 is deleted from the library and from the deck. This cannot be undone.",
         );
     });
 
     it("says the deck copy stays until the next sync while disconnected", () => {
         expect(deleteConfirmation("Icon “github”", false)).toBe(
-            "Icon “github” is removed from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
+            "Icon “github” is deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
         );
     });
 
