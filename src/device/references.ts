@@ -8,15 +8,80 @@
 
 import { pageLabel } from "@shared/pages";
 import type { ReferenceHit, ReferenceKind, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
+import type { DeleteResult } from "@shared/delete";
 
 export const PARTIAL_SCAN_NOTE = "Some pages could not be read, so this list may be incomplete.";
+
+/** One toast that says what the delete did to each copy. */
+export interface DeleteOutcome {
+    level: "success" | "warning" | "error";
+    message: string;
+}
 
 /** The sentence shape differs only in what happens to the deck copy. */
 export function deleteConfirmation(noun: string, connected: boolean): string {
     if (connected) {
-        return `${noun} is removed from the library and from the deck. This cannot be undone.`;
+        return `${noun} is deleted from the library and from the deck. This cannot be undone.`;
     }
-    return `${noun} is removed from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
+    return `${noun} is deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
+}
+
+/**
+ * A profile delete also takes every page in the profile directory. The copy
+ * names that, so the confirmation says what the removal deletes.
+ */
+export function profileDeleteConfirmation(name: string, connected: boolean): string {
+    if (connected) {
+        return `Profile “${name}” and all its pages are deleted from the library and from the deck. This cannot be undone.`;
+    }
+    return `Profile “${name}” and all its pages are deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
+}
+
+/**
+ * Report a delete result. Success and the offline deck copy are informative;
+ * a library copy that stayed is a partial delete; a deck failure left both
+ * copies in place. On failure the item stays visible so a retry is just the
+ * same action again.
+ */
+export function deleteOutcome(noun: string, result: DeleteResult): DeleteOutcome {
+    // The noun opens the confirmation but follows a verb here, so its capital
+    // would read as a new sentence ("Deleted Icon “github”").
+    const deleted = lowerFirst(noun);
+    if (result.remaining === "none") {
+        return { level: "success", message: `Deleted ${deleted}` };
+    }
+    if (result.deck.status === "failed") {
+        return {
+            level: "error",
+            message: `Could not delete ${deleted} from the deck: ${
+                result.deck.error ?? "unknown error"
+            }. Nothing was deleted.`,
+        };
+    }
+    if (result.library.status !== "deleted") {
+        // A deck that was skipped (offline) was never touched, so nothing went.
+        if (result.deck.status === "skipped") {
+            return {
+                level: "error",
+                message: `Could not delete ${deleted} from the library: ${
+                    result.library.error ?? "unknown error"
+                }. Nothing was deleted.`,
+            };
+        }
+        return {
+            level: "warning",
+            message: `Deleted ${deleted} from the deck, but the library copy could not be deleted. It is still in the library.`,
+        };
+    }
+    return {
+        level: "warning",
+        message: `Deleted ${deleted} from the library. The deck copy stays, and the next sync removes it.`,
+    };
+}
+
+/** The noun continues the outcome sentence, so it starts in lower case. */
+function lowerFirst(text: string): string {
+    return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 export function referenceNotes(

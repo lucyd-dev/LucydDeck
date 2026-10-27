@@ -79,6 +79,11 @@ export const useIconStore = defineStore("icons", () => {
         return previews.value[name] ?? null;
     }
 
+    /** True while the library still lists this icon. */
+    function has(name: string): boolean {
+        return icons.value.some((icon) => icon.name === name);
+    }
+
     /** Remember the last icons picked in the inspector's quick popover. */
     function markRecent(name: string): void {
         if (name === "") {
@@ -123,17 +128,16 @@ export const useIconStore = defineStore("icons", () => {
         return result.data;
     }
 
-    async function remove(name: string): Promise<boolean> {
-        const result = await iconsClient.remove(name);
-        if (!result.ok) {
-            useAppStore().pushToast("error", result.error);
-            return false;
-        }
+    /**
+     * Apply the in-memory aftermath of an icon delete the main process already
+     * made: drop the cached preview and the recent entry, then re-list. A
+     * library copy that survived keeps all three, so the delete can be retried.
+     */
+    async function applyIconDeleted(name: string): Promise<void> {
         invalidate(name);
         recent.value = recent.value.filter((item) => item !== name);
         writeRecent(recent.value);
         await refresh();
-        return true;
     }
 
     return {
@@ -143,10 +147,11 @@ export const useIconStore = defineStore("icons", () => {
         refresh,
         ensurePreview,
         preview,
+        has,
         markRecent,
         invalidate,
         importIcons,
         importData,
-        remove,
+        applyIconDeleted,
     };
 });

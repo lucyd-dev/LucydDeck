@@ -8,6 +8,7 @@ import type {
     FirmwareState,
 } from "./firmware";
 import type { DiffPlan, SyncResult } from "./sync";
+import type { DeleteResult } from "./delete";
 import type {
     PluginCommand,
     PluginConfigField,
@@ -47,22 +48,24 @@ export const channels = {
         listProfiles: "storage:listProfiles",
         createProfile: "storage:createProfile",
         renameProfile: "storage:renameProfile",
-        deleteProfile: "storage:deleteProfile",
         listPages: "storage:listPages",
         loadPage: "storage:loadPage",
         savePage: "storage:savePage",
-        deletePage: "storage:deletePage",
         exportProfile: "storage:exportProfile",
         importProfile: "storage:importProfile",
         getDefaultProfile: "storage:getDefaultProfile",
         setDefaultProfile: "storage:setDefaultProfile",
         scanReferences: "storage:scanReferences",
     },
+    delete: {
+        page: "delete:page",
+        icon: "delete:icon",
+        profile: "delete:profile",
+    },
     icons: {
         list: "icons:list",
         import: "icons:import",
         importData: "icons:importData",
-        remove: "icons:remove",
         preview: "icons:preview",
     },
     sync: {
@@ -78,7 +81,6 @@ export const channels = {
         listProfiles: "usb:listProfiles",
         createProfile: "usb:createProfile",
         renameProfile: "usb:renameProfile",
-        deleteProfile: "usb:deleteProfile",
         setActiveProfile: "usb:setActiveProfile",
         setActivePage: "usb:setActivePage",
         uploadPage: "usb:uploadPage",
@@ -160,7 +162,19 @@ export interface SetDefaultProfileRequest {
     name: string | null;
 }
 
-export interface IconRemoveRequest {
+/** Delete one page from both copies. The main process owns the transaction. */
+export interface DeletePageRequest {
+    profile: string;
+    id: string;
+}
+
+/** Delete one icon from both copies. The main process owns the transaction. */
+export interface DeleteIconRequest {
+    name: string;
+}
+
+/** Delete one profile from both copies. The main process owns the transaction. */
+export interface DeleteProfileRequest {
     name: string;
 }
 
@@ -304,22 +318,24 @@ export interface RequestMap {
     [channels.storage.listProfiles]: undefined;
     [channels.storage.createProfile]: ProfileNameRequest;
     [channels.storage.renameProfile]: RenameProfileRequest;
-    [channels.storage.deleteProfile]: ProfileNameRequest;
     [channels.storage.listPages]: ProfileNameRequest;
     [channels.storage.loadPage]: PageRefRequest;
     [channels.storage.savePage]: SavePageRequest;
-    [channels.storage.deletePage]: PageRefRequest;
     [channels.storage.exportProfile]: ExportProfileRequest;
     [channels.storage.importProfile]: undefined;
     [channels.storage.getDefaultProfile]: undefined;
     [channels.storage.setDefaultProfile]: SetDefaultProfileRequest;
     [channels.storage.scanReferences]: ReferenceQuery;
 
+    // delete (one main-side owner per entity; deck copy first, then library)
+    [channels.delete.page]: DeletePageRequest;
+    [channels.delete.icon]: DeleteIconRequest;
+    [channels.delete.profile]: DeleteProfileRequest;
+
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
     [channels.icons.import]: IconsImportRequest;
     [channels.icons.importData]: IconImportDataRequest;
-    [channels.icons.remove]: IconRemoveRequest;
     [channels.icons.preview]: IconPreviewRequest;
 
     // sync (Step 3 delta-sync engine)
@@ -335,7 +351,6 @@ export interface RequestMap {
     [channels.usb.listProfiles]: undefined;
     [channels.usb.createProfile]: ProfileNameRequest;
     [channels.usb.renameProfile]: RenameProfileRequest;
-    [channels.usb.deleteProfile]: ProfileNameRequest;
     [channels.usb.setActiveProfile]: ProfileNameRequest;
     [channels.usb.setActivePage]: UsbSetActivePageRequest;
     [channels.usb.uploadPage]: UsbUploadPageRequest;
@@ -377,22 +392,24 @@ export interface ResponseMap {
     [channels.storage.listProfiles]: IpcResponse<ProfileMeta[]>;
     [channels.storage.createProfile]: IpcResponse<ProfileMeta>;
     [channels.storage.renameProfile]: IpcResponse<ProfileMeta>;
-    [channels.storage.deleteProfile]: IpcResponse<void>;
     [channels.storage.listPages]: IpcResponse<PageMeta[]>;
     [channels.storage.loadPage]: IpcResponse<PageConfig>;
     [channels.storage.savePage]: IpcResponse<void>;
-    [channels.storage.deletePage]: IpcResponse<void>;
     [channels.storage.exportProfile]: IpcResponse<{ path: string } | null>;
     [channels.storage.importProfile]: IpcResponse<ProfileMeta | null>;
     [channels.storage.getDefaultProfile]: IpcResponse<string | null>;
     [channels.storage.setDefaultProfile]: IpcResponse<void>;
     [channels.storage.scanReferences]: IpcResponse<ReferenceScanResult>;
 
+    // delete
+    [channels.delete.page]: IpcResponse<DeleteResult>;
+    [channels.delete.icon]: IpcResponse<DeleteResult>;
+    [channels.delete.profile]: IpcResponse<DeleteResult>;
+
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;
     [channels.icons.import]: IpcResponse<IconMeta[]>;
     [channels.icons.importData]: IpcResponse<IconMeta>;
-    [channels.icons.remove]: IpcResponse<void>;
     [channels.icons.preview]: IpcResponse<IconPreview | null>;
 
     // sync
@@ -408,7 +425,6 @@ export interface ResponseMap {
     [channels.usb.listProfiles]: IpcResponse<DeviceProfileEntry[]>;
     [channels.usb.createProfile]: IpcResponse<void>;
     [channels.usb.renameProfile]: IpcResponse<void>;
-    [channels.usb.deleteProfile]: IpcResponse<void>;
     [channels.usb.setActiveProfile]: IpcResponse<void>;
     [channels.usb.setActivePage]: IpcResponse<void>;
     [channels.usb.uploadPage]: IpcResponse<void>;

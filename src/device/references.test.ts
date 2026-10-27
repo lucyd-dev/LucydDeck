@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PARTIAL_SCAN_NOTE, deleteConfirmation, referenceSentence } from "./references";
+import {
+    PARTIAL_SCAN_NOTE,
+    deleteConfirmation,
+    deleteOutcome,
+    profileDeleteConfirmation,
+    referenceSentence,
+} from "./references";
 
 describe("referenceSentence", () => {
     const hit = (profile: string, pageId: string) => ({ profile, pageId });
@@ -51,13 +57,13 @@ describe("referenceSentence", () => {
 describe("deleteConfirmation", () => {
     it("promises both copies go while the deck is connected", () => {
         expect(deleteConfirmation("Page 4", true)).toBe(
-            "Page 4 is removed from the library and from the deck. This cannot be undone.",
+            "Page 4 is deleted from the library and from the deck. This cannot be undone.",
         );
     });
 
     it("says the deck copy stays until the next sync while disconnected", () => {
         expect(deleteConfirmation("Icon “github”", false)).toBe(
-            "Icon “github” is removed from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
+            "Icon “github” is deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
         );
     });
 
@@ -65,5 +71,96 @@ describe("deleteConfirmation", () => {
         expect(PARTIAL_SCAN_NOTE).toBe(
             "Some pages could not be read, so this list may be incomplete.",
         );
+    });
+});
+
+describe("profileDeleteConfirmation", () => {
+    it("names the pages that go with a connected profile", () => {
+        expect(profileDeleteConfirmation("Gaming Room", true)).toBe(
+            "Profile “Gaming Room” and all its pages are deleted from the library and from the deck. This cannot be undone.",
+        );
+    });
+
+    it("names the pages and the deck copy that stays while disconnected", () => {
+        expect(profileDeleteConfirmation("Gaming Room", false)).toBe(
+            "Profile “Gaming Room” and all its pages are deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
+        );
+    });
+});
+
+describe("deleteOutcome", () => {
+    it("reports a whole delete as success", () => {
+        expect(
+            deleteOutcome("Page 4", {
+                deck: { status: "deleted" },
+                library: { status: "deleted" },
+                remaining: "none",
+            }),
+        ).toEqual({ level: "success", message: "Deleted page 4" });
+    });
+
+    it("lower-cases a capitalised noun that follows the verb", () => {
+        expect(
+            deleteOutcome("Icon “github”", {
+                deck: { status: "deleted" },
+                library: { status: "deleted" },
+                remaining: "none",
+            }),
+        ).toEqual({ level: "success", message: "Deleted icon “github”" });
+    });
+
+    it("names the library copy that stayed after a partial delete", () => {
+        expect(
+            deleteOutcome("Page 4", {
+                deck: { status: "deleted" },
+                library: { status: "failed", error: "no permission" },
+                remaining: "library",
+            }),
+        ).toEqual({
+            level: "warning",
+            message:
+                "Deleted page 4 from the deck, but the library copy could not be deleted. It is still in the library.",
+        });
+    });
+
+    it("names the deck error and says nothing was deleted after a deck failure", () => {
+        expect(
+            deleteOutcome("Page 4", {
+                deck: { status: "failed", error: "deck refused" },
+                library: { status: "skipped" },
+                remaining: "both",
+            }),
+        ).toEqual({
+            level: "error",
+            message: "Could not delete page 4 from the deck: deck refused. Nothing was deleted.",
+        });
+    });
+
+    it("says the deck copy stays when the delete started disconnected", () => {
+        expect(
+            deleteOutcome("Page 4", {
+                deck: { status: "skipped" },
+                library: { status: "deleted" },
+                remaining: "deck",
+            }),
+        ).toEqual({
+            level: "warning",
+            message:
+                "Deleted page 4 from the library. The deck copy stays, and the next sync removes it.",
+        });
+    });
+
+    it("does not claim the deck copy went when an offline library delete fails", () => {
+        expect(
+            deleteOutcome("Page 4", {
+                deck: { status: "skipped" },
+                library: { status: "failed", error: "Page not found" },
+                remaining: "both",
+            }),
+        ).toEqual({
+            level: "error",
+            message:
+                "Could not delete page 4 from the library: Page not found. Nothing was deleted.",
+        });
     });
 });

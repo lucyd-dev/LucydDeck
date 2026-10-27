@@ -18,6 +18,7 @@ const emit = defineEmits<{
 const icons = useIconStore();
 const device = useDeviceStore();
 const query = ref("");
+const deleteBlockedReason = computed(() => device.deckWriteBlockedReason);
 
 const visible = computed(() => {
     const search = query.value.trim().toLowerCase();
@@ -37,6 +38,9 @@ async function remove(name: string): Promise<void> {
         <p class="icon-library__hint">
             Choose a PNG for this key. Right-click an icon to delete it; icons are stored at
             140×140.
+        </p>
+        <p v-if="deleteBlockedReason" class="icon-library__blocked">
+            Deleting icons is unavailable. {{ deleteBlockedReason }}.
         </p>
 
         <label class="icon-library__search">
@@ -66,6 +70,7 @@ async function remove(name: string): Promise<void> {
                 :name="icon.name"
                 :selected="props.selected === icon.name"
                 removable
+                :remove-disabled-reason="deleteBlockedReason"
                 @select="emit('select', $event)"
                 @remove="remove"
             />

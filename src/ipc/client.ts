@@ -29,19 +29,23 @@ export const storageClient = {
     createProfile: (name: string) => invoke(channels.storage.createProfile, { name }),
     renameProfile: (oldName: string, newName: string) =>
         invoke(channels.storage.renameProfile, { oldName, newName }),
-    deleteProfile: (name: string) => invoke(channels.storage.deleteProfile, { name }),
     listPages: (profile: string) => invoke(channels.storage.listPages, { name: profile }),
     loadPage: (profile: string, id: string) => invoke(channels.storage.loadPage, { profile, id }),
     savePage: (profile: string, id: string, page: PageConfig) =>
         invoke(channels.storage.savePage, { profile, id, page }),
-    deletePage: (profile: string, id: string) =>
-        invoke(channels.storage.deletePage, { profile, id }),
     exportProfile: (name: string) => invoke(channels.storage.exportProfile, { name }),
     importProfile: () => invoke(channels.storage.importProfile, undefined),
     getDefaultProfile: () => invoke(channels.storage.getDefaultProfile, undefined),
     setDefaultProfile: (name: string | null) =>
         invoke(channels.storage.setDefaultProfile, { name }),
     scanReferences: (query: ReferenceQuery) => invoke(channels.storage.scanReferences, query),
+};
+
+/** One request per entity: the main process owns both sides of the delete. */
+export const deleteClient = {
+    page: (profile: string, id: string) => invoke(channels.delete.page, { profile, id }),
+    icon: (name: string) => invoke(channels.delete.icon, { name }),
+    profile: (name: string) => invoke(channels.delete.profile, { name }),
 };
 
 export const usbClient = {
@@ -54,7 +58,6 @@ export const usbClient = {
     createProfile: (name: string) => invoke(channels.usb.createProfile, { name }),
     renameProfile: (oldName: string, newName: string) =>
         invoke(channels.usb.renameProfile, { oldName, newName }),
-    deleteProfile: (name: string) => invoke(channels.usb.deleteProfile, { name }),
     setActiveProfile: (name: string) => invoke(channels.usb.setActiveProfile, { name }),
     setActivePage: (id: string) => invoke(channels.usb.setActivePage, { id }),
     uploadPage: (profile: string, id: string) => invoke(channels.usb.uploadPage, { profile, id }),
@@ -76,7 +79,6 @@ export const iconsClient = {
         invoke(channels.icons.import, paths === undefined ? {} : { paths }),
     importData: (name: string, dataUrl: string) =>
         invoke(channels.icons.importData, { name, dataUrl }),
-    remove: (name: string) => invoke(channels.icons.remove, { name }),
     preview: (name: string) => invoke(channels.icons.preview, { name }),
 };
 

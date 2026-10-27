@@ -21,6 +21,7 @@ import type { FileTransfer } from "../services/FileTransfer";
 import type { ImagePipelineService } from "../services/ImagePipelineService";
 import type { SyncService } from "../services/SyncService";
 import type { FirmwareService } from "../services/FirmwareService";
+import type { DeleteService } from "../services/DeleteService";
 import { DeviceLockError } from "../services/DeviceLock";
 import type { DeviceLock } from "../services/DeviceLock";
 import type { PluginService } from "../plugins/PluginService";
@@ -46,6 +47,7 @@ export interface IpcServices {
     imagePipeline: ImagePipelineService;
     sync: SyncService;
     firmware: FirmwareService;
+    deletes: DeleteService;
     plugins: PluginService;
     commands: CommandRouter;
     /** Shared deck ownership: an update disables sync and every device write. */
@@ -58,14 +60,45 @@ export interface IpcServices {
  * with a stable code where available.
  */
 export function registerIpcHandlers(services: IpcServices): void {
-    const { storage, usb, device, fileTransfer, imagePipeline, sync, firmware, plugins, commands } =
-        services;
+    const {
+        storage,
+        usb,
+        device,
+        fileTransfer,
+        imagePipeline,
+        sync,
+        firmware,
+        deletes,
+        plugins,
+        commands,
+    } = services;
     const { lock } = services;
 
-    /** A device write must wait while a firmware update owns the deck. */
-    const assertDeckWritable = (): void => {
+    /**
+     * A connection change must wait while a firmware update owns the deck.
+     * Connect and disconnect stay outside the write lock: they do not write
+     * deck state and a sync may still be reading it.
+     */
+    const assertNotUpdating = (): void => {
         if (lock.updating) {
             throw new DeviceLockError("update");
+        }
+    };
+
+    /**
+     * Run one direct deck write under the shared write lock. The lock is held
+     * for the whole command so a sync cannot start in the middle of it, and it
+     * is released however the command ends. A sync, update or transfer that
+     * owns the deck refuses the write with `DEVICE_BUSY` rather than queueing.
+     */
+    const withDeckWrite = async <T>(run: () => Promise<T> | T): Promise<T> => {
+        if (!lock.beginWrite()) {
+            throw new DeviceLockError(lock.current() ?? "write");
+        }
+        try {
+            return await run();
+        } finally {
+            lock.endWrite();
         }
     };
 
@@ -135,15 +168,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     );
 
     register(
-        channels.storage.deleteProfile,
-        ({ name }) => {
-            storage.deleteProfile(name);
-            return { ok: true, data: undefined };
-        },
-        true,
-    );
-
-    register(
         channels.storage.listPages,
         ({ name }) => ({
             ok: true,
@@ -181,15 +205,6 @@ export function registerIpcHandlers(services: IpcServices): void {
                 });
             }
             storage.savePage(profile, id, serializePageConfig(validation.page));
-            return { ok: true, data: undefined };
-        },
-        true,
-    );
-
-    register(
-        channels.storage.deletePage,
-        ({ profile, id }) => {
-            storage.deletePage(profile, id);
             return { ok: true, data: undefined };
         },
         true,
@@ -234,15 +249,29 @@ export function registerIpcHandlers(services: IpcServices): void {
         true,
     );
 
+    // --- delete (one owner for both copies) -----------------------------
+    register(channels.delete.page, async ({ profile, id }) => ({
+        ok: true,
+        data: await deletes.deletePage(profile, id),
+    }));
+    register(channels.delete.icon, async ({ name }) => ({
+        ok: true,
+        data: await deletes.deleteIcon(name),
+    }));
+    register(channels.delete.profile, async ({ name }) => ({
+        ok: true,
+        data: await deletes.deleteProfile(name),
+    }));
+
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
     register(channels.usb.connect, async () => {
-        assertDeckWritable();
+        assertNotUpdating();
         await usb.connectWithScanning();
         return { ok: true, data: undefined };
     });
     register(channels.usb.disconnect, async () => {
-        assertDeckWritable();
+        assertNotUpdating();
         await usb.disconnect();
         return { ok: true, data: undefined };
     });
@@ -261,69 +290,67 @@ export function registerIpcHandlers(services: IpcServices): void {
         data: await device.listProfiles(),
     }));
     register(channels.usb.createProfile, async ({ name }) => {
-        assertDeckWritable();
-        await device.createProfile(name);
+        await withDeckWrite(() => device.createProfile(name));
         return { ok: true, data: undefined };
     });
     register(channels.usb.renameProfile, async ({ oldName, newName }) => {
-        assertDeckWritable();
-        await device.renameProfile(oldName, newName);
-        return { ok: true, data: undefined };
-    });
-    register(channels.usb.deleteProfile, async ({ name }) => {
-        assertDeckWritable();
-        await device.deleteProfile(name);
+        await withDeckWrite(() => device.renameProfile(oldName, newName));
         return { ok: true, data: undefined };
     });
     register(channels.usb.setActiveProfile, async ({ name }) => {
-        assertDeckWritable();
-        await device.setActiveProfile(name);
+        await withDeckWrite(() => device.setActiveProfile(name));
         return { ok: true, data: undefined };
     });
     register(channels.usb.setActivePage, async ({ id }) => {
-        assertDeckWritable();
-        await device.setActivePage(id);
+        await withDeckWrite(() => device.setActivePage(id));
         return { ok: true, data: undefined };
     });
-    register(channels.usb.uploadPage, async ({ profile, id }) => {
-        assertDeckWritable();
-        const page = storage.loadPage(profile, id);
-        const validation = validatePageConfig(page);
-        if (!validation.ok) {
-            throw new Error(
-                `Page config is invalid: ${validation.errors.join("; ") || "unknown validation error"}`,
+    register(channels.usb.uploadPage, async ({ profile, id }) =>
+        withDeckWrite(async () => {
+            const page = storage.loadPage(profile, id);
+            const validation = validatePageConfig(page);
+            if (!validation.ok) {
+                throw new Error(
+                    `Page config is invalid: ${validation.errors.join("; ") || "unknown validation error"}`,
+                );
+            }
+            // Canonicalize exactly like SyncService so the device CRC matches
+            // the locally computed hash (same bytes on both upload paths).
+            await device.uploadPage(
+                profile,
+                id,
+                JSON.stringify(serializePageConfig(validation.page)),
             );
-        }
-        // Canonicalize exactly like SyncService so the device CRC matches the
-        // locally computed hash (same bytes on both upload paths).
-        await device.uploadPage(profile, id, JSON.stringify(serializePageConfig(validation.page)));
-        return { ok: true, data: undefined };
-    });
-    register(channels.usb.uploadIcon, async ({ name }) => {
-        assertDeckWritable();
-        const file = resolveIconFile(storage, name);
-        if (file === null) {
-            throw new Error(`Icon not found: "${iconBaseName(name)}"`);
-        }
-        await device.uploadIcon(iconBaseName(name), new Uint8Array(fs.readFileSync(file)));
-        return { ok: true, data: undefined };
-    });
-    register(channels.usb.deleteFile, async (request) => {
-        assertDeckWritable();
-        if (!usb.connected) {
-            throw new Error("Device is not connected");
-        }
-        if (request.kind === "page") {
-            await device.deletePage(request.profile, request.id, {
-                allowMissing: request.allowMissing === true,
-            });
-        } else {
-            await device.deleteIcon(request.name, {
-                allowMissing: request.allowMissing === true,
-            });
-        }
-        return { ok: true, data: undefined };
-    });
+            return { ok: true, data: undefined };
+        }),
+    );
+    register(channels.usb.uploadIcon, async ({ name }) =>
+        withDeckWrite(async () => {
+            const file = resolveIconFile(storage, name);
+            if (file === null) {
+                throw new Error(`Icon not found: "${iconBaseName(name)}"`);
+            }
+            await device.uploadIcon(iconBaseName(name), new Uint8Array(fs.readFileSync(file)));
+            return { ok: true, data: undefined };
+        }),
+    );
+    register(channels.usb.deleteFile, async (request) =>
+        withDeckWrite(async () => {
+            if (!usb.connected) {
+                throw new Error("Device is not connected");
+            }
+            if (request.kind === "page") {
+                await device.deletePage(request.profile, request.id, {
+                    allowMissing: request.allowMissing === true,
+                });
+            } else {
+                await device.deleteIcon(request.name, {
+                    allowMissing: request.allowMissing === true,
+                });
+            }
+            return { ok: true, data: undefined };
+        }),
+    );
 
     // --- settings -------------------------------------------------------
     register(channels.settings.get, () => ({ ok: true, data: settingsSnapshot(storage) }));
@@ -390,15 +417,6 @@ export function registerIpcHandlers(services: IpcServices): void {
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
-    });
-
-    register(channels.icons.remove, ({ name }) => {
-        const base = iconBaseName(name);
-        const file = resolveIconFile(storage, base);
-        if (file !== null) {
-            fs.rmSync(file);
-        }
-        return { ok: true, data: undefined };
     });
 
     // --- sync (Step 3 delta-sync engine) --------------------------------

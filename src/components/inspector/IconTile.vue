@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { Trash2 } from "@lucide/vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import { useIconStore } from "@/stores/iconStore";
@@ -9,8 +9,9 @@ const props = withDefaults(
         name: string;
         selected: boolean;
         removable?: boolean;
+        removeDisabledReason?: string;
     }>(),
-    { removable: false },
+    { removable: false, removeDisabledReason: undefined },
 );
 
 const emit = defineEmits<{
@@ -22,6 +23,13 @@ const icons = useIconStore();
 const root = ref<HTMLElement | null>(null);
 const dataUrl = ref<string | null>(icons.preview(props.name));
 let observer: IntersectionObserver | null = null;
+
+const canRemove = computed(() => props.removable && props.removeDisabledReason === undefined);
+const removeLabel = computed(() =>
+    props.removeDisabledReason !== undefined
+        ? `Delete ${props.name} — ${props.removeDisabledReason}`
+        : `Delete ${props.name}`,
+);
 
 async function load(): Promise<void> {
     dataUrl.value = await icons.ensurePreview(props.name);
@@ -57,7 +65,7 @@ onBeforeUnmount(() => {
             :title="props.name"
             :aria-pressed="props.selected"
             @click="emit('select', props.name)"
-            @contextmenu.prevent="props.removable && emit('remove', props.name)"
+            @contextmenu.prevent="canRemove && emit('remove', props.name)"
         >
             <img v-if="dataUrl" class="icon-tile__image" :src="dataUrl" :alt="props.name" />
             <span v-else class="icon-tile__placeholder">{{ props.name.slice(0, 2) }}</span>
@@ -65,8 +73,9 @@ onBeforeUnmount(() => {
         <IconButton
             v-if="props.removable"
             class="icon-tile__remove"
-            :label="`Delete ${props.name}`"
+            :label="removeLabel"
             variant="ghost"
+            :disabled="props.removeDisabledReason !== undefined"
             @click.stop="emit('remove', props.name)"
         >
             <Trash2 :size="14" />

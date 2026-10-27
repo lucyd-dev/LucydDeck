@@ -4,13 +4,11 @@ import { watch } from "vue";
 
 const mocks = vi.hoisted(() => ({
     savePage: vi.fn(),
-    deletePage: vi.fn(),
     loadPage: vi.fn(),
     listPages: vi.fn(),
     listProfiles: vi.fn(),
     createProfile: vi.fn(),
     renameProfile: vi.fn(),
-    deleteProfile: vi.fn(),
     setDefaultProfile: vi.fn(),
 }));
 
@@ -58,10 +56,8 @@ describe("profileStore autosave and history", () => {
             ],
         });
         mocks.listProfiles.mockReset().mockResolvedValue({ ok: true, data: [] });
-        mocks.deletePage.mockReset().mockResolvedValue({ ok: true, data: undefined });
         mocks.createProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "new" } });
         mocks.renameProfile.mockReset().mockResolvedValue({ ok: true, data: { name: "renamed" } });
-        mocks.deleteProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
         mocks.setDefaultProfile.mockReset().mockResolvedValue({ ok: true, data: undefined });
     });
 
@@ -180,12 +176,12 @@ describe("profileStore autosave and history", () => {
         expect(mocks.savePage).toHaveBeenCalledTimes(1);
     });
 
-    it("deletes the open page and opens the lowest remaining one", async () => {
+    it("opens the lowest remaining page after the open page's library copy went", async () => {
         const store = setupStore();
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "1", mtimeMs: 2000 }] });
 
-        expect(await store.removePage("0")).toBe(true);
-        expect(mocks.deletePage).toHaveBeenCalledWith("main", "0");
+        await store.applyPageDeleted("main", "0");
+
         expect(store.currentPageId).toBe("1");
         expect(mocks.loadPage).toHaveBeenLastCalledWith("main", "1");
     });
@@ -194,7 +190,8 @@ describe("profileStore autosave and history", () => {
         const store = setupStore();
         mocks.listPages.mockResolvedValue({ ok: true, data: [] });
 
-        expect(await store.removePage("0")).toBe(true);
+        await store.applyPageDeleted("main", "0");
+
         expect(store.currentPageId).toBeNull();
         expect(store.currentPage).toEqual({ buttons: {} });
         expect(store.dirty).toBe(false);
@@ -203,7 +200,8 @@ describe("profileStore autosave and history", () => {
     it("keeps the open page when another one is deleted", async () => {
         const store = setupStore();
 
-        expect(await store.removePage("1")).toBe(true);
+        await store.applyPageDeleted("main", "1");
+
         expect(store.currentPageId).toBe("0");
         expect(mocks.loadPage).not.toHaveBeenCalled();
     });
@@ -212,18 +210,19 @@ describe("profileStore autosave and history", () => {
         const store = setupStore();
         store.setLabel("A");
 
-        await store.removePage("0");
+        await store.applyPageDeleted("main", "0");
         await vi.advanceTimersByTimeAsync(400);
 
         expect(mocks.savePage).not.toHaveBeenCalled();
     });
 
-    it("reports a failed delete and keeps the page open", async () => {
+    it("leaves the editor alone when the delete belonged to another profile", async () => {
         const store = setupStore();
-        mocks.deletePage.mockResolvedValue({ ok: false, error: "Page not found" });
 
-        expect(await store.removePage("0")).toBe(false);
+        await store.applyPageDeleted("work", "1");
+
         expect(store.currentPageId).toBe("0");
+        expect(mocks.listPages).not.toHaveBeenCalled();
     });
 
     it("opens a newly created profile without carrying the previous page id", async () => {
@@ -356,9 +355,9 @@ describe("profileStore autosave and history", () => {
         });
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "3", mtimeMs: 4000 }] });
 
-        await store.deleteProfile("Gaming Room");
+        await store.settleProfileWrites("Gaming Room");
+        await store.applyProfileDeleted("Gaming Room");
 
-        expect(mocks.deleteProfile).toHaveBeenCalledWith("Gaming Room");
         expect(store.activeProfile).toBe("Default");
         expect(store.currentPageId).toBe("3");
         expect(mocks.loadPage).toHaveBeenCalledWith("Default", "3");
@@ -384,14 +383,15 @@ describe("profileStore autosave and history", () => {
             });
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
 
-        await store.deleteProfile("Default");
+        await store.settleProfileWrites("Default");
+        await store.applyProfileDeleted("Default");
 
         expect(mocks.setDefaultProfile).toHaveBeenCalledWith("Gaming Room");
         expect(store.activeProfile).toBe("Gaming Room");
         expect(store.defaultProfile).toBe("Gaming Room");
     });
 
-    it("never writes to a profile after deleting it", async () => {
+    it("flushes pending edits before a profile delete and writes nothing afterwards", async () => {
         const store = setupStore();
         store.activeProfile = "Gaming Room";
         store.profiles = [
@@ -408,30 +408,23 @@ describe("profileStore autosave and history", () => {
         });
         mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
 
-        let finishDelete: (value: { ok: true; data: undefined }) => void = () => {};
-        mocks.deleteProfile.mockReturnValue(
-            new Promise((resolve) => {
-                finishDelete = resolve;
-            }),
-        );
-
         store.setLabel("A");
-        const deletion = store.deleteProfile("Gaming Room");
-        // The autosave would fire here, while the delete is still in flight.
+        await store.settleProfileWrites("Gaming Room");
+        // One write settles the edit before the main process deletes.
+        expect(mocks.savePage).toHaveBeenCalledTimes(1);
         await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100);
-        finishDelete({ ok: true, data: undefined });
-        await deletion;
+        expect(mocks.savePage).toHaveBeenCalledTimes(1);
+        expect(store.activeProfile).toBe("Gaming Room");
+
+        await store.applyProfileDeleted("Gaming Room");
         await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100);
 
-        const writesToDeleted = mocks.savePage.mock.calls.filter(
-            ([profile]) => profile === "Gaming Room",
-        );
-        expect(writesToDeleted).toHaveLength(0);
+        expect(mocks.savePage).toHaveBeenCalledTimes(1);
         expect(store.activeProfile).toBe("Default");
         expect(store.dirty).toBe(false);
     });
 
-    it("settles an in-flight save before deleting the active profile", async () => {
+    it("settles an in-flight save before the profile delete", async () => {
         const store = setupStore();
         store.activeProfile = "Gaming Room";
         store.profiles = [
@@ -459,13 +452,21 @@ describe("profileStore autosave and history", () => {
         await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
         expect(mocks.savePage).toHaveBeenCalledTimes(1);
 
-        const deletion = store.deleteProfile("Gaming Room");
+        let settled = false;
+        const settling = store.settleProfileWrites("Gaming Room").then(() => {
+            settled = true;
+        });
         await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.deleteProfile).not.toHaveBeenCalled();
+        expect(settled).toBe(false);
 
         finishSave({ ok: true, data: undefined });
-        await deletion;
-        expect(mocks.deleteProfile).toHaveBeenCalledWith("Gaming Room");
+        await settling;
+        expect(settled).toBe(true);
+        // The aftermath runs only after the main process reports the library
+        // copy gone; settling alone leaves the profile open.
+        expect(store.activeProfile).toBe("Gaming Room");
+
+        await store.applyProfileDeleted("Gaming Room");
         expect(store.activeProfile).toBe("Default");
     });
 });

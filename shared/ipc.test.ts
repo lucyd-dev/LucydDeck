@@ -28,7 +28,6 @@ describe("shared/ipc contract", () => {
         expect(channels.storage.listProfiles).toBe("storage:listProfiles");
         expect(channels.storage.createProfile).toBe("storage:createProfile");
         expect(channels.storage.renameProfile).toBe("storage:renameProfile");
-        expect(channels.storage.deleteProfile).toBe("storage:deleteProfile");
         expect(channels.storage.listPages).toBe("storage:listPages");
         expect(channels.storage.loadPage).toBe("storage:loadPage");
         expect(channels.storage.savePage).toBe("storage:savePage");
@@ -58,6 +57,16 @@ describe("shared/ipc contract", () => {
         expect(channels.settings.revealDataFolder).toBe("settings:revealDataFolder");
         expect(channels.settings.openLogsFolder).toBe("settings:openLogsFolder");
         expect(channels.usb.deleteFile).toBe("usb:deleteFile");
+    });
+
+    it("exposes the one-owner delete channels", () => {
+        expect(channels.delete.page).toBe("delete:page");
+        expect(channels.delete.icon).toBe("delete:icon");
+        expect(channels.delete.profile).toBe("delete:profile");
+    });
+
+    it("has no deck-only profile delete channel", () => {
+        expect(listChannels()).not.toContain("usb:deleteProfile");
     });
 
     it("exposes the firmware channels and keeps updater reserved", () => {

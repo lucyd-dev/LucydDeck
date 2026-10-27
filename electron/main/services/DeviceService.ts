@@ -11,6 +11,7 @@ import {
     type DeviceProfileEntry,
 } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
+import type { DeckDeleteStatus } from "@shared/delete";
 import { iconBaseName } from "@shared/icons";
 import { isValidEntityName } from "@shared/names";
 import { validateName } from "./StorageService";
@@ -140,21 +141,9 @@ export class DeviceService {
      * delete lookup keeps `validateName`, so a profile stored under a name from
      * before the entity grammar is still removable.
      */
-    async deleteProfile(name: string, options: DeleteOptions = {}): Promise<void> {
+    async deleteProfile(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         this.assertName(name);
-        try {
-            await this.usb.command(HostCommand.ProfileDelete, textBytes(name), DeviceResponse.Ack);
-        } catch (error) {
-            // The postcondition of a delete is that the profile is gone; a deck
-            // profile the plan saw a moment ago may already have been removed.
-            if (
-                options.allowMissing === true &&
-                isFirmwareError(error, ErrorCode.ProfileNotFound)
-            ) {
-                return;
-            }
-            throw error;
-        }
+        return this.deleteIdentity(HostCommand.ProfileDelete, name, options);
     }
 
     async setActiveProfile(name: string): Promise<void> {
@@ -207,29 +196,29 @@ export class DeviceService {
         profile: string,
         id: string | number,
         options: DeleteOptions = {},
-    ): Promise<void> {
+    ): Promise<DeckDeleteStatus> {
         this.assertName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
-        await this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
+        return this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
     }
 
     /**
      * Delete `/icons/<name>.png` on the device (`CMD_ICON_DELETE`). `name` may
      * be given with or without the extension.
      */
-    async deleteIcon(name: string, options: DeleteOptions = {}): Promise<void> {
+    async deleteIcon(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         const base = iconBaseName(name);
         this.assertName(base);
-        await this.deleteIdentity(HostCommand.IconDelete, base, options);
+        return this.deleteIdentity(HostCommand.IconDelete, base, options);
     }
 
     /** One identity string, no target byte: it must fit a single frame. */
     private async deleteIdentity(
-        opcode: HostCommand.PageDelete | HostCommand.IconDelete,
+        opcode: HostCommand.PageDelete | HostCommand.IconDelete | HostCommand.ProfileDelete,
         identity: string,
         options: DeleteOptions,
-    ): Promise<void> {
+    ): Promise<DeckDeleteStatus> {
         const identityBytes = textBytes(identity);
         if (identity === "" || identityBytes.length > PAYLOAD_MAX) {
             throw new DeviceError(
@@ -239,6 +228,7 @@ export class DeviceService {
         }
         try {
             await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
+            return "deleted";
         } catch (error) {
             // The postcondition of a delete is that the file is gone, and it
             // already holds when the deck answers that it never had it. A page
@@ -249,7 +239,7 @@ export class DeviceService {
                 (isFirmwareError(error, ErrorCode.FileNotFound) ||
                     isFirmwareError(error, ErrorCode.ProfileNotFound))
             ) {
-                return;
+                return "missing";
             }
             throw error;
         }

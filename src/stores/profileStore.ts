@@ -6,7 +6,6 @@ import { PageDocumentHistory, clonePageConfig } from "@/editor/pageDocument";
 import { validateActionString } from "@shared/actions";
 import { emptyButtonConfig, emptyPageConfig, isValidBoardIndex } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
-import { pageLabel } from "@shared/pages";
 import type { ButtonConfig, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 
 /** Delay between the last edit and the autosave write. */
@@ -452,35 +451,30 @@ export const useProfileStore = defineStore("profile", () => {
         await loadPage(id);
     }
 
-    /** Delete a page file; the deck keeps its own copy, deleted from the Device view. */
-    async function removePage(id: string): Promise<boolean> {
-        const profile = activeProfile.value;
-        if (profile === "" || !pages.value.some((page) => page.id === id)) {
-            return false;
-        }
-        const isCurrent = id === currentPageId.value;
+    /**
+     * Apply the in-memory aftermath of a page delete the main process already
+     * made: drop its history and, when it was the open page, open the lowest
+     * remaining one or leave the editor blank. A page whose library copy
+     * survived keeps its editor state, so the delete can be retried.
+     */
+    async function applyPageDeleted(profileName: string, id: string): Promise<void> {
+        const isCurrent = profileName === activeProfile.value && id === currentPageId.value;
         if (isCurrent) {
-            // Autosave would write the page back the moment the delete lands.
+            // A pending autosave would write the page back the moment it lands.
             clearAutosaveTimer();
         }
-        const result = await storageClient.deletePage(profile, id);
-        if (!result.ok) {
-            useAppStore().pushToast("error", result.error);
-            return false;
-        }
 
-        const key = pageHistoryKey(profile, id);
+        const key = pageHistoryKey(profileName, id);
         history.clear(key);
         historyVersion.value++;
         deferredPages.delete(key);
-        useAppStore().pushToast("success", `Deleted ${pageLabel(id)}`);
 
-        if (activeProfile.value !== profile) {
-            return true;
+        if (activeProfile.value !== profileName) {
+            return;
         }
-        await refreshPages(profile);
-        if (!isCurrent || activeProfile.value !== profile) {
-            return true;
+        await refreshPages(profileName);
+        if (!isCurrent || activeProfile.value !== profileName) {
+            return;
         }
 
         const next = pages.value[0]?.id ?? null;
@@ -496,7 +490,6 @@ export const useProfileStore = defineStore("profile", () => {
             externalChange.value = null;
             changeRevision++;
         }
-        return true;
     }
 
     function selectKey(index: string | null, extend = false): void {
@@ -806,25 +799,28 @@ export const useProfileStore = defineStore("profile", () => {
         await refreshProfiles();
     }
 
-    async function deleteProfile(name: string): Promise<void> {
-        const wasActive = activeProfile.value === name;
-        const wasDefault = profiles.value.find((item) => item.name === name)?.isDefault === true;
-
-        if (wasActive) {
-            // A pending autosave, or a write already in flight, would land in
-            // the directory being removed. Settle both before deleting.
-            clearAutosaveTimer();
-            if (activeSave !== null) {
-                await activeSave;
-            }
-            clearAutosaveTimer();
-        }
-
-        const result = await storageClient.deleteProfile(name);
-        if (!result.ok) {
-            useAppStore().pushToast("error", result.error);
+    /**
+     * Settle a write into the profile that is about to be deleted. A pending
+     * autosave or an in-flight save is flushed first, the page-delete rule, so
+     * a failed delete leaves the edits on disk and a successful one removes
+     * them with the profile.
+     */
+    async function settleProfileWrites(name: string): Promise<void> {
+        if (activeProfile.value !== name) {
             return;
         }
+        await flushPending();
+    }
+
+    /**
+     * Apply the in-memory aftermath of a profile delete the main process
+     * already made: drop the profile and its deferred pages, then leave the
+     * editor blank and open the default profile (else the first remaining).
+     * Only called when the library copy is gone, so a failed or partial delete
+     * leaves the profile and its editor state in place.
+     */
+    async function applyProfileDeleted(name: string): Promise<void> {
+        const wasDefault = profiles.value.find((item) => item.name === name)?.isDefault === true;
         // Re-check: the user may have switched profiles while the delete was
         // in flight, and the new profile keeps its own document.
         const activeWasDeleted = activeProfile.value === name;
@@ -983,7 +979,7 @@ export const useProfileStore = defineStore("profile", () => {
         initProfiles,
         selectPage,
         createPage,
-        removePage,
+        applyPageDeleted,
         selectKey,
         isKeySelected,
         setLabel,
@@ -1003,7 +999,8 @@ export const useProfileStore = defineStore("profile", () => {
         flushPending,
         createProfile,
         renameProfile,
-        deleteProfile,
+        settleProfileWrites,
+        applyProfileDeleted,
         setDefaultProfile,
         importProfile,
         exportProfile,

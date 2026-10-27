@@ -1206,6 +1206,13 @@
     word-break: break-word;
 }
 
+.icon-library__blocked {
+    margin: var(--space-xs) 0 0;
+    color: var(--color-warning);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
 .icon-library__search {
     display: flex;
     align-items: center;

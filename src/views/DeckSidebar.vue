@@ -140,7 +140,9 @@ async function removePage(id: string): Promise<void> {
                     class="page-card__delete"
                     :label="`Delete ${pageLabel(page.id)}`"
                     variant="ghost"
-                    :disabled="deletingPageId === page.id"
+                    :disabled="
+                        device.deckWriteBlockedReason !== undefined || deletingPageId === page.id
+                    "
                     @click="removePage(page.id)"
                 >
                     <Trash2 :size="14" />
@@ -155,6 +157,10 @@ async function removePage(id: string): Promise<void> {
             :icon="FilePlus2"
             compact
         />
+
+        <p v-if="device.deckWriteBlockedReason" class="deck-sidebar__hint">
+            {{ device.deckWriteBlockedReason }}
+        </p>
 
         <p v-if="!profile.hasProfile" class="deck-sidebar__hint">
             Choose a profile above, or create one from the profile menu.

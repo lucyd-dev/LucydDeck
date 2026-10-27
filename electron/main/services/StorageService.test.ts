@@ -250,6 +250,19 @@ describe("StorageService profile CRUD", () => {
         expect(() => storage.deletePage("main", "../x")).toThrow();
     });
 
+    it("deletes an icon and refuses a missing or invalid one", () => {
+        storage.ensureLayout();
+        const github = path.join(storage.iconsDir(), "github.png");
+        fs.writeFileSync(github, "png");
+
+        storage.deleteIcon("github.png");
+        expect(fs.existsSync(github)).toBe(false);
+        expect(storage.listIconFiles()).toEqual([]);
+
+        expect(() => storage.deleteIcon("github")).toThrow();
+        expect(() => storage.deleteIcon("../escape")).toThrow();
+    });
+
     it("loads what it saved, pretty-printed with a trailing newline", () => {
         storage.createProfile("main");
         const page = {

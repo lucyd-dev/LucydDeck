@@ -476,6 +476,24 @@ describe("SyncService.executePlan", () => {
         lock.endUpdate();
     });
 
+    it("refuses to run while a direct write owns the deck", async () => {
+        const lock = new DeviceLock();
+        const guarded = new SyncService(storage, device, transfer, {
+            onProgress: (payload) => progress.push(payload),
+            lock,
+        });
+        lock.beginWrite();
+
+        await expect(guarded.executePlan(emptyDiffPlan())).rejects.toMatchObject({
+            code: "DEVICE_BUSY",
+            holder: "write",
+        });
+        expect(device.calls).toEqual([]);
+        expect(progress).toEqual([]);
+
+        lock.endWrite();
+    });
+
     it("holds the deck for the run and releases it after success or failure", async () => {
         const lock = new DeviceLock();
         const guarded = new SyncService(storage, device, transfer, { lock });

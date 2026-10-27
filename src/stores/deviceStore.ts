@@ -1,29 +1,30 @@
 import { computed, ref, shallowRef, watch } from "vue";
 import { defineStore } from "pinia";
-import type { DeviceInfo, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
+import type { DeviceInfo, IpcResponse, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
+import type { DeleteResult } from "@shared/delete";
 import { diffPlanDeletions, diffPlanOperations, planRemovesProfiles } from "@shared/sync";
 import type { DiffPlan } from "@shared/sync";
 import { pageLabel } from "@shared/pages";
-import { iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
+import { deleteClient, iconsClient, storageClient, syncClient, usbClient } from "@/ipc/client";
 import { useAppStore } from "@/stores/appStore";
 import { useConfirmStore } from "@/stores/confirmStore";
 import { useFirmwareStore } from "@/stores/firmwareStore";
 import { useIconStore } from "@/stores/iconStore";
 import { useProfileStore } from "@/stores/profileStore";
 import { useUsbStore } from "@/stores/usbStore";
-import {
-    buildInventory,
-    iconInventoryKey,
-    pageInventoryKey,
-    summarizeInventory,
-} from "@/device/inventory";
+import { buildInventory, summarizeInventory } from "@/device/inventory";
 import type {
     DeviceInventory,
     InventoryRow,
     LocalInventory,
     LocalProfileSummary,
 } from "@/device/inventory";
-import { deleteConfirmation, referenceNotes } from "@/device/references";
+import {
+    deleteConfirmation,
+    deleteOutcome,
+    profileDeleteConfirmation,
+    referenceNotes,
+} from "@/device/references";
 import { syncAction as readSyncAction } from "@/device/syncAction";
 
 /**
@@ -58,10 +59,20 @@ export const useDeviceStore = defineStore("device", () => {
     const plannedProfileRemovals = computed(() =>
         plan.value === null ? 0 : plan.value.profilesToDelete.length,
     );
-    const canDelete = computed(() => usb.connected && !stale.value && !firmware.installing);
-    const deleteDisabledReason = computed<string | undefined>(() => {
+    /** Why no deck write may start: a sync or a firmware update owns the deck. */
+    const deckWriteBlockedReason = computed<string | undefined>(() => {
         if (firmware.installing) {
             return "Wait for the firmware update to finish";
+        }
+        if (usb.syncing) {
+            return "Wait for the sync to finish";
+        }
+        return undefined;
+    });
+    const deleteDisabledReason = computed<string | undefined>(() => {
+        const busy = deckWriteBlockedReason.value;
+        if (busy !== undefined) {
+            return busy;
         }
         if (!usb.connected) {
             return "Connect the deck to delete device files";
@@ -71,6 +82,7 @@ export const useDeviceStore = defineStore("device", () => {
         }
         return undefined;
     });
+    const canDelete = computed(() => deleteDisabledReason.value === undefined);
     const syncAction = computed(() =>
         readSyncAction({
             connected: usb.connected,
@@ -260,75 +272,142 @@ export const useDeviceStore = defineStore("device", () => {
     }
 
     /**
-     * Two-sided delete: the deck copy first with a missing file treated as
-     * success, then the library copy, then a refresh. A deck error other than a
-     * missing file aborts before the library copy goes.
+     * Confirm and report one two-sided delete; the main process owns both
+     * sides. The blocker is checked before the dialog, then the reference scan
+     * supplies the notes, and the aftermath runs only when the library copy is
+     * gone. A deck or library failure leaves the caller's state alone so the
+     * retry is the same action again.
      */
-    async function deleteTarget(
-        request: { kind: "page"; profile: string; id: string } | { kind: "icon"; name: string },
-        noun: string,
-        deleteLibrary: () => Promise<boolean>,
-    ): Promise<boolean> {
-        if (firmware.installing) {
-            useAppStore().pushToast("warning", "Wait for the firmware update to finish");
+    async function deleteThroughOwner(options: {
+        noun: string;
+        request: ReferenceQuery;
+        title: string;
+        confirmLabel: string;
+        /** Defaults to the shared noun copy; a profile names its pages too. */
+        confirmation?: (connected: boolean) => string;
+        settle?: () => Promise<unknown>;
+        deleteItem: () => Promise<IpcResponse<DeleteResult>>;
+        applyAftermath?: () => Promise<void>;
+    }): Promise<boolean> {
+        const blocked = deckWriteBlockedReason.value;
+        if (blocked !== undefined) {
+            useAppStore().pushToast("warning", blocked);
             return false;
         }
-        const connected = usb.connected;
-        const scan = await scanReferences(request);
-        const notes = referenceNotes(request, scan, profile.activeProfile);
-        const message = [deleteConfirmation(noun, connected), ...notes].join(" ");
 
+        const scan = await scanReferences(options.request);
+        const notes = referenceNotes(options.request, scan, profile.activeProfile);
+        const confirmation =
+            options.confirmation ??
+            ((connected: boolean) => deleteConfirmation(options.noun, connected));
         const confirmed = await confirm.ask({
-            title: request.kind === "page" ? "Delete page" : "Delete icon",
-            message,
-            confirmLabel: request.kind === "page" ? "Delete page" : "Delete icon",
+            title: options.title,
+            message: [confirmation(usb.connected), ...notes].join(" "),
+            confirmLabel: options.confirmLabel,
             danger: true,
         });
         if (!confirmed) {
             return false;
         }
-        if (connected && !usb.connected) {
-            useAppStore().pushToast("warning", "The deck disconnected. Nothing was deleted.");
+
+        await options.settle?.();
+
+        const result = await options.deleteItem();
+        if (!result.ok) {
+            useAppStore().pushToast("error", result.error);
+            return false;
+        }
+        const outcome = deleteOutcome(options.noun, result.data);
+        useAppStore().pushToast(outcome.level, outcome.message);
+        const deckGone =
+            result.data.deck.status === "deleted" || result.data.deck.status === "missing";
+        if (result.data.library.status !== "deleted") {
+            // The deck copy may be gone even though the library copy stayed.
+            // Refresh that deck state, but leave the library row and editor
+            // alone so the delete can be retried.
+            if (deckGone) {
+                await refresh();
+            }
             return false;
         }
 
-        deletingKey.value =
-            request.kind === "page"
-                ? pageInventoryKey(request.profile, request.id)
-                : iconInventoryKey(request.name);
-        try {
-            if (connected) {
-                const result = await usbClient.deleteFile({ ...request, allowMissing: true });
-                if (!result.ok) {
-                    useAppStore().pushToast("error", result.error);
-                    return false;
-                }
-            }
-            const removed = await deleteLibrary();
-            if (!removed) {
-                return false;
-            }
-            await refresh();
-            return true;
-        } finally {
-            deletingKey.value = null;
-        }
+        await options.applyAftermath?.();
+        await refresh();
+        return true;
     }
 
-    /** Delete a page from the library and, when connected, from the deck. */
+    /**
+     * Delete an icon through the main-process owner. A failed side leaves the
+     * icon, its preview and its recent entry in place.
+     */
+    async function deleteIcon(name: string): Promise<boolean> {
+        if (!icons.has(name)) {
+            return false;
+        }
+        return deleteThroughOwner({
+            noun: `Icon “${name}”`,
+            request: { kind: "icon", name },
+            title: "Delete icon",
+            confirmLabel: "Delete icon",
+            deleteItem: () => deleteClient.icon(name),
+            applyAftermath: () => icons.applyIconDeleted(name),
+        });
+    }
+
+    /**
+     * Delete a page through the main-process owner. A failed side leaves the
+     * page, its editor state and the inventory in place. A pending or in-flight
+     * save is settled first so it cannot write the page back after the delete.
+     */
     async function deletePage(id: string): Promise<boolean> {
         const profileName = profile.activeProfile;
         if (profileName === "" || !profile.pages.some((page) => page.id === id)) {
             return false;
         }
-        return deleteTarget({ kind: "page", profile: profileName, id }, pageLabel(id), () =>
-            profile.removePage(id),
-        );
+        return deleteThroughOwner({
+            noun: pageLabel(id),
+            request: { kind: "page", profile: profileName, id },
+            title: "Delete page",
+            confirmLabel: "Delete page",
+            settle: () => profile.flushPending(),
+            deleteItem: () => deleteClient.page(profileName, id),
+            applyAftermath: () => profile.applyPageDeleted(profileName, id),
+        });
     }
 
-    /** Delete an icon from the library and, when connected, from the deck. */
-    async function deleteIcon(name: string): Promise<boolean> {
-        return deleteTarget({ kind: "icon", name }, `Icon “${name}”`, () => icons.remove(name));
+    /** The library must keep one profile, and only a profile it lists can go. */
+    function isOnlyProfile(name: string): boolean {
+        return profile.profiles.length <= 1 || !profile.profiles.some((item) => item.name === name);
+    }
+
+    /** Why a profile delete cannot start, or `undefined` when it may. */
+    function profileDeleteBlockedReason(name: string): string | undefined {
+        if (isOnlyProfile(name)) {
+            return "Cannot delete the only profile";
+        }
+        return deckWriteBlockedReason.value;
+    }
+
+    /**
+     * Delete a profile and all its pages through the main-process owner. A
+     * failed side leaves the profile in the library so the retry is the same
+     * action. The app leaves a deleted active profile only after the library
+     * copy is gone; the deck reselects its own active profile.
+     */
+    async function deleteProfile(name: string): Promise<boolean> {
+        if (isOnlyProfile(name)) {
+            return false;
+        }
+        return deleteThroughOwner({
+            noun: `Profile “${name}”`,
+            request: { kind: "profile", name },
+            title: "Delete profile",
+            confirmLabel: "Delete profile",
+            confirmation: (connected) => profileDeleteConfirmation(name, connected),
+            settle: () => profile.settleProfileWrites(name),
+            deleteItem: () => deleteClient.profile(name),
+            applyAftermath: () => profile.applyProfileDeleted(name),
+        });
     }
 
     return {
@@ -344,11 +423,14 @@ export const useDeviceStore = defineStore("device", () => {
         plannedProfileRemovals,
         canDelete,
         deleteDisabledReason,
+        deckWriteBlockedReason,
+        profileDeleteBlockedReason,
         syncAction,
         refresh,
         syncNow,
         remove,
         deletePage,
         deleteIcon,
+        deleteProfile,
     };
 });
