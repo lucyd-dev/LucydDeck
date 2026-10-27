@@ -572,6 +572,22 @@ describe("deviceStore two-sided delete", () => {
         expect(toast).toHaveBeenCalledWith("warning", "Wait for the sync to finish");
     });
 
+    it("does not confirm a profile delete while a firmware update owns the deck", async () => {
+        const { store } = setup();
+        seedProfiles();
+        const firmware = useFirmwareStore();
+        firmware.state = { ...idleFirmwareState(), phase: "writing" };
+        const ask = vi.spyOn(useConfirmStore(), "ask");
+
+        expect(store.profileDeleteBlockedReason("Gaming Room")).toBe(
+            "Wait for the firmware update to finish",
+        );
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(false);
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(mocks.deleteProfileRequest).not.toHaveBeenCalled();
+    });
+
     it("does not delete the only remaining profile", async () => {
         const { store } = setup();
         const profile = useProfileStore();
