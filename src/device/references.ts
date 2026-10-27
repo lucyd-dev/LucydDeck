@@ -44,13 +44,16 @@ export function profileDeleteConfirmation(name: string, connected: boolean): str
  * same action again.
  */
 export function deleteOutcome(noun: string, result: DeleteResult): DeleteOutcome {
+    // The noun opens the confirmation but follows a verb here, so its capital
+    // would read as a new sentence ("Deleted Icon “github”").
+    const deleted = lowerFirst(noun);
     if (result.remaining === "none") {
-        return { level: "success", message: `Deleted ${noun}` };
+        return { level: "success", message: `Deleted ${deleted}` };
     }
     if (result.deck.status === "failed") {
         return {
             level: "error",
-            message: `Could not delete ${noun} from the deck: ${
+            message: `Could not delete ${deleted} from the deck: ${
                 result.deck.error ?? "unknown error"
             }. Nothing was deleted.`,
         };
@@ -60,20 +63,25 @@ export function deleteOutcome(noun: string, result: DeleteResult): DeleteOutcome
         if (result.deck.status === "skipped") {
             return {
                 level: "error",
-                message: `Could not delete ${noun} from the library: ${
+                message: `Could not delete ${deleted} from the library: ${
                     result.library.error ?? "unknown error"
                 }. Nothing was deleted.`,
             };
         }
         return {
             level: "warning",
-            message: `Deleted ${noun} from the deck, but the library copy could not be deleted. It is still in the library.`,
+            message: `Deleted ${deleted} from the deck, but the library copy could not be deleted. It is still in the library.`,
         };
     }
     return {
         level: "warning",
-        message: `Deleted ${noun} from the library. The deck copy stays, and the next sync removes it.`,
+        message: `Deleted ${deleted} from the library. The deck copy stays, and the next sync removes it.`,
     };
+}
+
+/** The noun continues the outcome sentence, so it starts in lower case. */
+function lowerFirst(text: string): string {
+    return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 export function referenceNotes(

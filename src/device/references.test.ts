@@ -96,7 +96,17 @@ describe("deleteOutcome", () => {
                 library: { status: "deleted" },
                 remaining: "none",
             }),
-        ).toEqual({ level: "success", message: "Deleted Page 4" });
+        ).toEqual({ level: "success", message: "Deleted page 4" });
+    });
+
+    it("lower-cases a capitalised noun that follows the verb", () => {
+        expect(
+            deleteOutcome("Icon “github”", {
+                deck: { status: "deleted" },
+                library: { status: "deleted" },
+                remaining: "none",
+            }),
+        ).toEqual({ level: "success", message: "Deleted icon “github”" });
     });
 
     it("names the library copy that stayed after a partial delete", () => {
@@ -109,7 +119,7 @@ describe("deleteOutcome", () => {
         ).toEqual({
             level: "warning",
             message:
-                "Deleted Page 4 from the deck, but the library copy could not be deleted. It is still in the library.",
+                "Deleted page 4 from the deck, but the library copy could not be deleted. It is still in the library.",
         });
     });
 
@@ -122,7 +132,7 @@ describe("deleteOutcome", () => {
             }),
         ).toEqual({
             level: "error",
-            message: "Could not delete Page 4 from the deck: deck refused. Nothing was deleted.",
+            message: "Could not delete page 4 from the deck: deck refused. Nothing was deleted.",
         });
     });
 
@@ -136,7 +146,7 @@ describe("deleteOutcome", () => {
         ).toEqual({
             level: "warning",
             message:
-                "Deleted Page 4 from the library. The deck copy stays, and the next sync removes it.",
+                "Deleted page 4 from the library. The deck copy stays, and the next sync removes it.",
         });
     });
 
@@ -150,7 +160,7 @@ describe("deleteOutcome", () => {
         ).toEqual({
             level: "error",
             message:
-                "Could not delete Page 4 from the library: Page not found. Nothing was deleted.",
+                "Could not delete page 4 from the library: Page not found. Nothing was deleted.",
         });
     });
 });

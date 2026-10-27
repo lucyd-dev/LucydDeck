@@ -10,21 +10,30 @@
 /** What a deck delete can report: the file is gone, or it was already gone. */
 export type DeckDeleteStatus = "deleted" | "missing";
 
-/** What happened to one side of a delete. */
-export type DeleteStatus = DeckDeleteStatus | "skipped" | "failed";
+/** What happened to the deck side of a delete. */
+export type DeckSideStatus = DeckDeleteStatus | "skipped" | "failed";
+
+/** What happened to the library side of a delete; `missing` is deck-side only. */
+export type LibrarySideStatus = "deleted" | "skipped" | "failed";
 
 /** Which copy of the item still exists. */
 export type DeleteRemaining = "none" | "deck" | "library" | "both";
 
-/** One side's outcome; `error` only accompanies `failed`. */
-export interface DeleteSide {
-    status: DeleteStatus;
+/** The deck copy's outcome; `error` only accompanies `failed`. */
+export interface DeckDeleteSide {
+    status: DeckSideStatus;
+    error?: string;
+}
+
+/** The library copy's outcome; `error` only accompanies `failed`. */
+export interface LibraryDeleteSide {
+    status: LibrarySideStatus;
     error?: string;
 }
 
 export interface DeleteResult {
-    deck: DeleteSide;
-    library: DeleteSide;
+    deck: DeckDeleteSide;
+    library: LibraryDeleteSide;
     remaining: DeleteRemaining;
 }
 
@@ -34,7 +43,7 @@ export interface DeleteResult {
  * delete only removes it when the file is really gone. `missing` counts as
  * gone: the postcondition of a delete is that the copy is absent.
  */
-export function deleteRemaining(deck: DeleteStatus, library: DeleteStatus): DeleteRemaining {
+export function deleteRemaining(deck: DeckSideStatus, library: LibrarySideStatus): DeleteRemaining {
     const deckGone = deck === "deleted" || deck === "missing";
     const libraryGone = library === "deleted";
     if (deckGone && libraryGone) {
@@ -50,6 +59,6 @@ export function deleteRemaining(deck: DeleteStatus, library: DeleteStatus): Dele
 }
 
 /** Pair the two sides with the remaining copy derived from them. */
-export function deleteResult(deck: DeleteSide, library: DeleteSide): DeleteResult {
+export function deleteResult(deck: DeckDeleteSide, library: LibraryDeleteSide): DeleteResult {
     return { deck, library, remaining: deleteRemaining(deck.status, library.status) };
 }

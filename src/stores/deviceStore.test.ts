@@ -135,7 +135,7 @@ describe("deviceStore two-sided delete", () => {
             profile: "main",
             id: "0",
         });
-        expect(toast).toHaveBeenCalledWith("success", "Deleted Page 1");
+        expect(toast).toHaveBeenCalledWith("success", "Deleted page 1");
         // The library copy went, so the editor moves off the deleted page.
         expect(profile.currentPageId).toBeNull();
         expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
@@ -159,7 +159,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "error",
-            "Could not delete Page 1 from the deck: deck refused. Nothing was deleted.",
+            "Could not delete page 1 from the deck: deck refused. Nothing was deleted.",
         );
         expect(profile.currentPageId).toBe("0");
         expect(mocks.listPages).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Page 1 from the deck, but the library copy could not be deleted. It is still in the library.",
+            "Deleted page 1 from the deck, but the library copy could not be deleted. It is still in the library.",
         );
         expect(profile.currentPageId).toBe("0");
         expect(profile.pages).toHaveLength(1);
@@ -215,7 +215,7 @@ describe("deviceStore two-sided delete", () => {
         expect(mocks.deletePageRequest).toHaveBeenCalledWith("main", "0");
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Page 1 from the library. The deck copy stays, and the next sync removes it.",
+            "Deleted page 1 from the library. The deck copy stays, and the next sync removes it.",
         );
     });
 
@@ -305,7 +305,7 @@ describe("deviceStore two-sided delete", () => {
         expect(mocks.deleteIconRequest).toHaveBeenCalledWith("github");
         expect(mocks.deleteFile).not.toHaveBeenCalled();
         expect(mocks.scanReferences).toHaveBeenCalledWith({ kind: "icon", name: "github" });
-        expect(toast).toHaveBeenCalledWith("success", "Deleted Icon “github”");
+        expect(toast).toHaveBeenCalledWith("success", "Deleted icon “github”");
         expect(icons.previews.github).toBeUndefined();
         expect(icons.recent).not.toContain("github");
         expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
@@ -329,7 +329,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "error",
-            "Could not delete Icon “github” from the deck: deck refused. Nothing was deleted.",
+            "Could not delete icon “github” from the deck: deck refused. Nothing was deleted.",
         );
         expect(icons.icons).toHaveLength(1);
         expect(icons.previews.github).toBe("data:image/png;base64,x");
@@ -356,7 +356,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Icon “github” from the deck, but the library copy could not be deleted. It is still in the library.",
+            "Deleted icon “github” from the deck, but the library copy could not be deleted. It is still in the library.",
         );
         expect(icons.icons).toHaveLength(1);
         expect(icons.previews.github).toBe("data:image/png;base64,x");
@@ -388,7 +388,7 @@ describe("deviceStore two-sided delete", () => {
         expect(mocks.deleteIconRequest).toHaveBeenCalledWith("github");
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Icon “github” from the library. The deck copy stays, and the next sync removes it.",
+            "Deleted icon “github” from the library. The deck copy stays, and the next sync removes it.",
         );
         expect(icons.previews.github).toBeUndefined();
         expect(icons.recent).not.toContain("github");
@@ -475,7 +475,7 @@ describe("deviceStore two-sided delete", () => {
             kind: "profile",
             name: "Gaming Room",
         });
-        expect(toast).toHaveBeenCalledWith("success", "Deleted Profile “Gaming Room”");
+        expect(toast).toHaveBeenCalledWith("success", "Deleted profile “Gaming Room”");
         expect(profile.activeProfile).toBe("Default");
         expect(mocks.loadPage).toHaveBeenCalledWith("Default", "0");
     });
@@ -498,7 +498,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "error",
-            "Could not delete Profile “Gaming Room” from the deck: deck refused. Nothing was deleted.",
+            "Could not delete profile “Gaming Room” from the deck: deck refused. Nothing was deleted.",
         );
         expect(profile.activeProfile).toBe("Gaming Room");
         expect(profile.profiles.some((item) => item.name === "Gaming Room")).toBe(true);
@@ -524,7 +524,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Profile “Gaming Room” from the deck, but the library copy could not be deleted. It is still in the library.",
+            "Deleted profile “Gaming Room” from the deck, but the library copy could not be deleted. It is still in the library.",
         );
         expect(profile.activeProfile).toBe("Gaming Room");
         expect(profile.profiles.some((item) => item.name === "Gaming Room")).toBe(true);
@@ -554,7 +554,7 @@ describe("deviceStore two-sided delete", () => {
         );
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Deleted Profile “Gaming Room” from the library. The deck copy stays, and the next sync removes it.",
+            "Deleted profile “Gaming Room” from the library. The deck copy stays, and the next sync removes it.",
         );
         expect(profile.activeProfile).toBe("Default");
     });

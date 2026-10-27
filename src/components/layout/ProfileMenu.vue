@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
     Check,
     ChevronDown,
@@ -26,6 +26,13 @@ const rowMenu = ref<string | null>(null);
 const mode = ref<"create" | "rename" | null>(null);
 const draft = ref("");
 const root = ref<HTMLElement | null>(null);
+
+/** Why a profile change cannot start; a sync or an update owns the deck. */
+const busy = computed(() => device.deckWriteBlockedReason);
+/** An icon button shows its label as the tooltip, so the reason joins it. */
+const addProfileLabel = computed(() =>
+    busy.value === undefined ? "Add profile" : `Add profile — ${busy.value}`,
+);
 
 function toggleOpen(): void {
     open.value = !open.value;
@@ -122,7 +129,12 @@ async function importProfile(): Promise<void> {
         <div class="sidebar__section-head">
             <p id="profile-section-title" class="sidebar__section-title">Profiles</p>
             <div class="profile-menu__head-actions">
-                <IconButton label="Add profile" variant="ghost" @click="startCreate">
+                <IconButton
+                    :label="addProfileLabel"
+                    variant="ghost"
+                    :disabled="busy !== undefined"
+                    @click="startCreate"
+                >
                     <Plus :size="14" />
                 </IconButton>
                 <IconButton label="Import profile" variant="ghost" @click="importProfile">
@@ -177,6 +189,8 @@ async function importProfile(): Promise<void> {
                         }"
                         type="button"
                         role="menuitem"
+                        :disabled="busy !== undefined"
+                        :title="busy"
                         @click="choose(item.name)"
                     >
                         <span class="profile-menu__name">{{ item.name }}</span>
@@ -206,6 +220,8 @@ async function importProfile(): Promise<void> {
                         <button
                             class="profile-menu__subitem"
                             type="button"
+                            :disabled="busy !== undefined"
+                            :title="busy ?? 'Rename / Edit'"
                             @click="startRename(item.name)"
                         >
                             <Pencil :size="13" />
@@ -236,8 +252,8 @@ async function importProfile(): Promise<void> {
             </ul>
 
             <p v-if="profile.profiles.length === 0" class="profile-menu__empty">No profiles yet.</p>
-            <p v-if="device.deckWriteBlockedReason" class="profile-menu__blocked">
-                Deleting profiles is unavailable. {{ device.deckWriteBlockedReason }}.
+            <p v-if="busy" class="profile-menu__blocked">
+                Profile changes are unavailable. {{ busy }}.
             </p>
         </div>
     </div>

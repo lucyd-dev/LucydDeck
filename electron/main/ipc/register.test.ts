@@ -52,6 +52,8 @@ describe("IPC deck ownership guards", () => {
     let storage: StorageService;
     let lock: DeviceLock;
     let device: {
+        listProfiles: ReturnType<typeof vi.fn>;
+        listImages: ReturnType<typeof vi.fn>;
         createProfile: ReturnType<typeof vi.fn>;
         renameProfile: ReturnType<typeof vi.fn>;
         setActiveProfile: ReturnType<typeof vi.fn>;
@@ -66,6 +68,7 @@ describe("IPC deck ownership guards", () => {
         connected: boolean;
         onEvent: () => () => void;
         connectWithScanning: ReturnType<typeof vi.fn>;
+        disconnect: ReturnType<typeof vi.fn>;
     };
 
     beforeEach(() => {
@@ -77,6 +80,8 @@ describe("IPC deck ownership guards", () => {
         fs.writeFileSync(path.join(storage.iconsDir(), "github.png"), "png");
         lock = new DeviceLock();
         device = {
+            listProfiles: vi.fn(async () => []),
+            listImages: vi.fn(async () => []),
             createProfile: vi.fn(async () => undefined),
             renameProfile: vi.fn(async () => undefined),
             setActiveProfile: vi.fn(async () => undefined),
@@ -91,6 +96,7 @@ describe("IPC deck ownership guards", () => {
             connected: true,
             onEvent: () => () => undefined,
             connectWithScanning: vi.fn(async () => undefined),
+            disconnect: vi.fn(async () => undefined),
         };
 
         const sync = new SyncService(
@@ -279,6 +285,56 @@ describe("IPC deck ownership guards", () => {
             expect(lock.busy).toBe(false);
         },
     );
+
+    /** The reads and connection changes that do not take the write lock. */
+    it.each(holders)(
+        "allows sync:reconcile while $name owns the deck",
+        async ({ hold, release }) => {
+            expect(hold(lock)).toBe(true);
+
+            const allowed = await invoke(channels.sync.reconcile, { activeProfile: "main" });
+
+            expect(allowed).toMatchObject({ ok: true });
+            expect(lock.busy).toBe(true);
+
+            release(lock);
+        },
+    );
+
+    it("allows connect and disconnect while a sync owns the deck", async () => {
+        expect(lock.beginSync()).toBe(true);
+
+        await expect(invoke(channels.usb.connect, undefined)).resolves.toEqual({
+            ok: true,
+            data: undefined,
+        });
+        await expect(invoke(channels.usb.disconnect, undefined)).resolves.toEqual({
+            ok: true,
+            data: undefined,
+        });
+
+        expect(usb.connectWithScanning).toHaveBeenCalledOnce();
+        expect(usb.disconnect).toHaveBeenCalledOnce();
+        expect(lock.syncing).toBe(true);
+
+        lock.endSync();
+    });
+
+    // The connection guard predates the write lock: a connect would grab the
+    // port a flash is holding, so it waits for the update to finish.
+    it("makes a connection change wait for a firmware update", async () => {
+        expect(lock.beginUpdate()).toBe(true);
+
+        const connect = await invoke(channels.usb.connect, undefined);
+        const disconnect = await invoke(channels.usb.disconnect, undefined);
+
+        expect(connect).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+        expect(disconnect).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+        expect(usb.connectWithScanning).not.toHaveBeenCalled();
+        expect(usb.disconnect).not.toHaveBeenCalled();
+
+        lock.endUpdate();
+    });
 
     it("holds the write lock for the whole device command", async () => {
         let writingDuringCall = false;

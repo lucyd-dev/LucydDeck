@@ -3,9 +3,10 @@ import { isValidPageId } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
 import {
     deleteResult,
+    type DeckDeleteSide,
     type DeckDeleteStatus,
     type DeleteResult,
-    type DeleteSide,
+    type LibraryDeleteSide,
 } from "@shared/delete";
 import { DeviceLockError, type DeviceLock } from "./DeviceLock";
 import { StorageError, validateName, type StorageService } from "./StorageService";
@@ -117,16 +118,16 @@ export class DeleteService {
             if (!this.isConnected()) {
                 return deleteResult(
                     { status: "skipped" },
-                    await this.attempt(libraryLabel, deleteLibrary),
+                    await this.attemptLibrary(libraryLabel, deleteLibrary),
                 );
             }
 
-            const deck = await this.attempt(deckLabel, deleteDeck);
+            const deck = await this.attemptDeck(deckLabel, deleteDeck);
             if (deck.status === "failed") {
                 // The library copy is the retry source; leave it whole.
                 return deleteResult(deck, { status: "skipped" });
             }
-            const library = await this.attempt(libraryLabel, deleteLibrary);
+            const library = await this.attemptLibrary(libraryLabel, deleteLibrary);
             return deleteResult(deck, library);
         } finally {
             this.lock.endWrite();
@@ -165,21 +166,35 @@ export class DeleteService {
     }
 
     /**
-     * Run one side of the delete and keep its outcome. A side that throws has
-     * failed; the caller decides whether the other side may still run.
+     * Run the deck side and keep its outcome. A side that throws has failed;
+     * the caller decides whether the library side may still run.
      */
-    private async attempt(
+    private async attemptDeck(
         label: string,
-        run: () => void | DeckDeleteStatus | Promise<void | DeckDeleteStatus>,
-    ): Promise<DeleteSide> {
+        run: () => Promise<DeckDeleteStatus>,
+    ): Promise<DeckDeleteSide> {
         try {
-            const status = await run();
-            return { status: status ?? "deleted" };
+            return { status: await run() };
         } catch (error) {
-            const message = errorMessage(error);
-            log.warn(`[delete] ${label} stayed: ${message}`);
-            return { status: "failed", error: message };
+            return this.failed(label, error);
         }
+    }
+
+    /** Run the library side; a call that returns deleted the library copy. */
+    private async attemptLibrary(label: string, run: () => void): Promise<LibraryDeleteSide> {
+        try {
+            run();
+            return { status: "deleted" };
+        } catch (error) {
+            return this.failed(label, error);
+        }
+    }
+
+    /** One failed side, logged with the detail the result cannot carry. */
+    private failed(label: string, error: unknown): { status: "failed"; error: string } {
+        const message = errorMessage(error);
+        log.warn(`[delete] ${label} stayed: ${message}`);
+        return { status: "failed", error: message };
     }
 }
 

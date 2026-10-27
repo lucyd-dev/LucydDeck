@@ -414,8 +414,13 @@
     text-align: left;
 }
 
-.profile-menu__item:hover {
+.profile-menu__item:hover:not([disabled]) {
     background-color: var(--color-bg-hover);
+}
+
+.profile-menu__item[disabled] {
+    cursor: not-allowed;
+    opacity: 0.4;
 }
 
 .profile-menu__item--active {
