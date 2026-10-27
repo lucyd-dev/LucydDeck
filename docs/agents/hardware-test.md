@@ -176,25 +176,80 @@ return { stayedOnDeck: deck.ok && deck.data.some(i => i.filename === "zz-offline
 '
 ```
 
-## 6. Restore the deck and the app
+## 6. Delete a profile from both sides
+
+With the deck connected, create a throwaway profile and upload it:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" '
+const created = await window.lucyd.invoke("storage:createProfile", { name: "zz-profile-check" });
+await window.lucyd.invoke("storage:savePage", { profile: "zz-profile-check", id: "0", page: { buttons: { "0": { label: "delete check" } } } });
+const plan = await window.lucyd.invoke("sync:reconcile", { activeProfile: "zz-profile-check" });
+if (!plan.ok) return plan;
+return { created, plan: await window.lucyd.invoke("sync:execute", { plan: plan.data, allowRemovals: false }) };
+'
+```
+
+Select `zz-profile-check`, open the profile menu, choose its row menu and **Delete Profile**. The confirmation says the profile is deleted from the library and from the deck. After confirming, both sides must lose it and the app must open another profile:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" '
+const library = await window.lucyd.invoke("storage:listProfiles", undefined);
+const deck = await window.lucyd.invoke("usb:listProfiles", undefined);
+return {
+    inLibrary: library.ok && library.data.some(p => p.name === "zz-profile-check"),
+    onDeck: deck.ok && deck.data.some(p => p.name === "zz-profile-check"),
+};
+'
+```
+
+Both values must be `false`. The toast says the profile was deleted, and the deck repaints on its own reselected profile.
+
+Repeat for the disconnected path:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" '
+await window.lucyd.invoke("storage:createProfile", { name: "zz-offline-profile" });
+await window.lucyd.invoke("storage:savePage", { profile: "zz-offline-profile", id: "0", page: { buttons: {} } });
+const plan = await window.lucyd.invoke("sync:reconcile", { activeProfile: "zz-offline-profile" });
+if (!plan.ok) return plan;
+await window.lucyd.invoke("sync:execute", { plan: plan.data, allowRemovals: false });
+return window.lucyd.invoke("usb:disconnect", undefined);
+'
+```
+
+Delete it from the profile menu. The confirmation says the deck copy stays, the library loses the profile, and the deck still has it. Reconnect, read the plan, and let an explicit sync prune it:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" '
+await window.lucyd.invoke("usb:connect", undefined);
+await new Promise(r => setTimeout(r, 3500));
+const library = await window.lucyd.invoke("storage:listProfiles", undefined);
+const deck = await window.lucyd.invoke("usb:listProfiles", undefined);
+const plan = await window.lucyd.invoke("sync:reconcile", {});
+if (!plan.ok) return plan;
+if (!plan.data.profilesToDelete.includes("zz-offline-profile")) return { stopped: "plan did not list the deck-only profile", library, deck };
+return { library, deck, cleaned: await window.lucyd.invoke("sync:execute", { plan: plan.data, allowRemovals: true }) };
+'
+```
+
+Deleting the active profile is the connected case above: make `zz-profile-check` active before deleting it and confirm the app opens the default profile, or the first remaining one.
+
+## 7. Restore the deck and the app
 
 Set the active profile back before removing the test profile:
 
 ```bash
 node "$MAIN/scripts/cdp.mjs" '
 await window.lucyd.invoke("usb:setActiveProfile", { name: "Default" });
-return window.lucyd.invoke("storage:deleteProfile", { name: "PluginPass" });
+return window.lucyd.invoke("delete:profile", { name: "PluginPass" });
 '
 ```
 
-Reconcile again. The plan should list only `PluginPass` under `profilesToDelete`. Then remove it with removals on:
+Reconcile again. The plan should have no profile removals left:
 
 ```bash
-node "$MAIN/scripts/cdp.mjs" '
-const plan = await window.lucyd.invoke("sync:reconcile", {});
-if (!plan.ok) return plan;
-return window.lucyd.invoke("sync:execute", { plan: plan.data, allowRemovals: true });
-'
+node "$MAIN/scripts/cdp.mjs" 'return window.lucyd.invoke("sync:reconcile", {})'
 ```
 
 Remove the test plugin and stop the app:

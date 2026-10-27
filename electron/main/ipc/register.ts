@@ -147,15 +147,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     );
 
     register(
-        channels.storage.deleteProfile,
-        ({ name }) => {
-            storage.deleteProfile(name);
-            return { ok: true, data: undefined };
-        },
-        true,
-    );
-
-    register(
         channels.storage.listPages,
         ({ name }) => ({
             ok: true,
@@ -246,6 +237,10 @@ export function registerIpcHandlers(services: IpcServices): void {
         ok: true,
         data: await deletes.deleteIcon(name),
     }));
+    register(channels.delete.profile, async ({ name }) => ({
+        ok: true,
+        data: await deletes.deleteProfile(name),
+    }));
 
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
@@ -281,11 +276,6 @@ export function registerIpcHandlers(services: IpcServices): void {
     register(channels.usb.renameProfile, async ({ oldName, newName }) => {
         assertDeckWritable();
         await device.renameProfile(oldName, newName);
-        return { ok: true, data: undefined };
-    });
-    register(channels.usb.deleteProfile, async ({ name }) => {
-        assertDeckWritable();
-        await device.deleteProfile(name);
         return { ok: true, data: undefined };
     });
     register(channels.usb.setActiveProfile, async ({ name }) => {

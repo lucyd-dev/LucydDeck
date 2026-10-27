@@ -125,7 +125,7 @@ describe("DeviceService mutations", () => {
         // renames, activates and deletes.
         await device.renameProfile("v1.2", "Gaming Room");
         expect(new TextDecoder().decode(usb.lastPayload())).toBe("v1.2:Gaming Room");
-        await expect(device.deleteProfile("v1.2")).resolves.toBeUndefined();
+        await expect(device.deleteProfile("v1.2")).resolves.toBe("deleted");
         await expect(device.setActiveProfile("v1.2")).resolves.toBeUndefined();
 
         await expect(device.setActivePage("300")).rejects.toMatchObject({
@@ -241,9 +241,9 @@ describe("DeviceService file deletion", () => {
             ErrorCode.ProfileNotFound,
         );
 
-        await expect(
-            device.deleteProfile("stale", { allowMissing: true }),
-        ).resolves.toBeUndefined();
+        await expect(device.deleteProfile("stale", { allowMissing: true })).resolves.toBe(
+            "missing",
+        );
         await expect(device.deleteProfile("stale")).rejects.toMatchObject({
             code: "ERR_PROFILE_NOT_FOUND",
         });

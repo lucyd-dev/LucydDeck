@@ -34,6 +34,11 @@ class FakeDeck implements DeleteDeviceClient {
         allowMissing: boolean;
         libraryFilePresent: boolean;
     }> = [];
+    readonly profileCalls: Array<{
+        name: string;
+        allowMissing: boolean;
+        libraryPresent: boolean;
+    }> = [];
     /** Observed while the deck call runs, so the test can see the lock. */
     readonly lockStates: boolean[] = [];
 
@@ -65,6 +70,19 @@ class FakeDeck implements DeleteDeviceClient {
             name,
             allowMissing: options.allowMissing === true,
             libraryFilePresent: fs.existsSync(this.libraryFile()),
+        });
+        this.lockStates.push(this.lock.writing);
+        return this.delete(options);
+    }
+
+    async deleteProfile(
+        name: string,
+        options: { allowMissing?: boolean } = {},
+    ): Promise<DeckDeleteStatus> {
+        this.profileCalls.push({
+            name,
+            allowMissing: options.allowMissing === true,
+            libraryPresent: fs.existsSync(this.libraryFile()),
         });
         this.lockStates.push(this.lock.writing);
         return this.delete(options);
@@ -417,6 +435,140 @@ describe("DeleteService.deleteIcon", () => {
 
         expect(deck.iconCalls).toEqual([]);
         expect(fs.existsSync(iconFile())).toBe(true);
+        expect(lock.busy).toBe(false);
+    });
+});
+
+describe("DeleteService.deleteProfile", () => {
+    let dataDir = "";
+    let storage: StorageService;
+    let lock: DeviceLock;
+    let deck: FakeDeck;
+    let service: DeleteService;
+
+    const profileDir = (name = "main"): string => path.join(dataDir, "profiles", name);
+
+    beforeEach(() => {
+        dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "lucyddeck-delete-profile-test-"));
+        storage = new StorageService({ dataDir });
+        storage.ensureLayout();
+        storage.createProfile("main");
+        storage.savePage("main", "1", emptyPageConfig());
+        lock = new DeviceLock();
+        deck = new FakeDeck(() => profileDir(), lock);
+        service = new DeleteService({
+            storage,
+            device: deck,
+            lock,
+            isConnected: () => deck.connected,
+        });
+    });
+
+    afterEach(() => {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+    });
+
+    it("deletes the deck profile first, then the library profile and its pages", async () => {
+        const result = await service.deleteProfile("main");
+
+        expect(result).toEqual({
+            deck: { status: "deleted" },
+            library: { status: "deleted" },
+            remaining: "none",
+        });
+        expect(deck.profileCalls).toEqual([
+            { name: "main", allowMissing: true, libraryPresent: true },
+        ]);
+        expect(fs.existsSync(profileDir())).toBe(false);
+        expect(lock.busy).toBe(false);
+    });
+
+    it("counts a missing deck profile as success", async () => {
+        deck.missing = true;
+
+        const result = await service.deleteProfile("main");
+
+        expect(deck.profileCalls[0]?.allowMissing).toBe(true);
+        expect(result).toEqual({
+            deck: { status: "missing" },
+            library: { status: "deleted" },
+            remaining: "none",
+        });
+        expect(fs.existsSync(profileDir())).toBe(false);
+    });
+
+    it("leaves the library profile when the deck delete fails", async () => {
+        deck.failure = new Error("deck refused");
+
+        const result = await service.deleteProfile("main");
+
+        expect(result).toEqual({
+            deck: { status: "failed", error: "deck refused" },
+            library: { status: "skipped" },
+            remaining: "both",
+        });
+        expect(fs.existsSync(path.join(profileDir(), "1.json"))).toBe(true);
+    });
+
+    it("reports a partial delete when the library profile fails after the deck delete", async () => {
+        const deleteLibraryProfile = vi.spyOn(storage, "deleteProfile").mockImplementation(() => {
+            throw new StorageError("no permission");
+        });
+
+        const result = await service.deleteProfile("main");
+
+        expect(deleteLibraryProfile).toHaveBeenCalledWith("main");
+        expect(result).toEqual({
+            deck: { status: "deleted" },
+            library: { status: "failed", error: "no permission" },
+            remaining: "library",
+        });
+        expect(fs.existsSync(path.join(profileDir(), "1.json"))).toBe(true);
+    });
+
+    it("deletes only the library profile when the deck is disconnected at the start", async () => {
+        deck.connected = false;
+
+        const result = await service.deleteProfile("main");
+
+        expect(deck.profileCalls).toEqual([]);
+        expect(result).toEqual({
+            deck: { status: "skipped" },
+            library: { status: "deleted" },
+            remaining: "deck",
+        });
+        expect(fs.existsSync(profileDir())).toBe(false);
+    });
+
+    it("succeeds on a retry after a partial delete, treating the missing deck profile as success", async () => {
+        const failedLibraryDelete = vi
+            .spyOn(storage, "deleteProfile")
+            .mockImplementationOnce(() => {
+                throw new StorageError("disk full");
+            });
+
+        const partial = await service.deleteProfile("main");
+        expect(partial.remaining).toBe("library");
+        expect(fs.existsSync(profileDir())).toBe(true);
+
+        failedLibraryDelete.mockRestore();
+        const retry = await service.deleteProfile("main");
+
+        expect(retry).toEqual({
+            deck: { status: "missing" },
+            library: { status: "deleted" },
+            remaining: "none",
+        });
+        expect(deck.profileCalls).toHaveLength(2);
+        expect(deck.profileCalls[1]?.allowMissing).toBe(true);
+        expect(fs.existsSync(profileDir())).toBe(false);
+    });
+
+    it("rejects an invalid profile name without touching either copy", async () => {
+        await expect(service.deleteProfile("../escape")).rejects.toBeInstanceOf(StorageError);
+
+        expect(deck.profileCalls).toEqual([]);
+        expect(fs.existsSync(profileDir())).toBe(true);
         expect(lock.busy).toBe(false);
     });
 });

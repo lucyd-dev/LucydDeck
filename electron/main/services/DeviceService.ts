@@ -141,21 +141,9 @@ export class DeviceService {
      * delete lookup keeps `validateName`, so a profile stored under a name from
      * before the entity grammar is still removable.
      */
-    async deleteProfile(name: string, options: DeleteOptions = {}): Promise<void> {
+    async deleteProfile(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         this.assertName(name);
-        try {
-            await this.usb.command(HostCommand.ProfileDelete, textBytes(name), DeviceResponse.Ack);
-        } catch (error) {
-            // The postcondition of a delete is that the profile is gone; a deck
-            // profile the plan saw a moment ago may already have been removed.
-            if (
-                options.allowMissing === true &&
-                isFirmwareError(error, ErrorCode.ProfileNotFound)
-            ) {
-                return;
-            }
-            throw error;
-        }
+        return this.deleteIdentity(HostCommand.ProfileDelete, name, options);
     }
 
     async setActiveProfile(name: string): Promise<void> {
@@ -227,7 +215,7 @@ export class DeviceService {
 
     /** One identity string, no target byte: it must fit a single frame. */
     private async deleteIdentity(
-        opcode: HostCommand.PageDelete | HostCommand.IconDelete,
+        opcode: HostCommand.PageDelete | HostCommand.IconDelete | HostCommand.ProfileDelete,
         identity: string,
         options: DeleteOptions,
     ): Promise<DeckDeleteStatus> {

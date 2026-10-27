@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     deleteFile: vi.fn(),
     deletePageRequest: vi.fn(),
     deleteIconRequest: vi.fn(),
+    deleteProfileRequest: vi.fn(),
     deviceInfo: vi.fn(),
     listDeviceProfiles: vi.fn(),
     listImages: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("@/ipc/client", () => ({
     deleteClient: {
         page: mocks.deletePageRequest,
         icon: mocks.deleteIconRequest,
+        profile: mocks.deleteProfileRequest,
     },
     iconsClient: {
         list: mocks.iconList,
@@ -91,6 +93,7 @@ describe("deviceStore two-sided delete", () => {
         mocks.deleteFile.mockResolvedValue({ ok: true, data: undefined });
         mocks.deletePageRequest.mockResolvedValue({ ok: true, data: deletedBoth() });
         mocks.deleteIconRequest.mockResolvedValue({ ok: true, data: deletedBoth() });
+        mocks.deleteProfileRequest.mockResolvedValue({ ok: true, data: deletedBoth() });
         mocks.deviceInfo.mockResolvedValue({ ok: true, data: null });
         mocks.listDeviceProfiles.mockResolvedValue({ ok: true, data: [] });
         mocks.listImages.mockResolvedValue({ ok: true, data: [] });
@@ -184,7 +187,8 @@ describe("deviceStore two-sided delete", () => {
         );
         expect(profile.currentPageId).toBe("0");
         expect(profile.pages).toHaveLength(1);
-        expect(mocks.listPages).not.toHaveBeenCalled();
+        // The deck copy went, so the inventory refreshes; the editor stays put.
+        expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
     });
 
     it("removes only the library copy when the deck is disconnected", async () => {
@@ -356,7 +360,8 @@ describe("deviceStore two-sided delete", () => {
         expect(icons.icons).toHaveLength(1);
         expect(icons.previews.github).toBe("data:image/png;base64,x");
         expect(icons.recent).toContain("github");
-        expect(mocks.iconList).not.toHaveBeenCalled();
+        // The deck copy went, so the inventory refreshes; the icon stays visible.
+        expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
     });
 
     it("removes only the library icon when the deck is disconnected", async () => {
@@ -433,6 +438,150 @@ describe("deviceStore two-sided delete", () => {
 
         expect(store.deckWriteBlockedReason).toBe("Wait for the firmware update to finish");
         expect(mocks.deleteIconRequest).not.toHaveBeenCalled();
+    });
+
+    function seedProfiles(): ReturnType<typeof useProfileStore> {
+        const profile = useProfileStore();
+        profile.activeProfile = "Gaming Room";
+        profile.profiles = [
+            { name: "Default", isDefault: true },
+            { name: "Gaming Room", isDefault: false },
+        ];
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "Default", isDefault: true }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [{ id: "0", mtimeMs: 5000 }] });
+        return profile;
+    }
+
+    it("confirms once, asks for one profile delete and moves off a deleted active profile", async () => {
+        const { store } = setup();
+        const profile = seedProfiles();
+        const confirm = useConfirmStore();
+        const ask = vi.spyOn(confirm, "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(true);
+
+        expect(ask).toHaveBeenCalledTimes(1);
+        expect(ask.mock.calls[0]?.[0].message).toContain(
+            "Profile “Gaming Room” and all its pages are deleted from the library and from the deck.",
+        );
+        expect(mocks.deleteProfileRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.deleteProfileRequest).toHaveBeenCalledWith("Gaming Room");
+        expect(mocks.scanReferences).toHaveBeenCalledWith({
+            kind: "profile",
+            name: "Gaming Room",
+        });
+        expect(toast).toHaveBeenCalledWith("success", "Deleted Profile “Gaming Room”");
+        expect(profile.activeProfile).toBe("Default");
+        expect(mocks.loadPage).toHaveBeenCalledWith("Default", "0");
+    });
+
+    it("keeps the profile and its editor state when the deck delete fails", async () => {
+        const { store } = setup();
+        const profile = seedProfiles();
+        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteProfileRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "failed", error: "deck refused" },
+                library: { status: "skipped" },
+                remaining: "both",
+            },
+        });
+
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(false);
+
+        expect(toast).toHaveBeenCalledWith(
+            "error",
+            "Could not delete Profile “Gaming Room” from the deck: deck refused. Nothing was deleted.",
+        );
+        expect(profile.activeProfile).toBe("Gaming Room");
+        expect(profile.profiles.some((item) => item.name === "Gaming Room")).toBe(true);
+        expect(mocks.listProfiles).not.toHaveBeenCalled();
+        expect(mocks.deviceInfo).not.toHaveBeenCalled();
+    });
+
+    it("reports a library profile that stayed and leaves the active profile open", async () => {
+        const { store } = setup();
+        const profile = seedProfiles();
+        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteProfileRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "deleted" },
+                library: { status: "failed", error: "no permission" },
+                remaining: "library",
+            },
+        });
+
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(false);
+
+        expect(toast).toHaveBeenCalledWith(
+            "warning",
+            "Deleted Profile “Gaming Room” from the deck, but the library copy could not be deleted. It is still in the library.",
+        );
+        expect(profile.activeProfile).toBe("Gaming Room");
+        expect(profile.profiles.some((item) => item.name === "Gaming Room")).toBe(true);
+        // The deck copy went, so the inventory refreshes; the profile stays put.
+        expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it("removes only the library profile when the deck is disconnected", async () => {
+        const { store, usb } = setup();
+        const profile = seedProfiles();
+        usb.status = { state: DeviceState.Disconnected, label: "Disconnected" };
+        const ask = vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteProfileRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "skipped" },
+                library: { status: "deleted" },
+                remaining: "deck",
+            },
+        });
+
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(true);
+
+        expect(ask.mock.calls[0]?.[0].message).toContain(
+            "The deck is disconnected, so its copy stays",
+        );
+        expect(toast).toHaveBeenCalledWith(
+            "warning",
+            "Deleted Profile “Gaming Room” from the library. The deck copy stays, and the next sync removes it.",
+        );
+        expect(profile.activeProfile).toBe("Default");
+    });
+
+    it("does not confirm a profile delete while a sync owns the deck", async () => {
+        const { store, usb } = setup();
+        seedProfiles();
+        const ask = vi.spyOn(useConfirmStore(), "ask");
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        usb.syncing = true;
+
+        await expect(store.deleteProfile("Gaming Room")).resolves.toBe(false);
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(mocks.deleteProfileRequest).not.toHaveBeenCalled();
+        expect(toast).toHaveBeenCalledWith("warning", "Wait for the sync to finish");
+    });
+
+    it("does not delete the only remaining profile", async () => {
+        const { store } = setup();
+        const profile = useProfileStore();
+        profile.profiles = [{ name: "main", isDefault: true }];
+        const ask = vi.spyOn(useConfirmStore(), "ask");
+
+        await expect(store.deleteProfile("main")).resolves.toBe(false);
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(mocks.deleteProfileRequest).not.toHaveBeenCalled();
     });
 
     it("does nothing when the confirmation is declined", async () => {

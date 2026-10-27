@@ -29,7 +29,6 @@ export const storageClient = {
     createProfile: (name: string) => invoke(channels.storage.createProfile, { name }),
     renameProfile: (oldName: string, newName: string) =>
         invoke(channels.storage.renameProfile, { oldName, newName }),
-    deleteProfile: (name: string) => invoke(channels.storage.deleteProfile, { name }),
     listPages: (profile: string) => invoke(channels.storage.listPages, { name: profile }),
     loadPage: (profile: string, id: string) => invoke(channels.storage.loadPage, { profile, id }),
     savePage: (profile: string, id: string, page: PageConfig) =>
@@ -46,6 +45,7 @@ export const storageClient = {
 export const deleteClient = {
     page: (profile: string, id: string) => invoke(channels.delete.page, { profile, id }),
     icon: (name: string) => invoke(channels.delete.icon, { name }),
+    profile: (name: string) => invoke(channels.delete.profile, { name }),
 };
 
 export const usbClient = {
@@ -58,7 +58,6 @@ export const usbClient = {
     createProfile: (name: string) => invoke(channels.usb.createProfile, { name }),
     renameProfile: (oldName: string, newName: string) =>
         invoke(channels.usb.renameProfile, { oldName, newName }),
-    deleteProfile: (name: string) => invoke(channels.usb.deleteProfile, { name }),
     setActiveProfile: (name: string) => invoke(channels.usb.setActiveProfile, { name }),
     setActivePage: (id: string) => invoke(channels.usb.setActivePage, { id }),
     uploadPage: (profile: string, id: string) => invoke(channels.usb.uploadPage, { profile, id }),

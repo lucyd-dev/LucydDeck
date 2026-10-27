@@ -3,6 +3,7 @@ import {
     PARTIAL_SCAN_NOTE,
     deleteConfirmation,
     deleteOutcome,
+    profileDeleteConfirmation,
     referenceSentence,
 } from "./references";
 
@@ -69,6 +70,20 @@ describe("deleteConfirmation", () => {
     it("keeps the partial-scan note in one place", () => {
         expect(PARTIAL_SCAN_NOTE).toBe(
             "Some pages could not be read, so this list may be incomplete.",
+        );
+    });
+});
+
+describe("profileDeleteConfirmation", () => {
+    it("names the pages that go with a connected profile", () => {
+        expect(profileDeleteConfirmation("Gaming Room", true)).toBe(
+            "Profile “Gaming Room” and all its pages are deleted from the library and from the deck. This cannot be undone.",
+        );
+    });
+
+    it("names the pages and the deck copy that stays while disconnected", () => {
+        expect(profileDeleteConfirmation("Gaming Room", false)).toBe(
+            "Profile “Gaming Room” and all its pages are deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.",
         );
     });
 });

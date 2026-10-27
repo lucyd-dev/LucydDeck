@@ -55,6 +55,7 @@ describe("IPC deck ownership guards", () => {
         deletePage: ReturnType<typeof vi.fn>;
         deleteIcon: ReturnType<typeof vi.fn>;
         deleteProfile: ReturnType<typeof vi.fn>;
+        setActiveProfile: ReturnType<typeof vi.fn>;
     };
     let usb: {
         connected: boolean;
@@ -73,7 +74,8 @@ describe("IPC deck ownership guards", () => {
         device = {
             deletePage: vi.fn(async () => "deleted"),
             deleteIcon: vi.fn(async () => "deleted"),
-            deleteProfile: vi.fn(async () => undefined),
+            deleteProfile: vi.fn(async () => "deleted"),
+            setActiveProfile: vi.fn(async () => undefined),
         };
         usb = {
             connected: true,
@@ -125,17 +127,17 @@ describe("IPC deck ownership guards", () => {
     it("refuses deck writes and a sync while an update owns the deck", async () => {
         lock.beginUpdate();
 
-        const write = await invoke(channels.usb.deleteProfile, { name: "main" });
+        const write = await invoke(channels.usb.setActiveProfile, { name: "main" });
         expect(write).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
-        expect(device.deleteProfile).not.toHaveBeenCalled();
+        expect(device.setActiveProfile).not.toHaveBeenCalled();
 
         const sync = await invoke(channels.sync.execute, { plan: emptyDiffPlan() });
         expect(sync).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
 
         lock.endUpdate();
-        const allowed = await invoke(channels.usb.deleteProfile, { name: "main" });
+        const allowed = await invoke(channels.usb.setActiveProfile, { name: "main" });
         expect(allowed).toEqual({ ok: true, data: undefined });
-        expect(device.deleteProfile).toHaveBeenCalledWith("main");
+        expect(device.setActiveProfile).toHaveBeenCalledWith("main");
     });
 
     it("refuses an update while a sync owns the deck", async () => {
@@ -218,6 +220,33 @@ describe("IPC deck ownership guards", () => {
                 },
             });
             expect(device.deleteIcon).toHaveBeenCalledWith("github", { allowMissing: true });
+        },
+    );
+
+    it.each(holders)(
+        "refuses a profile delete with DEVICE_BUSY while a $name owns the deck",
+        async ({ hold, release }) => {
+            expect(hold(lock)).toBe(true);
+
+            const refused = await invoke(channels.delete.profile, { name: "main" });
+
+            expect(refused).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+            expect(device.deleteProfile).not.toHaveBeenCalled();
+            expect(fs.existsSync(path.join(dataDir, "profiles", "main"))).toBe(true);
+
+            release(lock);
+            const allowed = await invoke(channels.delete.profile, { name: "main" });
+
+            expect(allowed).toEqual({
+                ok: true,
+                data: {
+                    deck: { status: "deleted" },
+                    library: { status: "deleted" },
+                    remaining: "none",
+                },
+            });
+            expect(device.deleteProfile).toHaveBeenCalledWith("main", { allowMissing: true });
+            expect(fs.existsSync(path.join(dataDir, "profiles", "main"))).toBe(false);
         },
     );
 

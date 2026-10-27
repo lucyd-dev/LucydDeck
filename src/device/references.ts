@@ -27,6 +27,17 @@ export function deleteConfirmation(noun: string, connected: boolean): string {
 }
 
 /**
+ * A profile delete also takes every page in the profile directory. The copy
+ * names that, so the confirmation says what the removal deletes.
+ */
+export function profileDeleteConfirmation(name: string, connected: boolean): string {
+    if (connected) {
+        return `Profile “${name}” and all its pages are deleted from the library and from the deck. This cannot be undone.`;
+    }
+    return `Profile “${name}” and all its pages are deleted from the library. The deck is disconnected, so its copy stays, and the next sync removes it.`;
+}
+
+/**
  * Report a delete result. Success and the offline deck copy are informative;
  * a library copy that stayed is a partial delete; a deck failure left both
  * copies in place. On failure the item stays visible so a retry is just the

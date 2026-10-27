@@ -18,6 +18,7 @@ export interface DeleteDeviceClient {
         options?: { allowMissing?: boolean },
     ): Promise<DeckDeleteStatus>;
     deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<DeckDeleteStatus>;
+    deleteProfile(name: string, options?: { allowMissing?: boolean }): Promise<DeckDeleteStatus>;
 }
 
 export interface DeleteServiceOptions {
@@ -85,6 +86,21 @@ export class DeleteService {
     }
 
     /**
+     * Delete one profile from the deck and the library, with the same rules as
+     * a page delete: the deck profile goes first, a missing deck profile is
+     * success, then the library profile and every page it holds.
+     */
+    async deleteProfile(name: string): Promise<DeleteResult> {
+        this.assertProfileName(name);
+        return this.deleteCopies(
+            `deck profile ${name}`,
+            () => this.device.deleteProfile(name, { allowMissing: true }),
+            `library profile ${name}`,
+            () => this.storage.deleteProfile(name),
+        );
+    }
+
+    /**
      * One two-sided transaction: take the write lock, delete the deck copy,
      * then the library copy, and release the lock whichever side fails. A
      * disconnected start takes the offline path and leaves the deck copy to the
@@ -119,11 +135,16 @@ export class DeleteService {
 
     /** A request that never ran is an error, not a partial delete result. */
     private assertPageRequest(profile: string, id: string): void {
-        if (!validateName(profile)) {
-            throw new StorageError(`Invalid profile name: "${profile}"`);
-        }
+        this.assertProfileName(profile);
         if (!isValidPageId(id)) {
             throw new StorageError(`Invalid page id: "${id}"`);
+        }
+    }
+
+    /** A profile name must be one the app could have created or kept. */
+    private assertProfileName(name: string): void {
+        if (!validateName(name)) {
+            throw new StorageError(`Invalid profile name: "${name}"`);
         }
     }
 

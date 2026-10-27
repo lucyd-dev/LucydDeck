@@ -494,6 +494,13 @@
     font-size: 0.82rem;
 }
 
+.profile-menu__blocked {
+    margin: var(--space-sm) 0 0;
+    color: var(--color-warning);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
 // --- Generic views --------------------------------------------------------
 
 .view {

@@ -19,7 +19,12 @@ import type {
     LocalInventory,
     LocalProfileSummary,
 } from "@/device/inventory";
-import { deleteConfirmation, deleteOutcome, referenceNotes } from "@/device/references";
+import {
+    deleteConfirmation,
+    deleteOutcome,
+    profileDeleteConfirmation,
+    referenceNotes,
+} from "@/device/references";
 import { syncAction as readSyncAction } from "@/device/syncAction";
 
 /**
@@ -278,6 +283,8 @@ export const useDeviceStore = defineStore("device", () => {
         request: ReferenceQuery;
         title: string;
         confirmLabel: string;
+        /** Defaults to the shared noun copy; a profile names its pages too. */
+        confirmation?: (connected: boolean) => string;
         settle?: () => Promise<unknown>;
         deleteItem: () => Promise<IpcResponse<DeleteResult>>;
         applyAftermath?: () => Promise<void>;
@@ -290,9 +297,12 @@ export const useDeviceStore = defineStore("device", () => {
 
         const scan = await scanReferences(options.request);
         const notes = referenceNotes(options.request, scan, profile.activeProfile);
+        const confirmation =
+            options.confirmation ??
+            ((connected: boolean) => deleteConfirmation(options.noun, connected));
         const confirmed = await confirm.ask({
             title: options.title,
-            message: [deleteConfirmation(options.noun, usb.connected), ...notes].join(" "),
+            message: [confirmation(usb.connected), ...notes].join(" "),
             confirmLabel: options.confirmLabel,
             danger: true,
         });
@@ -309,7 +319,15 @@ export const useDeviceStore = defineStore("device", () => {
         }
         const outcome = deleteOutcome(options.noun, result.data);
         useAppStore().pushToast(outcome.level, outcome.message);
+        const deckGone =
+            result.data.deck.status === "deleted" || result.data.deck.status === "missing";
         if (result.data.library.status !== "deleted") {
+            // The deck copy may be gone even though the library copy stayed.
+            // Refresh that deck state, but leave the library row and editor
+            // alone so the delete can be retried.
+            if (deckGone) {
+                await refresh();
+            }
             return false;
         }
 
@@ -357,6 +375,41 @@ export const useDeviceStore = defineStore("device", () => {
         });
     }
 
+    /** The library must keep one profile, and only a profile it lists can go. */
+    function isOnlyProfile(name: string): boolean {
+        return profile.profiles.length <= 1 || !profile.profiles.some((item) => item.name === name);
+    }
+
+    /** Why a profile delete cannot start, or `undefined` when it may. */
+    function profileDeleteBlockedReason(name: string): string | undefined {
+        if (isOnlyProfile(name)) {
+            return "Cannot delete the only profile";
+        }
+        return deckWriteBlockedReason.value;
+    }
+
+    /**
+     * Delete a profile and all its pages through the main-process owner. A
+     * failed side leaves the profile in the library so the retry is the same
+     * action. The app leaves a deleted active profile only after the library
+     * copy is gone; the deck reselects its own active profile.
+     */
+    async function deleteProfile(name: string): Promise<boolean> {
+        if (isOnlyProfile(name)) {
+            return false;
+        }
+        return deleteThroughOwner({
+            noun: `Profile “${name}”`,
+            request: { kind: "profile", name },
+            title: "Delete profile",
+            confirmLabel: "Delete profile",
+            confirmation: (connected) => profileDeleteConfirmation(name, connected),
+            settle: () => profile.settleProfileWrites(name),
+            deleteItem: () => deleteClient.profile(name),
+            applyAftermath: () => profile.applyProfileDeleted(name),
+        });
+    }
+
     return {
         info,
         inventory,
@@ -371,11 +424,13 @@ export const useDeviceStore = defineStore("device", () => {
         canDelete,
         deleteDisabledReason,
         deckWriteBlockedReason,
+        profileDeleteBlockedReason,
         syncAction,
         refresh,
         syncNow,
         remove,
         deletePage,
         deleteIcon,
+        deleteProfile,
     };
 });

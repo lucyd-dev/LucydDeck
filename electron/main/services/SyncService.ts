@@ -60,7 +60,7 @@ export interface SyncDeviceClient {
         options?: { allowMissing?: boolean },
     ): Promise<unknown>;
     deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<unknown>;
-    deleteProfile(name: string, options?: { allowMissing?: boolean }): Promise<void>;
+    deleteProfile(name: string, options?: { allowMissing?: boolean }): Promise<unknown>;
 }
 
 /** Minimal transfer surface for per-chunk progress (satisfied by `FileTransfer`). */

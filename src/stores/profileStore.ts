@@ -799,25 +799,28 @@ export const useProfileStore = defineStore("profile", () => {
         await refreshProfiles();
     }
 
-    async function deleteProfile(name: string): Promise<void> {
-        const wasActive = activeProfile.value === name;
-        const wasDefault = profiles.value.find((item) => item.name === name)?.isDefault === true;
-
-        if (wasActive) {
-            // A pending autosave, or a write already in flight, would land in
-            // the directory being removed. Settle both before deleting.
-            clearAutosaveTimer();
-            if (activeSave !== null) {
-                await activeSave;
-            }
-            clearAutosaveTimer();
-        }
-
-        const result = await storageClient.deleteProfile(name);
-        if (!result.ok) {
-            useAppStore().pushToast("error", result.error);
+    /**
+     * Settle a write into the profile that is about to be deleted. A pending
+     * autosave or an in-flight save is flushed first, the page-delete rule, so
+     * a failed delete leaves the edits on disk and a successful one removes
+     * them with the profile.
+     */
+    async function settleProfileWrites(name: string): Promise<void> {
+        if (activeProfile.value !== name) {
             return;
         }
+        await flushPending();
+    }
+
+    /**
+     * Apply the in-memory aftermath of a profile delete the main process
+     * already made: drop the profile and its deferred pages, then leave the
+     * editor blank and open the default profile (else the first remaining).
+     * Only called when the library copy is gone, so a failed or partial delete
+     * leaves the profile and its editor state in place.
+     */
+    async function applyProfileDeleted(name: string): Promise<void> {
+        const wasDefault = profiles.value.find((item) => item.name === name)?.isDefault === true;
         // Re-check: the user may have switched profiles while the delete was
         // in flight, and the new profile keeps its own document.
         const activeWasDeleted = activeProfile.value === name;
@@ -996,7 +999,8 @@ export const useProfileStore = defineStore("profile", () => {
         flushPending,
         createProfile,
         renameProfile,
-        deleteProfile,
+        settleProfileWrites,
+        applyProfileDeleted,
         setDefaultProfile,
         importProfile,
         exportProfile,

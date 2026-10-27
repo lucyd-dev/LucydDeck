@@ -48,7 +48,6 @@ export const channels = {
         listProfiles: "storage:listProfiles",
         createProfile: "storage:createProfile",
         renameProfile: "storage:renameProfile",
-        deleteProfile: "storage:deleteProfile",
         listPages: "storage:listPages",
         loadPage: "storage:loadPage",
         savePage: "storage:savePage",
@@ -61,6 +60,7 @@ export const channels = {
     delete: {
         page: "delete:page",
         icon: "delete:icon",
+        profile: "delete:profile",
     },
     icons: {
         list: "icons:list",
@@ -81,7 +81,6 @@ export const channels = {
         listProfiles: "usb:listProfiles",
         createProfile: "usb:createProfile",
         renameProfile: "usb:renameProfile",
-        deleteProfile: "usb:deleteProfile",
         setActiveProfile: "usb:setActiveProfile",
         setActivePage: "usb:setActivePage",
         uploadPage: "usb:uploadPage",
@@ -171,6 +170,11 @@ export interface DeletePageRequest {
 
 /** Delete one icon from both copies. The main process owns the transaction. */
 export interface DeleteIconRequest {
+    name: string;
+}
+
+/** Delete one profile from both copies. The main process owns the transaction. */
+export interface DeleteProfileRequest {
     name: string;
 }
 
@@ -314,7 +318,6 @@ export interface RequestMap {
     [channels.storage.listProfiles]: undefined;
     [channels.storage.createProfile]: ProfileNameRequest;
     [channels.storage.renameProfile]: RenameProfileRequest;
-    [channels.storage.deleteProfile]: ProfileNameRequest;
     [channels.storage.listPages]: ProfileNameRequest;
     [channels.storage.loadPage]: PageRefRequest;
     [channels.storage.savePage]: SavePageRequest;
@@ -327,6 +330,7 @@ export interface RequestMap {
     // delete (one main-side owner per entity; deck copy first, then library)
     [channels.delete.page]: DeletePageRequest;
     [channels.delete.icon]: DeleteIconRequest;
+    [channels.delete.profile]: DeleteProfileRequest;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
@@ -347,7 +351,6 @@ export interface RequestMap {
     [channels.usb.listProfiles]: undefined;
     [channels.usb.createProfile]: ProfileNameRequest;
     [channels.usb.renameProfile]: RenameProfileRequest;
-    [channels.usb.deleteProfile]: ProfileNameRequest;
     [channels.usb.setActiveProfile]: ProfileNameRequest;
     [channels.usb.setActivePage]: UsbSetActivePageRequest;
     [channels.usb.uploadPage]: UsbUploadPageRequest;
@@ -389,7 +392,6 @@ export interface ResponseMap {
     [channels.storage.listProfiles]: IpcResponse<ProfileMeta[]>;
     [channels.storage.createProfile]: IpcResponse<ProfileMeta>;
     [channels.storage.renameProfile]: IpcResponse<ProfileMeta>;
-    [channels.storage.deleteProfile]: IpcResponse<void>;
     [channels.storage.listPages]: IpcResponse<PageMeta[]>;
     [channels.storage.loadPage]: IpcResponse<PageConfig>;
     [channels.storage.savePage]: IpcResponse<void>;
@@ -402,6 +404,7 @@ export interface ResponseMap {
     // delete
     [channels.delete.page]: IpcResponse<DeleteResult>;
     [channels.delete.icon]: IpcResponse<DeleteResult>;
+    [channels.delete.profile]: IpcResponse<DeleteResult>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;
@@ -422,7 +425,6 @@ export interface ResponseMap {
     [channels.usb.listProfiles]: IpcResponse<DeviceProfileEntry[]>;
     [channels.usb.createProfile]: IpcResponse<void>;
     [channels.usb.renameProfile]: IpcResponse<void>;
-    [channels.usb.deleteProfile]: IpcResponse<void>;
     [channels.usb.setActiveProfile]: IpcResponse<void>;
     [channels.usb.setActivePage]: IpcResponse<void>;
     [channels.usb.uploadPage]: IpcResponse<void>;

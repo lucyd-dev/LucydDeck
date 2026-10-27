@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import {
     Check,
     ChevronDown,
@@ -14,22 +14,18 @@ import {
 } from "@lucide/vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import { useAppStore } from "@/stores/appStore";
-import { useConfirmStore } from "@/stores/confirmStore";
+import { useDeviceStore } from "@/stores/deviceStore";
 import { useProfileStore } from "@/stores/profileStore";
-import { storageClient } from "@/ipc/client";
-import { referenceNotes } from "@/device/references";
 
 const profile = useProfileStore();
 const app = useAppStore();
-const confirm = useConfirmStore();
+const device = useDeviceStore();
 
 const open = ref(false);
 const rowMenu = ref<string | null>(null);
 const mode = ref<"create" | "rename" | null>(null);
 const draft = ref("");
 const root = ref<HTMLElement | null>(null);
-
-const canDelete = computed(() => profile.profiles.length > 1);
 
 function toggleOpen(): void {
     open.value = !open.value;
@@ -110,29 +106,9 @@ async function exportProfile(name: string): Promise<void> {
     await profile.exportProfile(name);
 }
 
-async function removeProfile(name: string): Promise<void> {
+async function deleteProfile(name: string): Promise<void> {
     rowMenu.value = null;
-    if (!canDelete.value) {
-        return;
-    }
-    let message = `Delete profile "${name}" and all its pages?`;
-    const scan = await storageClient.scanReferences({ kind: "profile", name });
-    if (scan.ok) {
-        const notes = referenceNotes({ kind: "profile", name }, scan.data, profile.activeProfile);
-        if (notes.length > 0) {
-            message += ` ${notes.join(" ")}`;
-        }
-    }
-    const confirmed = await confirm.ask({
-        title: "Delete profile",
-        message,
-        confirmLabel: "Delete profile",
-        danger: true,
-    });
-    if (!confirmed) {
-        return;
-    }
-    await profile.deleteProfile(name);
+    await device.deleteProfile(name);
 }
 
 async function importProfile(): Promise<void> {
@@ -246,11 +222,11 @@ async function importProfile(): Promise<void> {
                         <button
                             class="profile-menu__subitem profile-menu__subitem--danger"
                             type="button"
-                            :disabled="!canDelete"
+                            :disabled="device.profileDeleteBlockedReason(item.name) !== undefined"
                             :title="
-                                !canDelete ? 'Cannot delete the only profile' : 'Delete Profile'
+                                device.profileDeleteBlockedReason(item.name) ?? 'Delete Profile'
                             "
-                            @click="removeProfile(item.name)"
+                            @click="deleteProfile(item.name)"
                         >
                             <Trash2 :size="13" />
                             <span>Delete Profile</span>
@@ -260,6 +236,9 @@ async function importProfile(): Promise<void> {
             </ul>
 
             <p v-if="profile.profiles.length === 0" class="profile-menu__empty">No profiles yet.</p>
+            <p v-if="device.deckWriteBlockedReason" class="profile-menu__blocked">
+                Deleting profiles is unavailable. {{ device.deckWriteBlockedReason }}.
+            </p>
         </div>
     </div>
 </template>
