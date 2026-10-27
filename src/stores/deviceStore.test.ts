@@ -179,7 +179,7 @@ describe("deviceStore two-sided delete", () => {
 
         expect(toast).toHaveBeenCalledWith(
             "warning",
-            "Removed Page 1 from the deck, but the library copy could not be deleted. It is still in the library.",
+            "Deleted Page 1 from the deck, but the library copy could not be deleted. It is still in the library.",
         );
         expect(profile.currentPageId).toBe("0");
         expect(profile.pages).toHaveLength(1);

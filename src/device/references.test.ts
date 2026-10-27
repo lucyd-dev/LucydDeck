@@ -94,7 +94,7 @@ describe("deleteOutcome", () => {
         ).toEqual({
             level: "warning",
             message:
-                "Removed Page 4 from the deck, but the library copy could not be deleted. It is still in the library.",
+                "Deleted Page 4 from the deck, but the library copy could not be deleted. It is still in the library.",
         });
     });
 

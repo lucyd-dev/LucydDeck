@@ -56,7 +56,7 @@ export function deleteOutcome(noun: string, result: DeleteResult): DeleteOutcome
         }
         return {
             level: "warning",
-            message: `Removed ${noun} from the deck, but the library copy could not be deleted. It is still in the library.`,
+            message: `Deleted ${noun} from the deck, but the library copy could not be deleted. It is still in the library.`,
         };
     }
     return {
