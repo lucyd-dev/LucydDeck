@@ -60,12 +60,12 @@ export const channels = {
     },
     delete: {
         page: "delete:page",
+        icon: "delete:icon",
     },
     icons: {
         list: "icons:list",
         import: "icons:import",
         importData: "icons:importData",
-        remove: "icons:remove",
         preview: "icons:preview",
     },
     sync: {
@@ -169,7 +169,8 @@ export interface DeletePageRequest {
     id: string;
 }
 
-export interface IconRemoveRequest {
+/** Delete one icon from both copies. The main process owns the transaction. */
+export interface DeleteIconRequest {
     name: string;
 }
 
@@ -325,12 +326,12 @@ export interface RequestMap {
 
     // delete (one main-side owner per entity; deck copy first, then library)
     [channels.delete.page]: DeletePageRequest;
+    [channels.delete.icon]: DeleteIconRequest;
 
     // icons (stub — Step 3+ uses it with the sharp pipeline)
     [channels.icons.list]: undefined;
     [channels.icons.import]: IconsImportRequest;
     [channels.icons.importData]: IconImportDataRequest;
-    [channels.icons.remove]: IconRemoveRequest;
     [channels.icons.preview]: IconPreviewRequest;
 
     // sync (Step 3 delta-sync engine)
@@ -400,12 +401,12 @@ export interface ResponseMap {
 
     // delete
     [channels.delete.page]: IpcResponse<DeleteResult>;
+    [channels.delete.icon]: IpcResponse<DeleteResult>;
 
     // icons
     [channels.icons.list]: IpcResponse<IconMeta[]>;
     [channels.icons.import]: IpcResponse<IconMeta[]>;
     [channels.icons.importData]: IpcResponse<IconMeta>;
-    [channels.icons.remove]: IpcResponse<void>;
     [channels.icons.preview]: IpcResponse<IconPreview | null>;
 
     // sync

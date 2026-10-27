@@ -1,5 +1,6 @@
 import log from "electron-log/main";
 import { isValidPageId } from "@shared/protocol";
+import { iconBaseName } from "@shared/icons";
 import {
     deleteResult,
     type DeckDeleteStatus,
@@ -16,6 +17,7 @@ export interface DeleteDeviceClient {
         id: string,
         options?: { allowMissing?: boolean },
     ): Promise<DeckDeleteStatus>;
+    deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<DeckDeleteStatus>;
 }
 
 export interface DeleteServiceOptions {
@@ -59,27 +61,56 @@ export class DeleteService {
      */
     async deletePage(profile: string, id: string): Promise<DeleteResult> {
         this.assertPageRequest(profile, id);
+        return this.deleteCopies(
+            `deck page ${profile}/${id}`,
+            () => this.device.deletePage(profile, id, { allowMissing: true }),
+            `library page ${profile}/${id}`,
+            () => this.storage.deletePage(profile, id),
+        );
+    }
+
+    /**
+     * Delete one icon from the deck and the library, with the same rules as a
+     * page delete: deck copy first, a missing deck file counted as success,
+     * then the library file, and a partial result when the library side stays.
+     */
+    async deleteIcon(name: string): Promise<DeleteResult> {
+        const base = this.iconRequestBase(name);
+        return this.deleteCopies(
+            `deck icon ${base}`,
+            () => this.device.deleteIcon(base, { allowMissing: true }),
+            `library icon ${base}`,
+            () => this.storage.deleteIcon(base),
+        );
+    }
+
+    /**
+     * One two-sided transaction: take the write lock, delete the deck copy,
+     * then the library copy, and release the lock whichever side fails. A
+     * disconnected start takes the offline path and leaves the deck copy to the
+     * next sync.
+     */
+    private async deleteCopies(
+        deckLabel: string,
+        deleteDeck: () => Promise<DeckDeleteStatus>,
+        libraryLabel: string,
+        deleteLibrary: () => void,
+    ): Promise<DeleteResult> {
         this.acquireWrite();
         try {
             if (!this.isConnected()) {
                 return deleteResult(
                     { status: "skipped" },
-                    await this.attempt(`library page ${profile}/${id}`, () =>
-                        this.storage.deletePage(profile, id),
-                    ),
+                    await this.attempt(libraryLabel, deleteLibrary),
                 );
             }
 
-            const deck = await this.attempt(`deck page ${profile}/${id}`, () =>
-                this.device.deletePage(profile, id, { allowMissing: true }),
-            );
+            const deck = await this.attempt(deckLabel, deleteDeck);
             if (deck.status === "failed") {
                 // The library copy is the retry source; leave it whole.
                 return deleteResult(deck, { status: "skipped" });
             }
-            const library = await this.attempt(`library page ${profile}/${id}`, () =>
-                this.storage.deletePage(profile, id),
-            );
+            const library = await this.attempt(libraryLabel, deleteLibrary);
             return deleteResult(deck, library);
         } finally {
             this.lock.endWrite();
@@ -94,6 +125,15 @@ export class DeleteService {
         if (!isValidPageId(id)) {
             throw new StorageError(`Invalid page id: "${id}"`);
         }
+    }
+
+    /** Validate the request and return the base name both copies address. */
+    private iconRequestBase(name: string): string {
+        const base = iconBaseName(name);
+        if (!validateName(base)) {
+            throw new StorageError(`Invalid icon name: "${base}"`);
+        }
+        return base;
     }
 
     private acquireWrite(): void {

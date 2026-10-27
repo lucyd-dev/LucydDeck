@@ -219,10 +219,10 @@ export class DeviceService {
      * Delete `/icons/<name>.png` on the device (`CMD_ICON_DELETE`). `name` may
      * be given with or without the extension.
      */
-    async deleteIcon(name: string, options: DeleteOptions = {}): Promise<void> {
+    async deleteIcon(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         const base = iconBaseName(name);
         this.assertName(base);
-        await this.deleteIdentity(HostCommand.IconDelete, base, options);
+        return this.deleteIdentity(HostCommand.IconDelete, base, options);
     }
 
     /** One identity string, no target byte: it must fit a single frame. */

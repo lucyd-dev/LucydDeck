@@ -45,6 +45,7 @@ export const storageClient = {
 /** One request per entity: the main process owns both sides of the delete. */
 export const deleteClient = {
     page: (profile: string, id: string) => invoke(channels.delete.page, { profile, id }),
+    icon: (name: string) => invoke(channels.delete.icon, { name }),
 };
 
 export const usbClient = {
@@ -79,7 +80,6 @@ export const iconsClient = {
         invoke(channels.icons.import, paths === undefined ? {} : { paths }),
     importData: (name: string, dataUrl: string) =>
         invoke(channels.icons.importData, { name, dataUrl }),
-    remove: (name: string) => invoke(channels.icons.remove, { name }),
     preview: (name: string) => invoke(channels.icons.preview, { name }),
 };
 

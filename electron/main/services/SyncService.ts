@@ -59,7 +59,7 @@ export interface SyncDeviceClient {
         id: string | number,
         options?: { allowMissing?: boolean },
     ): Promise<unknown>;
-    deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<void>;
+    deleteIcon(name: string, options?: { allowMissing?: boolean }): Promise<unknown>;
     deleteProfile(name: string, options?: { allowMissing?: boolean }): Promise<void>;
 }
 

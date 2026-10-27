@@ -206,7 +206,7 @@ describe("DeviceService file deletion", () => {
             ErrorCode.FileNotFound,
         );
 
-        await expect(device.deleteIcon("github", { allowMissing: true })).resolves.toBeUndefined();
+        await expect(device.deleteIcon("github", { allowMissing: true })).resolves.toBe("missing");
         await expect(device.deletePage("gaming", 3, { allowMissing: true })).resolves.toBe(
             "missing",
         );

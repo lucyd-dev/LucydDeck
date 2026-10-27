@@ -62,6 +62,7 @@ describe("shared/ipc contract", () => {
 
     it("exposes the one-owner delete channels", () => {
         expect(channels.delete.page).toBe("delete:page");
+        expect(channels.delete.icon).toBe("delete:icon");
     });
 
     it("exposes the firmware channels and keeps updater reserved", () => {

@@ -9,6 +9,7 @@ import type { DeleteResult } from "@shared/delete";
 const mocks = vi.hoisted(() => ({
     deleteFile: vi.fn(),
     deletePageRequest: vi.fn(),
+    deleteIconRequest: vi.fn(),
     deviceInfo: vi.fn(),
     listDeviceProfiles: vi.fn(),
     listImages: vi.fn(),
@@ -19,7 +20,6 @@ const mocks = vi.hoisted(() => ({
     scanReferences: vi.fn(),
     reconcile: vi.fn(),
     iconList: vi.fn(),
-    iconRemove: vi.fn(),
 }));
 
 vi.mock("@/ipc/client", () => ({
@@ -32,10 +32,10 @@ vi.mock("@/ipc/client", () => ({
     },
     deleteClient: {
         page: mocks.deletePageRequest,
+        icon: mocks.deleteIconRequest,
     },
     iconsClient: {
         list: mocks.iconList,
-        remove: mocks.iconRemove,
     },
     syncClient: {
         reconcile: mocks.reconcile,
@@ -62,6 +62,7 @@ import { useUsbStore } from "./usbStore";
 import { useConfirmStore } from "./confirmStore";
 import { useFirmwareStore } from "./firmwareStore";
 import { useAppStore } from "./appStore";
+import { useIconStore } from "./iconStore";
 
 function setup(): {
     store: ReturnType<typeof useDeviceStore>;
@@ -89,6 +90,7 @@ describe("deviceStore two-sided delete", () => {
         });
         mocks.deleteFile.mockResolvedValue({ ok: true, data: undefined });
         mocks.deletePageRequest.mockResolvedValue({ ok: true, data: deletedBoth() });
+        mocks.deleteIconRequest.mockResolvedValue({ ok: true, data: deletedBoth() });
         mocks.deviceInfo.mockResolvedValue({ ok: true, data: null });
         mocks.listDeviceProfiles.mockResolvedValue({ ok: true, data: [] });
         mocks.listImages.mockResolvedValue({ ok: true, data: [] });
@@ -101,7 +103,6 @@ describe("deviceStore two-sided delete", () => {
         mocks.savePage.mockResolvedValue({ ok: true, data: undefined });
         mocks.reconcile.mockResolvedValue({ ok: true, data: emptyDiffPlan() });
         mocks.iconList.mockResolvedValue({ ok: true, data: [] });
-        mocks.iconRemove.mockResolvedValue({ ok: true, data: undefined });
     });
 
     function deletedBoth(): DeleteResult {
@@ -277,19 +278,161 @@ describe("deviceStore two-sided delete", () => {
         expect(store.deckWriteBlockedReason).toBe("Wait for the firmware update to finish");
     });
 
-    it("deletes an icon from both sides in the same order", async () => {
+    function seedIcon(): ReturnType<typeof useIconStore> {
+        const icons = useIconStore();
+        icons.icons = [{ name: "github", hash: "1" }];
+        icons.previews.github = "data:image/png;base64,x";
+        icons.recent = ["github", "work"];
+        return icons;
+    }
+
+    it("confirms once, asks for one icon delete and clears the library state", async () => {
         const { store } = setup();
-        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const icons = seedIcon();
+        const confirm = useConfirmStore();
+        const ask = vi.spyOn(confirm, "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
 
         await expect(store.deleteIcon("github")).resolves.toBe(true);
 
-        expect(mocks.deleteFile).toHaveBeenCalledWith({
-            kind: "icon",
-            name: "github",
-            allowMissing: true,
-        });
+        expect(ask).toHaveBeenCalledTimes(1);
+        expect(mocks.deleteIconRequest).toHaveBeenCalledTimes(1);
+        expect(mocks.deleteIconRequest).toHaveBeenCalledWith("github");
+        expect(mocks.deleteFile).not.toHaveBeenCalled();
         expect(mocks.scanReferences).toHaveBeenCalledWith({ kind: "icon", name: "github" });
-        expect(mocks.iconRemove).toHaveBeenCalledWith("github");
+        expect(toast).toHaveBeenCalledWith("success", "Deleted Icon “github”");
+        expect(icons.previews.github).toBeUndefined();
+        expect(icons.recent).not.toContain("github");
+        expect(mocks.deviceInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the icon, its preview and its recent entry when the deck delete fails", async () => {
+        const { store } = setup();
+        const icons = seedIcon();
+        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteIconRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "failed", error: "deck refused" },
+                library: { status: "skipped" },
+                remaining: "both",
+            },
+        });
+
+        await expect(store.deleteIcon("github")).resolves.toBe(false);
+
+        expect(toast).toHaveBeenCalledWith(
+            "error",
+            "Could not delete Icon “github” from the deck: deck refused. Nothing was deleted.",
+        );
+        expect(icons.icons).toHaveLength(1);
+        expect(icons.previews.github).toBe("data:image/png;base64,x");
+        expect(icons.recent).toContain("github");
+        expect(mocks.iconList).not.toHaveBeenCalled();
+        expect(mocks.deviceInfo).not.toHaveBeenCalled();
+    });
+
+    it("reports a library copy that stayed and leaves the icon visible", async () => {
+        const { store } = setup();
+        const icons = seedIcon();
+        vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteIconRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "deleted" },
+                library: { status: "failed", error: "no permission" },
+                remaining: "library",
+            },
+        });
+
+        await expect(store.deleteIcon("github")).resolves.toBe(false);
+
+        expect(toast).toHaveBeenCalledWith(
+            "warning",
+            "Deleted Icon “github” from the deck, but the library copy could not be deleted. It is still in the library.",
+        );
+        expect(icons.icons).toHaveLength(1);
+        expect(icons.previews.github).toBe("data:image/png;base64,x");
+        expect(icons.recent).toContain("github");
+        expect(mocks.iconList).not.toHaveBeenCalled();
+    });
+
+    it("removes only the library icon when the deck is disconnected", async () => {
+        const { store, usb } = setup();
+        const icons = seedIcon();
+        usb.status = { state: DeviceState.Disconnected, label: "Disconnected" };
+        const ask = vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(true);
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteIconRequest.mockResolvedValue({
+            ok: true,
+            data: {
+                deck: { status: "skipped" },
+                library: { status: "deleted" },
+                remaining: "deck",
+            },
+        });
+
+        await expect(store.deleteIcon("github")).resolves.toBe(true);
+
+        expect(ask.mock.calls[0]?.[0].message).toContain(
+            "The deck is disconnected, so its copy stays",
+        );
+        expect(mocks.deleteIconRequest).toHaveBeenCalledWith("github");
+        expect(toast).toHaveBeenCalledWith(
+            "warning",
+            "Deleted Icon “github” from the library. The deck copy stays, and the next sync removes it.",
+        );
+        expect(icons.previews.github).toBeUndefined();
+        expect(icons.recent).not.toContain("github");
+    });
+
+    it("keeps the in-use warning and the partial-scan note in the confirmation", async () => {
+        const { store } = setup();
+        seedIcon();
+        const ask = vi.spyOn(useConfirmStore(), "ask").mockResolvedValue(false);
+        mocks.scanReferences.mockResolvedValue({
+            ok: true,
+            data: {
+                hits: [{ profile: "main", pageId: "0" }],
+                partial: true,
+            },
+        });
+
+        await expect(store.deleteIcon("github")).resolves.toBe(false);
+
+        const message = ask.mock.calls[0]?.[0].message ?? "";
+        expect(message).toContain("1 page still uses this icon: main / Page 1.");
+        expect(message).toContain("Some pages could not be read");
+        expect(mocks.deleteIconRequest).not.toHaveBeenCalled();
+    });
+
+    it("is disabled while a sync owns the deck and shows the reason", async () => {
+        const { store, usb } = setup();
+        seedIcon();
+        const ask = vi.spyOn(useConfirmStore(), "ask");
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        usb.syncing = true;
+
+        expect(store.deckWriteBlockedReason).toBe("Wait for the sync to finish");
+        await expect(store.deleteIcon("github")).resolves.toBe(false);
+
+        expect(ask).not.toHaveBeenCalled();
+        expect(mocks.deleteIconRequest).not.toHaveBeenCalled();
+        expect(toast).toHaveBeenCalledWith("warning", "Wait for the sync to finish");
+    });
+
+    it("is disabled while a firmware update owns the deck", async () => {
+        const { store } = setup();
+        seedIcon();
+        const firmware = useFirmwareStore();
+        firmware.state = { ...idleFirmwareState(), phase: "writing" };
+
+        await expect(store.deleteIcon("github")).resolves.toBe(false);
+
+        expect(store.deckWriteBlockedReason).toBe("Wait for the firmware update to finish");
+        expect(mocks.deleteIconRequest).not.toHaveBeenCalled();
     });
 
     it("does nothing when the confirmation is declined", async () => {

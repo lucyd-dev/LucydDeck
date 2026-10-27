@@ -196,6 +196,19 @@ export class StorageService {
             .sort((a, b) => a.name.localeCompare(b.name));
     }
 
+    /**
+     * Delete one stored icon. The library copy must be ours to remove, so a
+     * missing file is an error, like a missing page.
+     */
+    deleteIcon(name: string): void {
+        const file = this.iconFilePath(name);
+        if (!fs.existsSync(file)) {
+            throw new StorageError(`Icon not found: "${iconBaseName(name)}"`);
+        }
+        fs.rmSync(file);
+        log.info(`[storage] icon deleted: ${iconBaseName(name)}`);
+    }
+
     // --- Profiles -------------------------------------------------------
 
     /** Read `settings.json`; returns `{}` when missing or unreadable. */

@@ -53,6 +53,7 @@ describe("IPC deck ownership guards", () => {
     let lock: DeviceLock;
     let device: {
         deletePage: ReturnType<typeof vi.fn>;
+        deleteIcon: ReturnType<typeof vi.fn>;
         deleteProfile: ReturnType<typeof vi.fn>;
     };
     let usb: {
@@ -67,9 +68,11 @@ describe("IPC deck ownership guards", () => {
         storage = new StorageService({ dataDir });
         storage.ensureLayout();
         storage.createProfile("main");
+        fs.writeFileSync(path.join(storage.iconsDir(), "github.png"), "png");
         lock = new DeviceLock();
         device = {
             deletePage: vi.fn(async () => "deleted"),
+            deleteIcon: vi.fn(async () => "deleted"),
             deleteProfile: vi.fn(async () => undefined),
         };
         usb = {
@@ -189,6 +192,32 @@ describe("IPC deck ownership guards", () => {
                 },
             });
             expect(device.deletePage).toHaveBeenCalledWith("main", "0", { allowMissing: true });
+        },
+    );
+
+    it.each(holders)(
+        "refuses an icon delete with DEVICE_BUSY while a $name owns the deck",
+        async ({ hold, release }) => {
+            expect(hold(lock)).toBe(true);
+
+            const refused = await invoke(channels.delete.icon, { name: "github" });
+
+            expect(refused).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+            expect(device.deleteIcon).not.toHaveBeenCalled();
+            expect(fs.existsSync(path.join(storage.iconsDir(), "github.png"))).toBe(true);
+
+            release(lock);
+            const allowed = await invoke(channels.delete.icon, { name: "github" });
+
+            expect(allowed).toEqual({
+                ok: true,
+                data: {
+                    deck: { status: "deleted" },
+                    library: { status: "deleted" },
+                    remaining: "none",
+                },
+            });
+            expect(device.deleteIcon).toHaveBeenCalledWith("github", { allowMissing: true });
         },
     );
 

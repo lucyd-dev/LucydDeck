@@ -242,6 +242,10 @@ export function registerIpcHandlers(services: IpcServices): void {
         ok: true,
         data: await deletes.deletePage(profile, id),
     }));
+    register(channels.delete.icon, async ({ name }) => ({
+        ok: true,
+        data: await deletes.deleteIcon(name),
+    }));
 
     // --- usb (HID engine) ----------------------------------------------
     register(channels.usb.status, () => ({ ok: true, data: usb.status() }));
@@ -399,15 +403,6 @@ export function registerIpcHandlers(services: IpcServices): void {
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
-    });
-
-    register(channels.icons.remove, ({ name }) => {
-        const base = iconBaseName(name);
-        const file = resolveIconFile(storage, base);
-        if (file !== null) {
-            fs.rmSync(file);
-        }
-        return { ok: true, data: undefined };
     });
 
     // --- sync (Step 3 delta-sync engine) --------------------------------
