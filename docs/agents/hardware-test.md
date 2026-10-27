@@ -235,7 +235,39 @@ return { library, deck, cleaned: await window.lucyd.invoke("sync:execute", { pla
 
 Deleting the active profile is the connected case above: make `zz-profile-check` active before deleting it and confirm the app opens the default profile, or the first remaining one.
 
-## 7. Restore the deck and the app
+## 7. Deck writes during a sync
+
+Set up a plan with enough pages that the sync takes longer than a frame round trip, then start it and try a delete and a direct write while it runs:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" '
+for (const id of ["250", "251", "252", "253", "254", "255"]) {
+    await window.lucyd.invoke("storage:savePage", { profile: "Default", id, page: { buttons: {} } });
+}
+const plan = await window.lucyd.invoke("sync:reconcile", {});
+if (!plan.ok) return plan;
+const sync = window.lucyd.invoke("sync:execute", { plan: plan.data, allowRemovals: false });
+const deleted = await window.lucyd.invoke("delete:page", { profile: "Default", id: "250" });
+const wrote = await window.lucyd.invoke("usb:setActiveProfile", { name: "Default" });
+return { deleted, wrote, sync: await sync };
+'
+```
+
+While the sync runs, `delete` and `wrote` must report `{ ok: false, code: "DEVICE_BUSY" }` and the error must say a sync is running. The Device → Files delete button is disabled with **Wait for the sync to finish** at the same time. If either call succeeded, the sync had already finished; raise the page count and repeat.
+
+After the sync, the lock must be free: run an ordinary write and confirm it succeeds:
+
+```bash
+node "$MAIN/scripts/cdp.mjs" 'return window.lucyd.invoke("usb:setActivePage", { id: "0" })'
+```
+
+Remove the test pages from the isolated library before the restore reconcile:
+
+```bash
+rm -f "$D/profiles/Default/"{250,251,252,253,254,255}.json
+```
+
+## 8. Restore the deck and the app
 
 Set the active profile back before removing the test profile:
 

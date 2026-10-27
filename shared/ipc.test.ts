@@ -65,6 +65,10 @@ describe("shared/ipc contract", () => {
         expect(channels.delete.profile).toBe("delete:profile");
     });
 
+    it("has no deck-only profile delete channel", () => {
+        expect(listChannels()).not.toContain("usb:deleteProfile");
+    });
+
     it("exposes the firmware channels and keeps updater reserved", () => {
         expect(channels.firmware.getState).toBe("firmware:getState");
         expect(channels.firmware.check).toBe("firmware:check");

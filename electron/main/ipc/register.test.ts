@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { channels } from "@shared/ipc";
 import { emptyDiffPlan } from "@shared/sync";
 import { DeleteService } from "../services/DeleteService";
-import { DeviceLock } from "../services/DeviceLock";
+import { DeviceLock, deviceBusyMessage } from "../services/DeviceLock";
 import { FirmwareService } from "../services/FirmwareService";
 import { StorageService } from "../services/StorageService";
 import { SyncService } from "../services/SyncService";
@@ -52,10 +52,15 @@ describe("IPC deck ownership guards", () => {
     let storage: StorageService;
     let lock: DeviceLock;
     let device: {
+        createProfile: ReturnType<typeof vi.fn>;
+        renameProfile: ReturnType<typeof vi.fn>;
+        setActiveProfile: ReturnType<typeof vi.fn>;
+        setActivePage: ReturnType<typeof vi.fn>;
+        uploadPage: ReturnType<typeof vi.fn>;
+        uploadIcon: ReturnType<typeof vi.fn>;
         deletePage: ReturnType<typeof vi.fn>;
         deleteIcon: ReturnType<typeof vi.fn>;
         deleteProfile: ReturnType<typeof vi.fn>;
-        setActiveProfile: ReturnType<typeof vi.fn>;
     };
     let usb: {
         connected: boolean;
@@ -72,10 +77,15 @@ describe("IPC deck ownership guards", () => {
         fs.writeFileSync(path.join(storage.iconsDir(), "github.png"), "png");
         lock = new DeviceLock();
         device = {
+            createProfile: vi.fn(async () => undefined),
+            renameProfile: vi.fn(async () => undefined),
+            setActiveProfile: vi.fn(async () => undefined),
+            setActivePage: vi.fn(async () => undefined),
+            uploadPage: vi.fn(async () => undefined),
+            uploadIcon: vi.fn(async () => undefined),
             deletePage: vi.fn(async () => "deleted"),
             deleteIcon: vi.fn(async () => "deleted"),
             deleteProfile: vi.fn(async () => "deleted"),
-            setActiveProfile: vi.fn(async () => undefined),
         };
         usb = {
             connected: true,
@@ -162,15 +172,173 @@ describe("IPC deck ownership guards", () => {
     const holders = [
         {
             name: "sync",
+            activity: "sync" as const,
             hold: (lock: DeviceLock) => lock.beginSync(),
             release: (lock: DeviceLock) => lock.endSync(),
         },
         {
             name: "update",
+            activity: "update" as const,
             hold: (lock: DeviceLock) => lock.beginUpdate(),
             release: (lock: DeviceLock) => lock.endUpdate(),
         },
     ];
+
+    interface DeckWrite {
+        name: string;
+        channel: string;
+        payload: unknown;
+        method:
+            | "createProfile"
+            | "renameProfile"
+            | "setActiveProfile"
+            | "setActivePage"
+            | "uploadPage"
+            | "uploadIcon"
+            | "deletePage"
+            | "deleteIcon";
+    }
+
+    /** Every mutating channel except the three delete owners. */
+    const deckWrites: DeckWrite[] = [
+        {
+            name: "profile create",
+            channel: channels.usb.createProfile,
+            payload: { name: "second" },
+            method: "createProfile",
+        },
+        {
+            name: "profile rename",
+            channel: channels.usb.renameProfile,
+            payload: { oldName: "main", newName: "renamed" },
+            method: "renameProfile",
+        },
+        {
+            name: "profile activation",
+            channel: channels.usb.setActiveProfile,
+            payload: { name: "main" },
+            method: "setActiveProfile",
+        },
+        {
+            name: "active-page switch",
+            channel: channels.usb.setActivePage,
+            payload: { id: "0" },
+            method: "setActivePage",
+        },
+        {
+            name: "page upload",
+            channel: channels.usb.uploadPage,
+            payload: { profile: "main", id: "0" },
+            method: "uploadPage",
+        },
+        {
+            name: "icon upload",
+            channel: channels.usb.uploadIcon,
+            payload: { name: "github" },
+            method: "uploadIcon",
+        },
+        {
+            name: "device page delete",
+            channel: channels.usb.deleteFile,
+            payload: { kind: "page", profile: "main", id: "0" },
+            method: "deletePage",
+        },
+        {
+            name: "device icon delete",
+            channel: channels.usb.deleteFile,
+            payload: { kind: "icon", name: "github" },
+            method: "deleteIcon",
+        },
+    ];
+
+    const deckWriteCases = holders.flatMap((holder) =>
+        deckWrites.map((write) => ({
+            ...write,
+            holderName: holder.name,
+            activity: holder.activity,
+            hold: holder.hold,
+            release: holder.release,
+        })),
+    );
+
+    it.each(deckWriteCases)(
+        "refuses $name with DEVICE_BUSY while $holderName owns the deck",
+        async ({ activity, channel, payload, method, hold, release }) => {
+            expect(hold(lock)).toBe(true);
+
+            const refused = await invoke(channel, payload);
+
+            expect(refused).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+            expect((refused as { error: string }).error).toBe(deviceBusyMessage(activity));
+            expect(device[method]).not.toHaveBeenCalled();
+
+            release(lock);
+            const allowed = await invoke(channel, payload);
+            expect(allowed).toEqual({ ok: true, data: undefined });
+            expect(device[method]).toHaveBeenCalled();
+            expect(lock.busy).toBe(false);
+        },
+    );
+
+    it("holds the write lock for the whole device command", async () => {
+        let writingDuringCall = false;
+        device.uploadPage.mockImplementationOnce(async () => {
+            writingDuringCall = lock.writing;
+        });
+
+        await invoke(channels.usb.uploadPage, { profile: "main", id: "0" });
+
+        expect(writingDuringCall).toBe(true);
+        expect(lock.busy).toBe(false);
+    });
+
+    it("releases the write lock after a failed write so the next write works", async () => {
+        device.setActivePage.mockRejectedValueOnce(new Error("USB write failed"));
+
+        const failed = await invoke(channels.usb.setActivePage, { id: "0" });
+
+        expect(failed).toMatchObject({ ok: false, error: "USB write failed" });
+        expect(lock.busy).toBe(false);
+
+        const next = await invoke(channels.usb.setActiveProfile, { name: "main" });
+        expect(next).toEqual({ ok: true, data: undefined });
+        expect(device.setActiveProfile).toHaveBeenCalledWith("main");
+        expect(lock.busy).toBe(false);
+    });
+
+    it("releases the write lock when a write refuses before it sends anything", async () => {
+        const failed = await invoke(channels.usb.uploadIcon, { name: "missing" });
+
+        expect(failed).toMatchObject({ ok: false });
+        expect(lock.busy).toBe(false);
+
+        const next = await invoke(channels.usb.setActiveProfile, { name: "main" });
+        expect(next).toEqual({ ok: true, data: undefined });
+    });
+
+    it("refuses a sync while a direct write owns the deck", async () => {
+        expect(lock.beginWrite()).toBe(true);
+
+        const refused = await invoke(channels.sync.execute, { plan: emptyDiffPlan() });
+
+        expect(refused).toMatchObject({ ok: false, code: "DEVICE_BUSY" });
+        expect((refused as { error: string }).error).toBe(deviceBusyMessage("write"));
+
+        lock.endWrite();
+        const allowed = await invoke(channels.sync.execute, { plan: emptyDiffPlan() });
+        expect(allowed).toMatchObject({ ok: true });
+        expect(lock.busy).toBe(false);
+    });
+
+    it("reports a missing Device → Files file as an error and releases the lock", async () => {
+        device.deleteIcon.mockRejectedValueOnce(new Error("File not found"));
+
+        const refused = await invoke(channels.usb.deleteFile, { kind: "icon", name: "gone" });
+
+        expect(refused).toMatchObject({ ok: false, error: "File not found" });
+        expect(device.deleteIcon).toHaveBeenCalledWith("gone", { allowMissing: false });
+        expect(lock.busy).toBe(false);
+    });
 
     it.each(holders)(
         "refuses a page delete with DEVICE_BUSY while a $name owns the deck",

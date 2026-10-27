@@ -5,6 +5,7 @@ import { idleFirmwareState } from "@shared/firmware";
 import { emptyDiffPlan } from "@shared/sync";
 import type { SyncResult } from "@shared/sync";
 import type { DeleteResult } from "@shared/delete";
+import type { InventoryRow } from "@/device/inventory";
 
 const mocks = vi.hoisted(() => ({
     deleteFile: vi.fn(),
@@ -740,5 +741,62 @@ describe("deviceStore sync reading", () => {
         await expect(store.syncNow()).resolves.toBe(true);
 
         expect(ask).not.toHaveBeenCalled();
+    });
+});
+
+describe("deviceStore Device → Files delete", () => {
+    const deviceOnlyIcon: InventoryRow = {
+        key: "icon:stale",
+        kind: "icon",
+        name: "stale",
+        state: "device-only",
+        localHash: null,
+        deviceHash: "1",
+    };
+
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        vi.clearAllMocks();
+        mocks.deleteFile.mockResolvedValue({ ok: true, data: undefined });
+        mocks.deviceInfo.mockResolvedValue({ ok: true, data: null });
+        mocks.listDeviceProfiles.mockResolvedValue({ ok: true, data: [] });
+        mocks.listImages.mockResolvedValue({ ok: true, data: [] });
+        mocks.listProfiles.mockResolvedValue({
+            ok: true,
+            data: [{ name: "main", isDefault: true }],
+        });
+        mocks.listPages.mockResolvedValue({ ok: true, data: [] });
+        mocks.iconList.mockResolvedValue({ ok: true, data: [] });
+    });
+
+    it("is disabled while a sync owns the deck", async () => {
+        const { store, usb } = setup();
+        usb.syncing = true;
+
+        await expect(store.remove(deviceOnlyIcon)).resolves.toBe(false);
+
+        expect(store.deleteDisabledReason).toBe("Wait for the sync to finish");
+        expect(mocks.deleteFile).not.toHaveBeenCalled();
+    });
+
+    it("is disabled while a firmware update owns the deck", async () => {
+        const { store } = setup();
+        const firmware = useFirmwareStore();
+        firmware.state = { ...idleFirmwareState(), phase: "writing" };
+
+        await expect(store.remove(deviceOnlyIcon)).resolves.toBe(false);
+
+        expect(store.deleteDisabledReason).toBe("Wait for the firmware update to finish");
+        expect(mocks.deleteFile).not.toHaveBeenCalled();
+    });
+
+    it("reports a missing deck file as an error", async () => {
+        const { store } = setup();
+        const toast = vi.spyOn(useAppStore(), "pushToast");
+        mocks.deleteFile.mockResolvedValue({ ok: false, error: "File not found" });
+
+        await expect(store.remove(deviceOnlyIcon)).resolves.toBe(false);
+
+        expect(toast).toHaveBeenCalledWith("error", "File not found");
     });
 });
