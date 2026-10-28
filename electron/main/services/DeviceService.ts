@@ -9,6 +9,7 @@ import {
 } from "@shared/protocol";
 import type { DeviceInfo } from "@shared/ipc";
 import type { DeckDeleteStatus } from "@shared/delete";
+import type { PageArtifact } from "@shared/artifact";
 import { iconBaseName } from "@shared/icons";
 import { crc32FromWire } from "@shared/crc32";
 import {
@@ -211,18 +212,13 @@ export class DeviceService {
     }
 
     /**
-     * Upload a serialized page config as `<profile>/<id>`; the firmware
-     * appends `.json` and commits `/profiles/<profile>/<id>.json`.
+     * Upload a page artifact as `<profile>/<id>`; the firmware appends `.json`
+     * and commits `/profiles/<profile>/<id>.json`. The artifact already owns the
+     * identity and the canonical bytes, so this only sends them.
      */
-    async uploadPage(
-        profile: string,
-        id: string | number,
-        json: string | Uint8Array,
-    ): Promise<void> {
-        this.assertExistingName(profile);
-        const identity = this.unwrapIdentity(pageIdentity(profile, id, "transfer"));
-        const bytes = typeof json === "string" ? textBytes(json) : json;
-        await this.transfer.upload(identity, bytes);
+    async uploadPage(artifact: PageArtifact): Promise<void> {
+        this.assertExistingName(artifact.identity.profile);
+        await this.transfer.upload(artifact.identity, artifact.bytes);
     }
 
     /**

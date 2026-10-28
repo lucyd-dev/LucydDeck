@@ -9,6 +9,7 @@ import type { Crc32 } from "@shared/types";
 import type { SyncProgressPayload } from "@shared/ipc";
 import { type DiffPlan, emptyDiffPlan } from "@shared/sync";
 import { crc32Upload } from "@shared/crc32";
+import { createPageArtifact, type PageArtifact } from "@shared/artifact";
 import { StorageService } from "./StorageService";
 import { SyncService } from "./SyncService";
 import type { SyncDeviceClient, SyncTransferClient } from "./SyncService";
@@ -23,10 +24,12 @@ vi.mock("electron-log/main", () => ({
     },
 }));
 
-const encoder = new TextEncoder();
-
 function pageHash(page: { buttons: Record<string, unknown> }): number {
-    return crc32Upload(encoder.encode(JSON.stringify(serializePageConfig(page as never))));
+    const result = createPageArtifact("main", "0", page);
+    if (!result.ok) {
+        throw new Error(result.errors.join("; "));
+    }
+    return result.artifact.crc32;
 }
 
 function deviceProfile(
@@ -72,14 +75,12 @@ class MockDevice implements SyncDeviceClient {
         this.calls.push(`active:${name}`);
     }
 
-    async uploadPage(
-        profile: string,
-        id: string | number,
-        _json: string | Uint8Array,
-    ): Promise<void> {
-        void _json;
+    pageUploads: PageArtifact[] = [];
+
+    async uploadPage(artifact: PageArtifact): Promise<void> {
         this.check("uploadPage");
-        this.calls.push(`page:${profile}/${id}`);
+        this.pageUploads.push(artifact);
+        this.calls.push(`page:${artifact.identity.profile}/${artifact.identity.pageId}`);
     }
 
     iconUploads: Array<{ name: string; options?: { allowLegacyName?: boolean } }> = [];
@@ -314,6 +315,15 @@ describe("SyncService.reconcile", () => {
         storage.createProfile("main");
         fs.writeFileSync(path.join(dataDir, "profiles", "main", "0.json"), "{not json");
         await expect(sync.reconcile()).rejects.toMatchObject({ code: "SYNC_INVALID_PAGE" });
+    });
+
+    it("keeps the invalid-page text for a config validation error", async () => {
+        storage.createProfile("main");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "0.json"), '{"buttons":{"99":{}}}');
+        await expect(sync.reconcile()).rejects.toMatchObject({
+            code: "SYNC_INVALID_PAGE",
+            message: expect.stringContaining("Page main/0.json is invalid:"),
+        });
     });
 
     it("aborts the whole plan when the library cannot be read", async () => {
@@ -563,6 +573,30 @@ describe("SyncService.executePlan", () => {
         expect(device.calls).toEqual(["create:main", "icon:icon", "page:main/0"]);
         expect(result.uploadedIcons).toEqual([{ name: "icon" }]);
         expect(result.uploadedPages).toEqual([{ profile: "main", id: "0" }]);
+    });
+
+    it("uploads the artifact bytes that the listing hashed", async () => {
+        storage.createProfile("main");
+        const page = {
+            buttons: {
+                "2": { label: "Second", click: ["HID_KEY:CTRL+C"] },
+                "0": { label: "First", click: [] },
+            },
+        };
+        storage.savePage("main", "0", page);
+        const artifact = storage.loadPageArtifact("main", "0");
+
+        const plan = await sync.reconcile();
+        await sync.executePlan(plan);
+
+        expect(device.pageUploads).toHaveLength(1);
+        const [uploaded] = device.pageUploads;
+        expect(uploaded.bytes).toEqual(artifact.bytes);
+        expect(uploaded.crc32).toBe(artifact.crc32);
+        expect(storage.listPages("main")[0].hash).toBe(uploaded.crc32);
+        expect(new TextDecoder().decode(uploaded.bytes)).toBe(
+            JSON.stringify(serializePageConfig(page as never)),
+        );
     });
 
     it("aborts on the first device error and emits aborted", async () => {

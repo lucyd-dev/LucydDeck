@@ -20,8 +20,7 @@ import {
     emptyDiffPlan,
 } from "@shared/sync";
 import type { Crc32 } from "@shared/types";
-import { serializePageConfig, validatePageConfig } from "@shared/schema";
-import { crc32Upload } from "@shared/crc32";
+import type { PageArtifact } from "@shared/artifact";
 import type { StorageService } from "./StorageService";
 import { DeviceLockError } from "./DeviceLock";
 import type { DeviceLock } from "./DeviceLock";
@@ -48,7 +47,7 @@ export interface SyncDeviceClient {
     createProfile(name: string): Promise<void>;
     renameProfile(oldName: string, newName: string): Promise<void>;
     setActiveProfile(name: string): Promise<void>;
-    uploadPage(profile: string, id: string | number, json: string | Uint8Array): Promise<void>;
+    uploadPage(artifact: PageArtifact): Promise<void>;
     uploadIcon(
         name: string,
         pngBytes: Uint8Array,
@@ -94,8 +93,6 @@ export interface SyncServiceOptions {
     lock?: DeviceLock;
 }
 
-const encoder = new TextEncoder();
-
 /** One local profile as the reconciler sees it: canonical page CRCs. */
 interface LocalProfileScan {
     name: string;
@@ -135,6 +132,19 @@ function unreadable(what: string, error: unknown): SyncError {
 }
 
 /**
+ * Read one page through the storage boundary, keeping `SYNC_INVALID_PAGE` for
+ * an unreadable page, an invalid config and an identity the deck cannot carry.
+ */
+function pageArtifact(storage: StorageService, profile: string, id: string): PageArtifact {
+    try {
+        return storage.loadPageArtifact(profile, id);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new SyncError(message, SyncErrorCodes.InvalidPage);
+    }
+}
+
+/**
  * Read and validate every local profile before anything is planned.
  *
  * A page that cannot be read or validated aborts the whole reconcile rather
@@ -161,24 +171,10 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
         }
         const pages = new Map<string, Crc32>();
         for (const meta of metas) {
-            let page;
-            try {
-                page = storage.loadPage(name, meta.id);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                throw new SyncError(
-                    `Page ${name}/${meta.id}.json could not be read: ${message}`,
-                    SyncErrorCodes.InvalidPage,
-                );
-            }
-            const validation = validatePageConfig(page);
-            if (!validation.ok) {
-                throw new SyncError(
-                    `Page ${name}/${meta.id}.json is invalid: ${validation.errors.join("; ")}`,
-                    SyncErrorCodes.InvalidPage,
-                );
-            }
-            for (const button of Object.values(validation.page.buttons)) {
+            const artifact = pageArtifact(storage, name, meta.id);
+            // The artifact carries the canonical page, so the reference scan
+            // never reparses or re-validates the bytes.
+            for (const button of Object.values(artifact.page.buttons)) {
                 if (button.imageName) {
                     referencedIcons.add(button.imageName);
                 }
@@ -194,8 +190,7 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
                     }
                 }
             }
-            const canonical = serializePageConfig(validation.page);
-            pages.set(meta.id, crc32Upload(encoder.encode(JSON.stringify(canonical))));
+            pages.set(meta.id, artifact.crc32);
         }
         profiles.push({ name, pages });
     }
@@ -598,30 +593,8 @@ export class SyncService {
             }
 
             for (const page of plan.pagesToUpload) {
-                let loaded;
-                try {
-                    loaded = this.storage.loadPage(page.profile, page.id);
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : String(error);
-                    throw new SyncError(
-                        `Page ${page.profile}/${page.id}.json could not be read: ${message}`,
-                        SyncErrorCodes.InvalidPage,
-                    );
-                }
-                const validation = validatePageConfig(loaded);
-                if (!validation.ok) {
-                    throw new SyncError(
-                        `Page ${page.profile}/${page.id}.json is invalid: ${validation.errors.join(
-                            "; ",
-                        )}`,
-                        SyncErrorCodes.InvalidPage,
-                    );
-                }
-                await this.device.uploadPage(
-                    page.profile,
-                    page.id,
-                    JSON.stringify(serializePageConfig(validation.page)),
-                );
+                const artifact = pageArtifact(this.storage, page.profile, page.id);
+                await this.device.uploadPage(artifact);
                 result.uploadedPages.push(page);
                 tick("page", `${page.profile}/${page.id}`);
             }

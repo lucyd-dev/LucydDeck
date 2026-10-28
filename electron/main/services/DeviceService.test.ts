@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import { createPageArtifact, type PageArtifact } from "@shared/artifact";
 import { ErrorCode, HostCommand } from "@shared/protocol";
 import { DeviceError, DeviceService } from "./DeviceService";
 import { UsbError } from "./UsbService";
@@ -41,6 +42,14 @@ function makeService() {
     const transfer = { upload } as unknown as FileTransfer;
     const device = new DeviceService(usb, transfer);
     return { usb, upload, device };
+}
+
+function pageArtifact(profile: string, id: string): PageArtifact {
+    const result = createPageArtifact(profile, id, { buttons: {} });
+    if (!result.ok) {
+        throw new Error(result.errors.join("; "));
+    }
+    return result.artifact;
 }
 
 describe("DeviceService queries", () => {
@@ -171,13 +180,11 @@ describe("DeviceService mutations", () => {
         });
     });
 
-    it("uploads a page by identity so the firmware appends .json", async () => {
+    it("uploads a page artifact by its identity so the firmware appends .json", async () => {
         const { upload, device } = makeService();
-        await device.uploadPage("gaming", 3, '{"buttons":{}}');
-        expect(upload).toHaveBeenCalledWith(
-            { kind: "page", profile: "gaming", pageId: "3", identity: "gaming/3" },
-            new TextEncoder().encode('{"buttons":{}}'),
-        );
+        const artifact = pageArtifact("gaming", "3");
+        await device.uploadPage(artifact);
+        expect(upload).toHaveBeenCalledWith(artifact.identity, artifact.bytes);
     });
 
     it("uploads an icon by base name so the firmware appends .png", async () => {
@@ -208,19 +215,18 @@ describe("DeviceService mutations", () => {
         );
     });
 
-    it("reserves the target byte when a transfer identity is built", async () => {
+    it("rejects a page artifact whose profile is not a path-safe name", async () => {
         const { upload, device } = makeService();
-        // 58 + "/" + 1 = 60 bytes: a command fits, a transfer start does not.
-        await expect(device.uploadPage("x".repeat(58), 3, '{"buttons":{}}')).rejects.toMatchObject({
-            code: "DEVICE_INVALID_IDENTITY",
+        await expect(device.uploadPage(pageArtifact("bad/name", "3"))).rejects.toMatchObject({
+            code: "DEVICE_INVALID_NAME",
         });
         expect(upload).not.toHaveBeenCalled();
+    });
 
-        await device.uploadPage("x".repeat(57), 3, '{"buttons":{}}');
-        expect(upload).toHaveBeenCalledWith(
-            { kind: "page", profile: "x".repeat(57), pageId: "3", identity: `${"x".repeat(57)}/3` },
-            new TextEncoder().encode('{"buttons":{}}'),
-        );
+    it("accepts only a page artifact, not loose upload arguments", () => {
+        expectTypeOf<Parameters<DeviceService["uploadPage"]>>().toEqualTypeOf<
+            [artifact: PageArtifact]
+        >();
     });
 
     it("builds the rename identity once, in the builder", async () => {

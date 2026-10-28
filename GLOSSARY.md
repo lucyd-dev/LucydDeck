@@ -20,6 +20,10 @@ _Avoid_: Screen, view, sheet
 The one-based name a page is shown under in the app, so the page with id 0 reads "Page 1".
 _Avoid_: Page number, page id
 
+**Page artifact**:
+A page's identity, canonical upload bytes and CRC-32, built once by `createPageArtifact` in `shared/artifact.ts`. The bytes are what the deck receives; the CRC covers their zero-padded stream and is the hash the library lists.
+_Avoid_: Page payload, serialized page, blob
+
 **Entity name**:
 A name that creates a profile directory or an icon file: 1 to 64 bytes of ASCII letters, digits, space, `-` and `_`, with no leading or trailing space. A new name is sanitized to this grammar before it is stored or sent; a name already on the card is only checked for path safety.
 _Avoid_: Filename, slug, safe name
@@ -96,7 +100,7 @@ _Avoid_: Device copy, remote copy
 Taking a device-only file, or a deck profile with no library copy, off the deck during a sync. The library is untouched.
 _Avoid_: Delete, cleanup
 
-**Identity**:
+**Device identity**:
 The string a command or transfer carries to name its entity: `gaming/3` for a page, `github` for an icon, `Gaming` for a profile, and `old:new` for a rename. The firmware builds the path from it, and `shared/identity.ts` is the only place that builds a wire identity.
 _Avoid_: Path, filename, target
 

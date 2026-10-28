@@ -6,6 +6,7 @@ import { serializePageConfig } from "@shared/schema";
 import {
     DATA_DIR_ENV,
     PAGE_FILE_PATTERN,
+    StorageError,
     StorageService,
     isPageConfig,
     resolveDataDir,
@@ -447,21 +448,36 @@ describe("StorageService app settings", () => {
         expect(settings.window.width).toBe(1024);
     });
 
-    it("reports the canonical page hash matching the upload bytes", () => {
+    it("lists a page hash that is the artifact CRC of the upload bytes", () => {
         storage.createProfile("main");
         const page = {
             buttons: { "1": { label: "Run", click: ["CMD:echo hi"] } },
         };
         storage.savePage("main", "0", page);
-        const hash = storage.listPages("main")[0].hash;
-        expect(typeof hash).toBe("number");
-        expect(storage.pageHash("main", "0")).toBe(hash);
-        // The device stores the zero-padded HID payloads, so its list hash is
-        // the CRC of the padded canonical JSON, not the unpadded file.
-        const canonical = new TextEncoder().encode(
+        const artifact = storage.loadPageArtifact("main", "0");
+        expect(artifact.identity.identity).toBe("main/0");
+        expect(new TextDecoder().decode(artifact.bytes)).toBe(
             JSON.stringify(serializePageConfig(page as never)),
         );
-        expect(hash).toBe(crc32Upload(canonical));
+        // The device stores the zero-padded HID payloads, so its list hash is
+        // the CRC of the padded canonical JSON, not the unpadded file.
+        expect(artifact.crc32).toBe(crc32Upload(artifact.bytes));
+        expect(storage.listPages("main")[0].hash).toBe(artifact.crc32);
+    });
+
+    it("throws StorageError for a page that cannot become an artifact", () => {
+        storage.createProfile("main");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "0.json"), '{"buttons":{"99":{}}}');
+        expect(() => storage.loadPageArtifact("main", "0")).toThrow(StorageError);
+    });
+
+    it("still lists an invalid page, without a hash", () => {
+        storage.createProfile("main");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "0.json"), "{not json");
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "1.json"), '{"buttons":{"99":{}}}');
+        const pages = storage.listPages("main");
+        expect(pages.map((page) => page.id)).toEqual(["0", "1"]);
+        expect(pages.map((page) => page.hash)).toEqual([undefined, undefined]);
     });
 });
 
