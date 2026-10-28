@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { crc32, crc32BigEndian, crc32ToBigEndian, crc32Upload, readCrc32BigEndian } from "./Crc32";
+import {
+    crc32,
+    crc32BigEndian,
+    crc32FromWire,
+    crc32ToBigEndian,
+    crc32Upload,
+    readCrc32BigEndian,
+} from "./crc32";
 
 function bytes(text: string): Uint8Array {
     return new TextEncoder().encode(text);
@@ -34,5 +41,33 @@ describe("Crc32", () => {
         const value = crc32(bytes("lucyddeck"));
         expect(readCrc32BigEndian(crc32ToBigEndian(value))).toBe(value);
         expect(readCrc32BigEndian(new Uint8Array([0x01, 0x02]))).toBeNull();
+    });
+
+    it("reads an unsigned integer list hash", () => {
+        expect(crc32FromWire(0)).toBe(0);
+        expect(crc32FromWire(0x89abcdef)).toBe(0x89abcdef);
+        expect(crc32FromWire(0xffffffff)).toBe(0xffffffff);
+        // A decimal-digit string is tolerated for older serializers.
+        expect(crc32FromWire("305419896")).toBe(305419896);
+    });
+
+    it("returns null for a hash outside the uint32 range", () => {
+        expect(crc32FromWire(null)).toBeNull();
+        expect(crc32FromWire(undefined)).toBeNull();
+        expect(crc32FromWire("")).toBeNull();
+        expect(crc32FromWire("   ")).toBeNull();
+        expect(crc32FromWire("not-a-hash")).toBeNull();
+        expect(crc32FromWire(Number.NaN)).toBeNull();
+        expect(crc32FromWire(Number.POSITIVE_INFINITY)).toBeNull();
+        expect(crc32FromWire({ hash: 1 })).toBeNull();
+        expect(crc32FromWire(-1)).toBeNull();
+        expect(crc32FromWire(4.9)).toBeNull();
+        expect(crc32FromWire(2 ** 32)).toBeNull();
+        expect(crc32FromWire(2 ** 32 + 7)).toBeNull();
+        expect(crc32FromWire("0x1f")).toBeNull();
+        expect(crc32FromWire("1e3")).toBeNull();
+        expect(crc32FromWire("-1")).toBeNull();
+        expect(crc32FromWire("4.9")).toBeNull();
+        expect(crc32FromWire("4294967296")).toBeNull();
     });
 });

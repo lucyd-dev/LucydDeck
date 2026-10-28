@@ -9,7 +9,7 @@ import {
 } from "@shared/protocol";
 import type { TargetType } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
-import { crc32BigEndian } from "./usb/Crc32";
+import { crc32BigEndian } from "@shared/crc32";
 import type { UsbError } from "./UsbService";
 import { DeviceLockError } from "./DeviceLock";
 import type { DeviceLock } from "./DeviceLock";

@@ -5,9 +5,10 @@ import log from "electron-log/main";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeviceImageEntry, DevicePageEntry, DeviceProfileEntry } from "@shared/protocol";
 import { serializePageConfig } from "@shared/schema";
+import type { Crc32 } from "@shared/types";
 import type { SyncProgressPayload } from "@shared/ipc";
 import { type DiffPlan, emptyDiffPlan } from "@shared/sync";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
 import { StorageService } from "./StorageService";
 import { SyncService } from "./SyncService";
 import type { SyncDeviceClient, SyncTransferClient } from "./SyncService";
@@ -30,7 +31,7 @@ function pageHash(page: { buttons: Record<string, unknown> }): number {
 
 function deviceProfile(
     name: string,
-    pages: Array<{ id: string | number; hash: number }>,
+    pages: Array<{ id: string | number; hash: Crc32 | null }>,
 ): DeviceProfileEntry {
     return {
         name,
@@ -183,6 +184,30 @@ describe("SyncService.reconcile", () => {
 
         const plan = await sync.reconcile();
         expect(plan.pagesToUpload).toEqual([{ profile: "main", id: "0" }]);
+    });
+
+    it("uploads an unreadable hash and still removes by presence", async () => {
+        storage.createProfile("main");
+        storage.savePage("main", "0", { buttons: {} });
+        fs.writeFileSync(path.join(storage.iconsDir(), "github.png"), Buffer.from([1, 2, 3]));
+        device.profiles = [
+            deviceProfile("main", [
+                { id: 0, hash: null },
+                { id: 9, hash: null },
+            ]),
+        ];
+        device.images = [
+            { filename: "github.png", hash: null },
+            { filename: "ghost.png", hash: null },
+        ];
+
+        const plan = await sync.reconcile();
+        // An unreadable hash never matches, so the page and icon upload again.
+        expect(plan.pagesToUpload).toEqual([{ profile: "main", id: "0" }]);
+        expect(plan.iconsToUpload).toEqual([{ name: "github" }]);
+        // Presence alone still drives the removals.
+        expect(plan.pagesToDelete).toEqual([{ profile: "main", id: "9" }]);
+        expect(plan.iconsToDelete).toEqual([{ name: "ghost" }]);
     });
 
     it("plans profile creation before pages for a missing profile", async () => {

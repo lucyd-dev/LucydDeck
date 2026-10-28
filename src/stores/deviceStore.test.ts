@@ -285,7 +285,7 @@ describe("deviceStore two-sided delete", () => {
 
     function seedIcon(): ReturnType<typeof useIconStore> {
         const icons = useIconStore();
-        icons.icons = [{ name: "github", hash: "1" }];
+        icons.icons = [{ name: "github", hash: 1 }];
         icons.previews.github = "data:image/png;base64,x";
         icons.recent = ["github", "work"];
         return icons;

@@ -76,6 +76,41 @@ describe("DeviceService queries", () => {
         ]);
     });
 
+    it("normalizes the list hashes, the one unchecked boundary", async () => {
+        const { usb, device } = makeService();
+        usb.response = encode([
+            { filename: "numeric.png", hash: 305419896 },
+            { filename: "string.png", hash: "305419896" },
+            { filename: "missing.png" },
+            { filename: "junk.png", hash: "not-a-hash" },
+        ]);
+        await expect(device.listImages()).resolves.toEqual([
+            { filename: "numeric.png", hash: 305419896 },
+            { filename: "string.png", hash: 305419896 },
+            { filename: "missing.png", hash: null },
+            { filename: "junk.png", hash: null },
+        ]);
+
+        usb.response = encode([
+            {
+                name: "gaming",
+                pages: [
+                    { id: 0, filename: "0.json", hash: "11" },
+                    { id: 1, filename: "1.json", hash: null },
+                ],
+            },
+        ]);
+        await expect(device.listProfiles()).resolves.toEqual([
+            {
+                name: "gaming",
+                pages: [
+                    { id: 0, filename: "0.json", hash: 11 },
+                    { id: 1, filename: "1.json", hash: null },
+                ],
+            },
+        ]);
+    });
+
     it("rejects malformed JSON", async () => {
         const { usb, device } = makeService();
         usb.response = new TextEncoder().encode("{not json");

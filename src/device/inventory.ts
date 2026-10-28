@@ -8,6 +8,7 @@
 
 import { iconBaseName } from "@shared/icons";
 import { pageLabel } from "@shared/pages";
+import type { Crc32 } from "@shared/types";
 
 export type InventoryKind = "profile" | "page" | "icon";
 
@@ -30,7 +31,7 @@ export interface InventoryRow {
 
 export interface LocalPageSummary {
     id: string;
-    hash?: number;
+    hash?: Crc32;
 }
 
 export interface LocalProfileSummary {
@@ -40,17 +41,17 @@ export interface LocalProfileSummary {
 
 export interface LocalInventory {
     profiles: LocalProfileSummary[];
-    icons: Array<{ name: string; hash: string }>;
+    icons: Array<{ name: string; hash: Crc32 }>;
 }
 
 export interface DeviceProfileSummary {
     name: string;
-    pages: Array<{ id: string; hash: number }>;
+    pages: Array<{ id: string; hash: Crc32 | null }>;
 }
 
 export interface DeviceInventory {
     profiles: DeviceProfileSummary[];
-    icons: Array<{ filename: string; hash: number }>;
+    icons: Array<{ filename: string; hash: Crc32 | null }>;
 }
 
 export interface InventorySummary {
@@ -75,7 +76,7 @@ function compareIds(a: string, b: string): number {
     return Number(a) - Number(b);
 }
 
-function hashString(value: number | undefined | null): string | null {
+function hashString(value: Crc32 | undefined | null): string | null {
     return value === undefined || value === null || !Number.isFinite(value)
         ? null
         : String(value >>> 0);
@@ -94,16 +95,12 @@ function stateFor(local: string | null, device: string | null): InventoryState {
 
 function row(
     input: Omit<InventoryRow, "state" | "localHash" | "deviceHash"> & {
-        localHash?: number | string | null;
-        deviceHash?: number | string | null;
+        localHash?: Crc32 | null;
+        deviceHash?: Crc32 | null;
     },
 ): InventoryRow {
-    const localHash =
-        input.localHash === null || input.localHash === undefined ? null : String(input.localHash);
-    const deviceHash =
-        input.deviceHash === null || input.deviceHash === undefined
-            ? null
-            : String(input.deviceHash);
+    const localHash = hashString(input.localHash);
+    const deviceHash = hashString(input.deviceHash);
     return {
         key: input.key,
         kind: input.kind,
@@ -160,8 +157,8 @@ export function buildInventory(local: LocalInventory, device: DeviceInventory): 
                     name: pageLabel(id),
                     profile: name,
                     pageId: id,
-                    localHash: hashString(localPages.get(id)),
-                    deviceHash: hashString(devicePages.get(id)),
+                    localHash: localPages.get(id),
+                    deviceHash: devicePages.get(id),
                 }),
             );
         }
@@ -169,7 +166,7 @@ export function buildInventory(local: LocalInventory, device: DeviceInventory): 
 
     const localIcons = new Map(local.icons.map((icon) => [icon.name, icon.hash]));
     const deviceIcons = new Map(
-        device.icons.map((icon) => [iconBaseName(icon.filename), String(icon.hash >>> 0)]),
+        device.icons.map((icon) => [iconBaseName(icon.filename), icon.hash]),
     );
     const iconNames = [...new Set([...localIcons.keys(), ...deviceIcons.keys()])].sort((a, b) =>
         a.localeCompare(b),

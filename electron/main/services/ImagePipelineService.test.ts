@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StorageService } from "./StorageService";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
 import {
     ICON_SIZE,
     ImagePipelineError,

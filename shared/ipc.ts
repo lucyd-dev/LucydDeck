@@ -1,4 +1,4 @@
-import type { PageConfig, PageMeta, ProfileMeta } from "./types";
+import type { Crc32, PageConfig, PageMeta, ProfileMeta } from "./types";
 import type { DeviceImageEntry, DeviceProfileEntry } from "./protocol";
 import type { AppSettings } from "./settings";
 import type {
@@ -509,7 +509,7 @@ export interface DeviceInfo {
 
 export interface IconMeta {
     name: string;
-    hash: string;
+    hash: Crc32;
 }
 
 /** `icons:preview` payload: a data URL the renderer can put in an `<img>`. */

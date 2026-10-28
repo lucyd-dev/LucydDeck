@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import log from "electron-log/main";
-import type { PageConfig, PageMeta, ProfileMeta } from "@shared/types";
+import type { Crc32, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
 import { emptyPageConfig, serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
@@ -11,7 +11,7 @@ import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
 import type { ReferenceHit, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
 import { isPluginHandle } from "@shared/plugins";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
 
 export const DATA_DIR_ENV = "LUCYD_DECK_DATA_DIR";
 export const APP_DIR_NAME = "LucydDeck";
@@ -172,7 +172,7 @@ export class StorageService {
      * when the file does not exist. Single hashing helper for `icons:list` and
      * `SyncService` so the algorithm cannot drift.
      */
-    iconHash(name: string): number | null {
+    iconHash(name: string): Crc32 | null {
         const file = this.iconFilePath(name);
         if (!fs.existsSync(file)) {
             return null;
@@ -569,7 +569,7 @@ export class StorageService {
      * CRC-32 of the canonical upload bytes for a page (the same bytes
      * `SyncService` hashes), or `null` when the page is missing/invalid.
      */
-    pageHash(profile: string, id: string): number | null {
+    pageHash(profile: string, id: string): Crc32 | null {
         let page: PageConfig;
         try {
             page = this.loadPage(profile, id);

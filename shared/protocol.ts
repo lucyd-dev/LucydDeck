@@ -8,6 +8,8 @@
 // the renderer can load it.
 // ---------------------------------------------------------------------------
 
+import type { Crc32 } from "./types";
+
 // --- Framing ---------------------------------------------------------------
 
 /** HID report ID of the vendor interface (USBHID.h: HID_REPORT_ID_VENDOR). */
@@ -266,14 +268,16 @@ export interface DeviceInfoPayload {
 /** One entry of the `RESP_IMAGES_LIST` JSON array. */
 export interface DeviceImageEntry {
     filename: string;
-    hash: number;
+    /** Normalized by `crc32FromWire`; `null` when the deck sent no readable hash. */
+    hash: Crc32 | null;
 }
 
 /** One page entry of a profile in the `RESP_PROFILES_LIST` JSON array. */
 export interface DevicePageEntry {
     id: number | string;
     filename: string;
-    hash: number;
+    /** Normalized by `crc32FromWire`; `null` when the deck sent no readable hash. */
+    hash: Crc32 | null;
 }
 
 /** One profile entry of the `RESP_PROFILES_LIST` JSON array. */

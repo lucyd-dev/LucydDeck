@@ -10,7 +10,7 @@ import {
     padToPayload,
 } from "@shared/protocol";
 import type { TransferProgressEvent } from "@shared/ipc";
-import { crc32BigEndian } from "./usb/Crc32";
+import { crc32BigEndian } from "@shared/crc32";
 import {
     FileTransfer,
     FileTransferError,

@@ -19,8 +19,9 @@ import {
     diffPlanOperations,
     emptyDiffPlan,
 } from "@shared/sync";
+import type { Crc32 } from "@shared/types";
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
 import type { StorageService } from "./StorageService";
 import { DeviceLockError } from "./DeviceLock";
 import type { DeviceLock } from "./DeviceLock";
@@ -98,13 +99,13 @@ const encoder = new TextEncoder();
 /** One local profile as the reconciler sees it: canonical page CRCs. */
 interface LocalProfileScan {
     name: string;
-    pages: Map<string, number>;
+    pages: Map<string, Crc32>;
 }
 
 /** One deck profile as the reconciler sees it; `null` for an unreadable hash. */
 interface DeviceProfileScan {
     name: string;
-    pages: Map<string, number | null>;
+    pages: Map<string, Crc32 | null>;
 }
 
 interface LocalScan {
@@ -123,15 +124,6 @@ function normalizePageId(entry: DevicePageEntry): string | null {
         return isValidPageId(id) ? id : null;
     }
     return pageIdFromFilename(entry.filename ?? "");
-}
-
-/** Coerce a device list hash to a uint32; `null` when absent/unreadable. */
-function normalizeHash(value: unknown): number | null {
-    const hash = Number(value);
-    if (!Number.isFinite(hash)) {
-        return null;
-    }
-    return hash >>> 0;
 }
 
 function unreadable(what: string, error: unknown): SyncError {
@@ -167,7 +159,7 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
         } catch (error) {
             throw unreadable(`pages of "${name}"`, error);
         }
-        const pages = new Map<string, number>();
+        const pages = new Map<string, Crc32>();
         for (const meta of metas) {
             let page;
             try {
@@ -212,11 +204,11 @@ function scanLocalProfiles(storage: StorageService): LocalScan {
 
 function scanDeviceProfiles(entries: readonly DeviceProfileEntry[]): DeviceProfileScan[] {
     return entries.map((profile) => {
-        const pages = new Map<string, number | null>();
+        const pages = new Map<string, Crc32 | null>();
         for (const page of profile.pages ?? []) {
             const id = normalizePageId(page);
             if (id !== null) {
-                pages.set(id, normalizeHash(page.hash));
+                pages.set(id, page.hash);
             }
         }
         return { name: profile.name, pages };
@@ -399,7 +391,7 @@ export class SyncService {
             // A rename target is compared against the deck profile it becomes,
             // so only pages that changed or were added are uploaded; every page
             // it already holds stays where it is.
-            const devicePages = deviceProfile?.pages ?? new Map<string, number | null>();
+            const devicePages = deviceProfile?.pages ?? new Map<string, Crc32 | null>();
             for (const [id, localHash] of profile.pages) {
                 const deviceHash = devicePages.get(id);
                 if (deviceHash === undefined || deviceHash === null || deviceHash !== localHash) {
@@ -415,12 +407,12 @@ export class SyncService {
 
         const localIcons = this.storage.listIconFiles();
         const localIconNames = new Set(localIcons.map((icon) => icon.name));
-        const deviceIcons = new Map<string, number | null>(
-            deviceImages.map((image) => [iconBaseName(image.filename), normalizeHash(image.hash)]),
+        const deviceIcons = new Map<string, Crc32 | null>(
+            deviceImages.map((image) => [iconBaseName(image.filename), image.hash]),
         );
 
         for (const icon of localIcons) {
-            let localHash: number | null;
+            let localHash: Crc32 | null;
             try {
                 localHash = this.storage.iconHash(icon.name);
             } catch (error) {
