@@ -12,6 +12,14 @@ import {
 import type { TransferProgressEvent } from "@shared/ipc";
 import { crc32BigEndian } from "@shared/crc32";
 import {
+    iconIdentity,
+    pageIdentity,
+    profileIdentity,
+    type IconIdentity,
+    type PageIdentity,
+    type TransferIdentity,
+} from "@shared/identity";
+import {
     FileTransfer,
     FileTransferError,
     FileTransferErrorCodes,
@@ -61,7 +69,24 @@ function deferred<T>() {
     return { promise, resolve, reject };
 }
 
-const PATH = "gaming/3.json";
+/** A page identity that fits a transfer start payload. */
+function page(profile = "gaming", id: string | number = 3): PageIdentity {
+    const built = pageIdentity(profile, id, "transfer");
+    if (!built.ok) {
+        throw new Error(`page identity: ${built.reason}`);
+    }
+    return built.identity;
+}
+
+function icon(name: string): IconIdentity {
+    const built = iconIdentity(name, "transfer");
+    if (!built.ok) {
+        throw new Error(`icon identity: ${built.reason}`);
+    }
+    return built.identity;
+}
+
+const PAGE = page();
 
 function bytes(length: number): Uint8Array {
     return Uint8Array.from({ length }, (_, index) => index % 256);
@@ -78,7 +103,7 @@ describe("FileTransfer chunking", () => {
         ] as const) {
             const usb = new MockUsb();
             const transfer = new FileTransfer(usb);
-            await transfer.upload(TARGET_PAGE, PATH, bytes(length));
+            await transfer.upload(PAGE, bytes(length));
             expect(usb.payloads(HostCommand.FileStart)).toHaveLength(1);
             expect(usb.payloads(HostCommand.FileChunk)).toHaveLength(expectedChunks);
             expect(usb.payloads(HostCommand.FileEnd)).toHaveLength(1);
@@ -88,15 +113,21 @@ describe("FileTransfer chunking", () => {
 
     it("encodes START as [targetType, ...utf8(identity)]", async () => {
         const usb = new MockUsb();
-        await new FileTransfer(usb).upload(TargetType.Icon, "emoji", bytes(4));
-        const start = usb.payloads(HostCommand.FileStart)[0];
+        await new FileTransfer(usb).upload(PAGE, bytes(4));
+        const pageStart = usb.payloads(HostCommand.FileStart)[0];
+        expect(pageStart[0]).toBe(TARGET_PAGE);
+        expect(new TextDecoder().decode(pageStart.slice(1))).toBe("gaming/3");
+
+        const iconUsb = new MockUsb();
+        await new FileTransfer(iconUsb).upload(icon("emoji"), bytes(4));
+        const start = iconUsb.payloads(HostCommand.FileStart)[0];
         expect(start[0]).toBe(TargetType.Icon);
         expect(new TextDecoder().decode(start.slice(1))).toBe("emoji");
     });
 
     it("caps each chunk at the 60-byte wire payload", async () => {
         const usb = new MockUsb();
-        await new FileTransfer(usb).upload(TARGET_PAGE, PATH, bytes(130));
+        await new FileTransfer(usb).upload(PAGE, bytes(130));
         for (const chunk of usb.payloads(HostCommand.FileChunk)) {
             expect(chunk.length).toBeLessThanOrEqual(60);
         }
@@ -114,7 +145,7 @@ describe("FileTransfer chunking", () => {
             order.push(opcode);
             return new Uint8Array();
         };
-        await new FileTransfer(usb).upload(TARGET_PAGE, PATH, bytes(61));
+        await new FileTransfer(usb).upload(PAGE, bytes(61));
         expect(order).toEqual([
             HostCommand.FileStart,
             HostCommand.FileChunk,
@@ -141,7 +172,7 @@ describe("FileTransfer CRC", () => {
     it("hashes the zero-padded stream the firmware receives (test vector 0x41)", async () => {
         const usb = new MockUsb();
         // One byte -> one 60-byte payload: 0x41 followed by 59 zero-fill bytes.
-        await new FileTransfer(usb).upload(TARGET_PAGE, PATH, Uint8Array.from([0x41]));
+        await new FileTransfer(usb).upload(PAGE, Uint8Array.from([0x41]));
 
         const wire = firmwareStream(usb.payloads(HostCommand.FileChunk));
         expect(wire).toHaveLength(PAYLOAD_MAX);
@@ -155,7 +186,7 @@ describe("FileTransfer CRC", () => {
     it("sends the big-endian CRC32 of all bytes in exact order", async () => {
         const usb = new MockUsb();
         const data = bytes(137);
-        await new FileTransfer(usb).upload(TARGET_PAGE, PATH, data);
+        await new FileTransfer(usb).upload(PAGE, data);
         // 137 file bytes + 43 zero-fill bytes in the final payload.
         expect(Array.from(usb.payloads(HostCommand.FileEnd)[0])).toEqual(
             Array.from(crc32BigEndian(padToPayload(data))),
@@ -178,7 +209,7 @@ describe("FileTransfer CRC", () => {
         const phases: TransferProgressEvent["phase"][] = [];
         transfer.onEvent((event) => phases.push(event.phase));
 
-        await transfer.upload(TARGET_PAGE, PATH, bytes(10));
+        await transfer.upload(PAGE, bytes(10));
 
         expect(endCalls).toBe(2);
         expect(usb.payloads(HostCommand.FileStart)).toHaveLength(2);
@@ -195,9 +226,7 @@ describe("FileTransfer CRC", () => {
             return new Uint8Array();
         };
         const transfer = new FileTransfer(usb, { crcRetries: 0 });
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(10))).rejects.toBeInstanceOf(
-            UsbError,
-        );
+        await expect(transfer.upload(PAGE, bytes(10))).rejects.toBeInstanceOf(UsbError);
         expect(transfer.state).toBe("idle");
     });
 
@@ -210,7 +239,7 @@ describe("FileTransfer CRC", () => {
             return new Uint8Array();
         };
         const transfer = new FileTransfer(usb);
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(61))).rejects.toMatchObject({
             code: "ERR_WRITE",
             firmwareCode: ErrorCode.Write,
         });
@@ -226,10 +255,8 @@ describe("FileTransfer control", () => {
                 ? startGate.promise
                 : Promise.resolve(new Uint8Array());
         const transfer = new FileTransfer(usb);
-        const first = transfer.upload(TARGET_PAGE, PATH, bytes(4));
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(4))).rejects.toBeInstanceOf(
-            FileTransferError,
-        );
+        const first = transfer.upload(PAGE, bytes(4));
+        await expect(transfer.upload(PAGE, bytes(4))).rejects.toBeInstanceOf(FileTransferError);
         startGate.resolve(new Uint8Array());
         await first;
     });
@@ -242,7 +269,7 @@ describe("FileTransfer control", () => {
                 ? startGate.promise
                 : Promise.resolve(new Uint8Array());
         const transfer = new FileTransfer(usb);
-        const upload = transfer.upload(TARGET_PAGE, PATH, bytes(120));
+        const upload = transfer.upload(PAGE, bytes(120));
 
         await transfer.cancel();
         expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(1);
@@ -262,7 +289,7 @@ describe("FileTransfer control", () => {
         };
         const transfer = new FileTransfer(usb);
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(61))).rejects.toMatchObject({
             code: UsbErrorCodes.Timeout,
         });
 
@@ -287,7 +314,7 @@ describe("FileTransfer control", () => {
         };
         const transfer = new FileTransfer(usb, { crcRetries: 0 });
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(10))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(10))).rejects.toMatchObject({
             code: "ERR_CRC",
             firmwareCode: ErrorCode.Crc,
         });
@@ -296,7 +323,7 @@ describe("FileTransfer control", () => {
 
     it("does not cancel after a successful upload", async () => {
         const usb = new MockUsb();
-        await new FileTransfer(usb).upload(TARGET_PAGE, PATH, bytes(10));
+        await new FileTransfer(usb).upload(PAGE, bytes(10));
         expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(0);
     });
 
@@ -314,7 +341,7 @@ describe("FileTransfer control", () => {
         };
         const transfer = new FileTransfer(usb);
 
-        await transfer.upload(TARGET_PAGE, PATH, bytes(61));
+        await transfer.upload(PAGE, bytes(61));
 
         expect(usb.calls.map((call) => call.opcode)).toEqual([
             HostCommand.FileStart,
@@ -340,7 +367,7 @@ describe("FileTransfer control", () => {
         };
         const transfer = new FileTransfer(usb);
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(61))).rejects.toMatchObject({
             code: "ERR_TRANSFER_BUSY",
             firmwareCode: ErrorCode.TransferBusy,
         });
@@ -360,7 +387,7 @@ describe("FileTransfer control", () => {
         };
         const transfer = new FileTransfer(usb);
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(61))).rejects.toMatchObject({
             code: "ERR_TRANSFER_BUSY",
         });
         expect(usb.payloads(HostCommand.FileStart)).toHaveLength(1);
@@ -376,7 +403,7 @@ describe("FileTransfer control", () => {
             return new Uint8Array();
         };
         const transfer = new FileTransfer(usb);
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(61))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(61))).rejects.toMatchObject({
             code: UsbErrorCodes.NotConnected,
         });
         expect(transfer.state).toBe("idle");
@@ -392,7 +419,7 @@ describe("FileTransfer deck ownership", () => {
         const transfer = new FileTransfer(usb, { lock });
         lock.beginUpdate();
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(4))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(4))).rejects.toMatchObject({
             code: "DEVICE_BUSY",
             holder: "update",
         });
@@ -406,13 +433,13 @@ describe("FileTransfer deck ownership", () => {
         const lock = new DeviceLock();
         const transfer = new FileTransfer(usb, { lock });
 
-        await transfer.upload(TARGET_PAGE, PATH, bytes(4));
+        await transfer.upload(PAGE, bytes(4));
         expect(lock.busy).toBe(false);
 
         const gate = deferred<Uint8Array>();
         usb.handler = (opcode) =>
             opcode === HostCommand.FileChunk ? gate.promise : Promise.resolve(new Uint8Array());
-        const upload = transfer.upload(TARGET_PAGE, PATH, bytes(60));
+        const upload = transfer.upload(PAGE, bytes(60));
         expect(lock.transferring).toBe(true);
 
         gate.reject(new UsbError("no ack", UsbErrorCodes.Timeout));
@@ -449,7 +476,7 @@ describe("FileTransfer deck ownership", () => {
                 ? startGate.promise
                 : Promise.resolve(new Uint8Array());
         const transfer = new FileTransfer(usb);
-        const upload = transfer.upload(TARGET_PAGE, PATH, bytes(120));
+        const upload = transfer.upload(PAGE, bytes(120));
         const cancelling = transfer.cancelOpen();
 
         expect(usb.payloads(HostCommand.FileCancel)).toHaveLength(1);
@@ -465,7 +492,7 @@ describe("FileTransfer limits and progress", () => {
         const usb = new MockUsb();
         const transfer = new FileTransfer(usb);
         const oversized = new Uint8Array(FILE_TRANSFER_MAX_BYTES + 1);
-        await expect(transfer.upload(TARGET_PAGE, PATH, oversized)).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, oversized)).rejects.toMatchObject({
             code: FileTransferErrorCodes.TooLarge,
         });
         expect(usb.calls).toHaveLength(0);
@@ -480,10 +507,21 @@ describe("FileTransfer limits and progress", () => {
         const events: TransferProgressEvent[] = [];
         transfer.onEvent((event) => events.push(event));
 
-        await expect(transfer.upload(TARGET_PAGE, PATH, bytes(4))).rejects.toMatchObject({
+        await expect(transfer.upload(PAGE, bytes(4))).rejects.toMatchObject({
             code: UsbErrorCodes.Timeout,
         });
         expect(events.at(-1)?.phase).toBe("failed");
+    });
+
+    it("refuses a forged empty identity before it touches the wire", async () => {
+        const usb = new MockUsb();
+        const transfer = new FileTransfer(usb);
+        const forged: IconIdentity = { kind: "icon", name: "", identity: "" };
+
+        await expect(transfer.upload(forged, bytes(1))).rejects.toMatchObject({
+            code: FileTransferErrorCodes.InvalidIdentity,
+        });
+        expect(usb.calls).toHaveLength(0);
     });
 
     it("throttles chunk progress but always emits the final chunk", async () => {
@@ -492,10 +530,25 @@ describe("FileTransfer limits and progress", () => {
         const events: TransferProgressEvent[] = [];
         transfer.onEvent((event) => events.push(event));
 
-        await transfer.upload(TARGET_PAGE, PATH, bytes(200));
+        await transfer.upload(PAGE, bytes(200));
 
         const chunks = events.filter((event) => event.phase === "chunk");
         expect(chunks.map((event) => event.sent)).toEqual([200]);
         expect(events.at(-1)?.phase).toBe("end");
+    });
+});
+
+describe("FileTransfer identity typing", () => {
+    it("keeps a profile identity out at the type level", () => {
+        const built = profileIdentity("gaming");
+        expect(built.ok).toBe(true);
+        if (!built.ok) {
+            return;
+        }
+
+        // @ts-expect-error a profile identity is not a transfer identity
+        const transfer: TransferIdentity = built.identity;
+
+        expect(transfer).toBe(built.identity);
     });
 });

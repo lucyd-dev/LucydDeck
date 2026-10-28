@@ -97,7 +97,7 @@ Taking a device-only file, or a deck profile with no library copy, off the deck 
 _Avoid_: Delete, cleanup
 
 **Identity**:
-The string that names a device file without its extension: `gaming/3` for a page, `github` for an icon. The firmware builds the path from it.
+The string a command or transfer carries to name its entity: `gaming/3` for a page, `github` for an icon, `Gaming` for a profile, and `old:new` for a rename. The firmware builds the path from it, and `shared/identity.ts` is the only place that builds a wire identity.
 _Avoid_: Path, filename, target
 
 **Target type**:

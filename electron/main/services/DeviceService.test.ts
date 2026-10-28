@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ErrorCode, HostCommand, TARGET_ICON, TARGET_PAGE } from "@shared/protocol";
+import { ErrorCode, HostCommand } from "@shared/protocol";
 import { DeviceError, DeviceService } from "./DeviceService";
 import { UsbError } from "./UsbService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
@@ -175,8 +175,7 @@ describe("DeviceService mutations", () => {
         const { upload, device } = makeService();
         await device.uploadPage("gaming", 3, '{"buttons":{}}');
         expect(upload).toHaveBeenCalledWith(
-            TARGET_PAGE,
-            "gaming/3",
+            { kind: "page", profile: "gaming", pageId: "3", identity: "gaming/3" },
             new TextEncoder().encode('{"buttons":{}}'),
         );
     });
@@ -184,7 +183,10 @@ describe("DeviceService mutations", () => {
     it("uploads an icon by base name so the firmware appends .png", async () => {
         const { upload, device } = makeService();
         await device.uploadIcon("github.png", Uint8Array.from([1, 2, 3]));
-        expect(upload).toHaveBeenCalledWith(TARGET_ICON, "github", Uint8Array.from([1, 2, 3]));
+        expect(upload).toHaveBeenCalledWith(
+            { kind: "icon", name: "github", identity: "github" },
+            Uint8Array.from([1, 2, 3]),
+        );
     });
 
     it("rejects a new icon name outside the entity grammar", async () => {
@@ -200,7 +202,36 @@ describe("DeviceService mutations", () => {
     it("lets a legacy icon name be overwritten when the deck already has it", async () => {
         const { upload, device } = makeService();
         await device.uploadIcon("v1.2.png", Uint8Array.from([1]), { allowLegacyName: true });
-        expect(upload).toHaveBeenCalledWith(TARGET_ICON, "v1.2", Uint8Array.from([1]));
+        expect(upload).toHaveBeenCalledWith(
+            { kind: "icon", name: "v1.2", identity: "v1.2" },
+            Uint8Array.from([1]),
+        );
+    });
+
+    it("reserves the target byte when a transfer identity is built", async () => {
+        const { upload, device } = makeService();
+        // 58 + "/" + 1 = 60 bytes: a command fits, a transfer start does not.
+        await expect(device.uploadPage("x".repeat(58), 3, '{"buttons":{}}')).rejects.toMatchObject({
+            code: "DEVICE_INVALID_IDENTITY",
+        });
+        expect(upload).not.toHaveBeenCalled();
+
+        await device.uploadPage("x".repeat(57), 3, '{"buttons":{}}');
+        expect(upload).toHaveBeenCalledWith(
+            { kind: "page", profile: "x".repeat(57), pageId: "3", identity: `${"x".repeat(57)}/3` },
+            new TextEncoder().encode('{"buttons":{}}'),
+        );
+    });
+
+    it("builds the rename identity once, in the builder", async () => {
+        const { usb, device } = makeService();
+        await device.renameProfile("v1.2", "Gaming Room");
+        expect(new TextDecoder().decode(usb.lastPayload())).toBe("v1.2:Gaming Room");
+
+        // 30 + ":" + 30 = 61 bytes does not fit one frame.
+        await expect(device.renameProfile("a".repeat(30), "b".repeat(30))).rejects.toMatchObject({
+            code: "DEVICE_INVALID_IDENTITY",
+        });
     });
 });
 

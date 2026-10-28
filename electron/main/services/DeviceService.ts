@@ -2,9 +2,6 @@ import {
     DeviceResponse,
     ErrorCode,
     HostCommand,
-    PAYLOAD_MAX,
-    TARGET_ICON,
-    TARGET_PAGE,
     isValidPageId,
     type DeviceImageEntry,
     type DeviceInfoPayload,
@@ -14,6 +11,15 @@ import type { DeviceInfo } from "@shared/ipc";
 import type { DeckDeleteStatus } from "@shared/delete";
 import { iconBaseName } from "@shared/icons";
 import { crc32FromWire } from "@shared/crc32";
+import {
+    iconIdentity,
+    pageIdentity,
+    profileIdentity,
+    profileRenameIdentity,
+    type DeleteIdentity,
+    type DeviceIdentity,
+    type IdentityResult,
+} from "@shared/identity";
 import { resolveEntityName } from "@shared/names";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 import { isFirmwareError } from "./usb/FirmwareError";
@@ -51,6 +57,18 @@ export interface IconUploadOptions {
 
 function textBytes(value: string): Uint8Array {
     return new TextEncoder().encode(value);
+}
+
+/** The identity kind chooses the delete command; a rename is not deletable. */
+function deleteOpcode(identity: DeleteIdentity): HostCommand {
+    switch (identity.kind) {
+        case "page":
+            return HostCommand.PageDelete;
+        case "icon":
+            return HostCommand.IconDelete;
+        case "profile":
+            return HostCommand.ProfileDelete;
+    }
 }
 
 function parseJson<T>(payload: Uint8Array, what: string): T {
@@ -147,15 +165,21 @@ export class DeviceService {
 
     async createProfile(name: string): Promise<void> {
         this.assertNewName(name);
-        await this.usb.command(HostCommand.ProfileCreate, textBytes(name), DeviceResponse.Ack);
+        const identity = this.unwrapIdentity(profileIdentity(name));
+        await this.usb.command(
+            HostCommand.ProfileCreate,
+            textBytes(identity.identity),
+            DeviceResponse.Ack,
+        );
     }
 
     async renameProfile(oldName: string, newName: string): Promise<void> {
         this.assertExistingName(oldName);
         this.assertNewName(newName);
+        const identity = this.unwrapIdentity(profileRenameIdentity(oldName, newName));
         await this.usb.command(
             HostCommand.ProfileRename,
-            textBytes(`${oldName}:${newName}`),
+            textBytes(identity.identity),
             DeviceResponse.Ack,
         );
     }
@@ -167,12 +191,17 @@ export class DeviceService {
      */
     async deleteProfile(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         this.assertExistingName(name);
-        return this.deleteIdentity(HostCommand.ProfileDelete, name, options);
+        return this.deleteIdentity(this.unwrapIdentity(profileIdentity(name)), options);
     }
 
     async setActiveProfile(name: string): Promise<void> {
         this.assertExistingName(name);
-        await this.usb.command(HostCommand.SetActiveProfile, textBytes(name), DeviceResponse.Ack);
+        const identity = this.unwrapIdentity(profileIdentity(name));
+        await this.usb.command(
+            HostCommand.SetActiveProfile,
+            textBytes(identity.identity),
+            DeviceResponse.Ack,
+        );
     }
 
     async setActivePage(id: string | number): Promise<void> {
@@ -191,10 +220,9 @@ export class DeviceService {
         json: string | Uint8Array,
     ): Promise<void> {
         this.assertExistingName(profile);
-        const pageId = String(id);
-        this.assertPageId(pageId);
+        const identity = this.unwrapIdentity(pageIdentity(profile, id, "transfer"));
         const bytes = typeof json === "string" ? textBytes(json) : json;
-        await this.transfer.upload(TARGET_PAGE, `${profile}/${pageId}`, bytes);
+        await this.transfer.upload(identity, bytes);
     }
 
     /**
@@ -212,7 +240,8 @@ export class DeviceService {
         } else {
             this.assertNewName(base);
         }
-        await this.transfer.upload(TARGET_ICON, base, pngBytes);
+        const identity = this.unwrapIdentity(iconIdentity(base, "transfer"));
+        await this.transfer.upload(identity, pngBytes);
     }
 
     /** Delete `/profiles/<profile>/<id>.json` on the device (`CMD_PAGE_DELETE`). */
@@ -222,9 +251,7 @@ export class DeviceService {
         options: DeleteOptions = {},
     ): Promise<DeckDeleteStatus> {
         this.assertExistingName(profile);
-        const pageId = String(id);
-        this.assertPageId(pageId);
-        return this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
+        return this.deleteIdentity(this.unwrapIdentity(pageIdentity(profile, id)), options);
     }
 
     /**
@@ -234,24 +261,20 @@ export class DeviceService {
     async deleteIcon(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         const base = iconBaseName(name);
         this.assertExistingName(base);
-        return this.deleteIdentity(HostCommand.IconDelete, base, options);
+        return this.deleteIdentity(this.unwrapIdentity(iconIdentity(base)), options);
     }
 
-    /** One identity string, no target byte: it must fit a single frame. */
+    /** The identity kind selects the delete opcode; the payload is the identity alone. */
     private async deleteIdentity(
-        opcode: HostCommand.PageDelete | HostCommand.IconDelete | HostCommand.ProfileDelete,
-        identity: string,
+        identity: DeleteIdentity,
         options: DeleteOptions,
     ): Promise<DeckDeleteStatus> {
-        const identityBytes = textBytes(identity);
-        if (identity === "" || identityBytes.length > PAYLOAD_MAX) {
-            throw new DeviceError(
-                `Identity too long for one frame: "${identity}" (${identityBytes.length} > ${PAYLOAD_MAX} bytes)`,
-                DeviceErrorCodes.InvalidIdentity,
-            );
-        }
         try {
-            await this.usb.command(opcode, identityBytes, DeviceResponse.Ack);
+            await this.usb.command(
+                deleteOpcode(identity),
+                textBytes(identity.identity),
+                DeviceResponse.Ack,
+            );
             return "deleted";
         } catch (error) {
             // The postcondition of a delete is that the file is gone, and it
@@ -267,6 +290,33 @@ export class DeviceService {
             }
             throw error;
         }
+    }
+
+    /**
+     * A builder refusal keeps the error the caller already knows: an invalid
+     * page id stays `DEVICE_INVALID_PAGE_ID`, and an unroutable identity stays
+     * `DEVICE_INVALID_IDENTITY`.
+     */
+    private unwrapIdentity<T extends DeviceIdentity>(result: IdentityResult<T>): T {
+        if (result.ok) {
+            return result.identity;
+        }
+        if (result.reason === "page-id") {
+            throw new DeviceError(
+                `Invalid page id in "${result.identity}" (expected 0..255)`,
+                DeviceErrorCodes.InvalidPageId,
+            );
+        }
+        if (result.reason === "too-long") {
+            throw new DeviceError(
+                `Identity too long for one frame: "${result.identity}" (${textBytes(result.identity).length} bytes)`,
+                DeviceErrorCodes.InvalidIdentity,
+            );
+        }
+        throw new DeviceError(
+            `Identity is empty: "${result.identity}"`,
+            DeviceErrorCodes.InvalidIdentity,
+        );
     }
 
     /**
