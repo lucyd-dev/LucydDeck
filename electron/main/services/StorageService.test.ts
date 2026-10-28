@@ -9,7 +9,6 @@ import {
     StorageService,
     isPageConfig,
     resolveDataDir,
-    validateName,
 } from "./StorageService";
 import { crc32Upload } from "@shared/crc32";
 
@@ -91,49 +90,6 @@ describe("resolveDataDir", () => {
             homeDir: "/Users/u",
         });
         expect(result).toBe(path.join("/Users/u", "Library", "Application Support", "LucydDeck"));
-    });
-});
-
-describe("validateName", () => {
-    it("rejects empty, dot, and dotdot names", () => {
-        expect(validateName("")).toBe(false);
-        expect(validateName(".")).toBe(false);
-        expect(validateName("..")).toBe(false);
-    });
-
-    it("rejects path separators and control characters", () => {
-        expect(validateName("a/b")).toBe(false);
-        expect(validateName("a\\b")).toBe(false);
-        expect(validateName("a\nb")).toBe(false);
-        expect(validateName("a\tb")).toBe(false);
-        expect(validateName("a\u0000b")).toBe(false);
-        expect(validateName("a\u007fb")).toBe(false);
-    });
-
-    it("rejects Windows-reserved device names and trailing dots/spaces", () => {
-        expect(validateName("CON")).toBe(false);
-        expect(validateName("con")).toBe(false);
-        expect(validateName("NUL")).toBe(false);
-        expect(validateName("AUX")).toBe(false);
-        expect(validateName("COM1")).toBe(false);
-        expect(validateName("COM9")).toBe(false);
-        expect(validateName("LPT1")).toBe(false);
-        expect(validateName("main.")).toBe(false);
-        expect(validateName("main ")).toBe(false);
-        expect(validateName("main .")).toBe(false);
-    });
-
-    it("accepts a normal name that merely starts like a reserved one", () => {
-        // Only COM1..COM9 are reserved; COM10 is an ordinary name.
-        // Reserved names remain reserved when followed by an extension/dot.
-        expect(validateName("COM10")).toBe(true);
-        expect(validateName("con.fig")).toBe(false);
-    });
-
-    it("accepts normal names", () => {
-        expect(validateName("main")).toBe(true);
-        expect(validateName("Space Cadet")).toBe(true);
-        expect(validateName("42")).toBe(true);
     });
 });
 

@@ -6,7 +6,7 @@ import type { Crc32, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
 import { emptyPageConfig, serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
-import { isValidEntityName, sanitizeEntityName } from "@shared/names";
+import { isPathSafeName, resolveEntityName } from "@shared/names";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
 import type { AppSettings } from "@shared/settings";
 import type { ReferenceHit, ReferenceQuery, ReferenceScanResult } from "@shared/ipc";
@@ -81,39 +81,6 @@ export function resolveDataDir(options: ResolveDataDirOptions = {}): string {
     }
 }
 
-/**
- * Mirror of the firmware `Storage::validateName` contract: non-empty, not
- * `.`/`..`, no `/` or `\` path separators, no control characters.
- *
- * Additionally rejects names that are hostile on Windows: trailing dots or
- * spaces (trimmed by the FS, causing collisions) and reserved device names
- * (`CON`, `NUL`, `AUX`, `COM1..9`, `LPT1..9`) whose creation raises raw OS
- * errors. Kept in sync with the renderer-side username checks.
- */
-const WINDOWS_RESERVED_NAME_PATTERN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
-
-export function validateName(name: string): boolean {
-    if (typeof name !== "string" || name.length === 0) {
-        return false;
-    }
-    if (name === "." || name === "..") {
-        return false;
-    }
-    if (/[. ]$/.test(name) || WINDOWS_RESERVED_NAME_PATTERN.test(name)) {
-        return false;
-    }
-    for (let i = 0; i < name.length; i++) {
-        const code = name.codePointAt(i)!;
-        if (name[i] === "/" || name[i] === "\\") {
-            return false;
-        }
-        if (code < 0x20 || code === 0x7f) {
-            return false;
-        }
-    }
-    return true;
-}
-
 export class StorageError extends Error {}
 
 export interface StorageDialogs {
@@ -148,8 +115,6 @@ export class StorageService {
         log.info(`[storage] layout ensured: ${this.dataDir}`);
     }
 
-    validateName = validateName;
-
     /** Absolute path of the `icons/` directory. */
     iconsDir(): string {
         return path.join(this.dataDir, "icons");
@@ -157,11 +122,11 @@ export class StorageService {
 
     /**
      * Absolute path of `<iconsDir>/<base>.png` after validating the base name.
-     * Throws `StorageError` for names that fail `validateName`.
+     * Throws `StorageError` for a name that is not a safe path component.
      */
     iconFilePath(name: string): string {
         const base = iconBaseName(name);
-        if (!this.validateName(base)) {
+        if (!isPathSafeName(base)) {
             throw new StorageError(`Invalid icon name: "${base}"`);
         }
         return path.join(this.iconsDir(), `${base}.png`);
@@ -358,7 +323,7 @@ export class StorageService {
     /** Persisted default profile name, or `null` when unset/invalid. */
     getDefaultProfile(): string | null {
         const { defaultProfile } = this.readSettings();
-        if (typeof defaultProfile !== "string" || !this.validateName(defaultProfile)) {
+        if (typeof defaultProfile !== "string" || !isPathSafeName(defaultProfile)) {
             return null;
         }
         return fs.existsSync(this.profileDir(defaultProfile)) ? defaultProfile : null;
@@ -370,7 +335,7 @@ export class StorageService {
         if (name === null) {
             delete settings.defaultProfile;
         } else {
-            if (!this.validateName(name)) {
+            if (!isPathSafeName(name)) {
                 throw new StorageError(`Invalid profile name: "${name}"`);
             }
             if (!fs.existsSync(this.profileDir(name))) {
@@ -390,7 +355,7 @@ export class StorageService {
         const defaultProfile = this.getDefaultProfile();
         return fs
             .readdirSync(profilesDir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && this.validateName(entry.name))
+            .filter((entry) => entry.isDirectory() && isPathSafeName(entry.name))
             .map((entry) => ({
                 name: entry.name,
                 isDefault: entry.name === defaultProfile,
@@ -399,10 +364,7 @@ export class StorageService {
     }
 
     createProfile(name: string): ProfileMeta {
-        const sanitized = sanitizeEntityName(name);
-        if (!isValidEntityName(sanitized) || !this.validateName(sanitized)) {
-            throw new StorageError(`Invalid profile name: "${name}"`);
-        }
+        const sanitized = this.resolveNewProfileName(name);
         const dir = this.profileDir(sanitized);
         if (fs.existsSync(dir)) {
             throw new StorageError(`Profile already exists: "${sanitized}"`);
@@ -416,13 +378,10 @@ export class StorageService {
     }
 
     renameProfile(oldName: string, newName: string): ProfileMeta {
-        if (!this.validateName(oldName)) {
+        if (!isPathSafeName(oldName)) {
             throw new StorageError(`Invalid profile name: "${oldName}"`);
         }
-        const sanitized = sanitizeEntityName(newName);
-        if (!isValidEntityName(sanitized) || !this.validateName(sanitized)) {
-            throw new StorageError(`Invalid profile name: "${newName}"`);
-        }
+        const sanitized = this.resolveNewProfileName(newName);
         const oldDir = this.profileDir(oldName);
         if (!fs.existsSync(oldDir)) {
             throw new StorageError(`Profile not found: "${oldName}"`);
@@ -440,7 +399,7 @@ export class StorageService {
     }
 
     deleteProfile(name: string): void {
-        if (!this.validateName(name)) {
+        if (!isPathSafeName(name)) {
             throw new StorageError(`Invalid profile name: "${name}"`);
         }
         const dir = this.profileDir(name);
@@ -633,20 +592,26 @@ export class StorageService {
         if (!stat.isDirectory()) {
             throw new StorageError(`Not a directory: "${srcDir}"`);
         }
-        const name = sanitizeEntityName(path.basename(srcDir));
-        if (!isValidEntityName(name) || !this.validateName(name)) {
-            throw new StorageError(`Invalid profile name: "${path.basename(srcDir)}"`);
-        }
-        const dest = this.profileDir(name);
+        const resolved = this.resolveNewProfileName(path.basename(srcDir));
+        const dest = this.profileDir(resolved);
         if (fs.existsSync(dest)) {
-            throw new StorageError(`Profile already exists: "${name}"`);
+            throw new StorageError(`Profile already exists: "${resolved}"`);
         }
         fs.cpSync(srcDir, dest, { recursive: true });
-        log.info(`[storage] profile imported: ${name} <- ${srcDir}`);
-        return { name };
+        log.info(`[storage] profile imported: ${resolved} <- ${srcDir}`);
+        return { name: resolved };
     }
 
     // --- Internals ------------------------------------------------------
+
+    /** Resolve a new profile name or throw the service's one name error. */
+    private resolveNewProfileName(name: string): string {
+        const resolved = resolveEntityName(name, "new");
+        if (!resolved.ok) {
+            throw new StorageError(`Invalid profile name: "${name}"`);
+        }
+        return resolved.name;
+    }
 
     private profilesDir(): string {
         return path.join(this.dataDir, PROFILES_DIR);
@@ -661,7 +626,7 @@ export class StorageService {
     }
 
     private assertProfileExists(profile: string): void {
-        if (!this.validateName(profile)) {
+        if (!isPathSafeName(profile)) {
             throw new StorageError(`Invalid profile name: "${profile}"`);
         }
         if (!fs.existsSync(this.profileDir(profile))) {

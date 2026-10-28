@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log/main";
-import { isValidEntityName, sanitizeEntityName } from "@shared/names";
+import { resolveEntityName } from "@shared/names";
 import { crc32Upload } from "@shared/crc32";
 import type { Crc32 } from "@shared/types";
 import type { StorageService } from "./StorageService";
@@ -147,17 +147,10 @@ export function slugifyIconName(input: string): string {
 
 /**
  * Resolve the stored icon name: prefer the sanitized slug of `desiredName` (or
- * the source basename), fall back to `icon` when the result is not a valid
- * entity name.
+ * the source basename) under the new-name rule, fall back to `icon` when
+ * nothing usable survives.
  */
-export function resolveIconName(
-    desiredName: string | undefined,
-    src: string,
-    isValid: (name: string) => boolean = isValidEntityName,
-): string {
-    const candidate = sanitizeEntityName(slugifyIconName(desiredName ?? path.basename(src)));
-    if (candidate !== "" && isValid(candidate)) {
-        return candidate;
-    }
-    return "icon";
+export function resolveIconName(desiredName: string | undefined, src: string): string {
+    const resolved = resolveEntityName(slugifyIconName(desiredName ?? path.basename(src)), "new");
+    return resolved.ok ? resolved.name : "icon";
 }

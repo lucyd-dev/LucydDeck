@@ -534,7 +534,7 @@ function settingsSnapshot(storage: StorageService): SettingsSnapshot {
 
 /**
  * Resolve `<iconsDir>/<base>.png` after validating the name. Returns `null` when
- * the file is missing; throws for a name that fails `validateName`.
+ * the file is missing; throws for a name that is not a safe path component.
  */
 function resolveIconFile(storage: StorageService, name: string): string | null {
     const base = iconBaseName(name);
