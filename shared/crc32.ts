@@ -68,17 +68,19 @@ export function readCrc32BigEndian(bytes: Uint8Array): Crc32 | null {
 
 /**
  * Read one hash from the firmware's list JSON, the one unchecked boundary.
- * The deck may send a number or a numeric string; anything unreadable is
- * `null`, which the planner treats as "not on the deck" rather than as a
- * matching zero.
+ * The firmware writes `calculateFileCRC(f).finalize()`, a `uint32_t`, as a
+ * plain unsigned JSON number (0, not a missing key, when a file is unreadable).
+ * A decimal-digit string is tolerated for older serializers; anything else is
+ * `null`, which the planner treats as "not on the deck" rather than risking a
+ * malformed hash matching a local CRC.
  */
 export function crc32FromWire(value: unknown): Crc32 | null {
     if (typeof value === "number") {
-        return Number.isFinite(value) ? value >>> 0 : null;
+        return Number.isInteger(value) && value >= 0 && value <= 0xffffffff ? value : null;
     }
-    if (typeof value === "string" && value.trim() !== "") {
+    if (typeof value === "string" && /^[0-9]+$/.test(value)) {
         const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed >>> 0 : null;
+        return parsed <= 0xffffffff ? parsed : null;
     }
     return null;
 }
