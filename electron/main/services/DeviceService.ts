@@ -14,8 +14,7 @@ import type { DeviceInfo } from "@shared/ipc";
 import type { DeckDeleteStatus } from "@shared/delete";
 import { iconBaseName } from "@shared/icons";
 import { crc32FromWire } from "@shared/crc32";
-import { isValidEntityName } from "@shared/names";
-import { validateName } from "./StorageService";
+import { resolveEntityName } from "@shared/names";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
 import { isFirmwareError } from "./usb/FirmwareError";
 
@@ -35,8 +34,6 @@ export class DeviceError extends Error {
         this.code = code;
     }
 }
-
-export type NameValidator = (name: string) => boolean;
 
 export interface DeleteOptions {
     /** Treat `ERR_FILE_NOT_FOUND` as success: the file is already gone. */
@@ -97,16 +94,10 @@ interface WireProfileEntry {
 export class DeviceService {
     private readonly usb: UsbCommandClient;
     private readonly transfer: FileTransfer;
-    private readonly validator: NameValidator;
 
-    constructor(
-        usb: UsbCommandClient,
-        transfer: FileTransfer,
-        validator: NameValidator = validateName,
-    ) {
+    constructor(usb: UsbCommandClient, transfer: FileTransfer) {
         this.usb = usb;
         this.transfer = transfer;
-        this.validator = validator;
     }
 
     async getDeviceInfo(): Promise<DeviceInfo> {
@@ -155,13 +146,13 @@ export class DeviceService {
     }
 
     async createProfile(name: string): Promise<void> {
-        this.assertEntityName(name);
+        this.assertNewName(name);
         await this.usb.command(HostCommand.ProfileCreate, textBytes(name), DeviceResponse.Ack);
     }
 
     async renameProfile(oldName: string, newName: string): Promise<void> {
-        this.assertName(oldName);
-        this.assertEntityName(newName);
+        this.assertExistingName(oldName);
+        this.assertNewName(newName);
         await this.usb.command(
             HostCommand.ProfileRename,
             textBytes(`${oldName}:${newName}`),
@@ -171,16 +162,16 @@ export class DeviceService {
 
     /**
      * Delete `/profiles/<name>/` on the device (`CMD_PROFILE_DELETE`). The
-     * delete lookup keeps `validateName`, so a profile stored under a name from
-     * before the entity grammar is still removable.
+     * delete lookup uses the existing-name rule, so a profile stored under a
+     * name from before the entity grammar is still removable.
      */
     async deleteProfile(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
-        this.assertName(name);
+        this.assertExistingName(name);
         return this.deleteIdentity(HostCommand.ProfileDelete, name, options);
     }
 
     async setActiveProfile(name: string): Promise<void> {
-        this.assertName(name);
+        this.assertExistingName(name);
         await this.usb.command(HostCommand.SetActiveProfile, textBytes(name), DeviceResponse.Ack);
     }
 
@@ -199,7 +190,7 @@ export class DeviceService {
         id: string | number,
         json: string | Uint8Array,
     ): Promise<void> {
-        this.assertName(profile);
+        this.assertExistingName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
         const bytes = typeof json === "string" ? textBytes(json) : json;
@@ -217,9 +208,9 @@ export class DeviceService {
     ): Promise<void> {
         const base = iconBaseName(name);
         if (options.allowLegacyName === true) {
-            this.assertName(base);
+            this.assertExistingName(base);
         } else {
-            this.assertEntityName(base);
+            this.assertNewName(base);
         }
         await this.transfer.upload(TARGET_ICON, base, pngBytes);
     }
@@ -230,7 +221,7 @@ export class DeviceService {
         id: string | number,
         options: DeleteOptions = {},
     ): Promise<DeckDeleteStatus> {
-        this.assertName(profile);
+        this.assertExistingName(profile);
         const pageId = String(id);
         this.assertPageId(pageId);
         return this.deleteIdentity(HostCommand.PageDelete, `${profile}/${pageId}`, options);
@@ -242,7 +233,7 @@ export class DeviceService {
      */
     async deleteIcon(name: string, options: DeleteOptions = {}): Promise<DeckDeleteStatus> {
         const base = iconBaseName(name);
-        this.assertName(base);
+        this.assertExistingName(base);
         return this.deleteIdentity(HostCommand.IconDelete, base, options);
     }
 
@@ -278,18 +269,26 @@ export class DeviceService {
         }
     }
 
-    private assertName(name: string): void {
-        if (!this.validator(name)) {
-            throw new DeviceError(`Invalid device name: "${name}"`, DeviceErrorCodes.InvalidName);
-        }
-    }
-
-    private assertEntityName(name: string): void {
-        if (!isValidEntityName(name)) {
+    /**
+     * The wire layer never rewrites a name: sanitising belongs to the storage
+     * boundary, and sending a different name than the caller asked for would
+     * hide a mistake. A new name that would sanitise to something else is
+     * therefore refused rather than silently changed.
+     */
+    private assertNewName(name: string): void {
+        const resolved = resolveEntityName(name, "new");
+        if (!resolved.ok || resolved.name !== name) {
             throw new DeviceError(
                 `Invalid device name: "${name}" (the deck only accepts 1-64 letters, digits, spaces, "-" and "_")`,
                 DeviceErrorCodes.InvalidName,
             );
+        }
+    }
+
+    /** A lookup or delete addresses something already on the deck. */
+    private assertExistingName(name: string): void {
+        if (!resolveEntityName(name, "existing").ok) {
+            throw new DeviceError(`Invalid device name: "${name}"`, DeviceErrorCodes.InvalidName);
         }
     }
 

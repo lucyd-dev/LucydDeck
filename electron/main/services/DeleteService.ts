@@ -8,8 +8,9 @@ import {
     type DeleteResult,
     type LibraryDeleteSide,
 } from "@shared/delete";
+import { isPathSafeName } from "@shared/names";
 import { DeviceLockError, type DeviceLock } from "./DeviceLock";
-import { StorageError, validateName, type StorageService } from "./StorageService";
+import { StorageError, type StorageService } from "./StorageService";
 
 /** Minimal deck surface a delete needs (satisfied by `DeviceService`). */
 export interface DeleteDeviceClient {
@@ -144,7 +145,7 @@ export class DeleteService {
 
     /** A profile name must be one the app could have created or kept. */
     private assertProfileName(name: string): void {
-        if (!validateName(name)) {
+        if (!isPathSafeName(name)) {
             throw new StorageError(`Invalid profile name: "${name}"`);
         }
     }
@@ -152,7 +153,7 @@ export class DeleteService {
     /** Validate the request and return the base name both copies address. */
     private iconRequestBase(name: string): string {
         const base = iconBaseName(name);
-        if (!validateName(base)) {
+        if (!isPathSafeName(base)) {
             throw new StorageError(`Invalid icon name: "${base}"`);
         }
         return base;

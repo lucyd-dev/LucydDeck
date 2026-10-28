@@ -8,7 +8,7 @@ import {
     pageIdFromFilename,
 } from "@shared/protocol";
 import { iconBaseName } from "@shared/icons";
-import { isValidEntityName, sanitizeEntityName } from "@shared/names";
+import { isEntityName, sanitizeEntityName } from "@shared/names";
 import { isPluginHandle } from "@shared/plugins";
 import type { SyncProgressPayload, TransferProgressEvent } from "@shared/ipc";
 import {
@@ -416,11 +416,12 @@ export class SyncService {
             try {
                 localHash = this.storage.iconHash(icon.name);
             } catch (error) {
-                // A filename that fails `validateName` cannot be uploaded; skip.
+                // A filename that is not a safe path component cannot be
+                // uploaded; skip.
                 log.warn(`[sync] icon "${icon.name}" has an invalid name: ${String(error)}`);
                 continue;
             }
-            if (!isValidEntityName(icon.name) && !deviceIcons.has(icon.name)) {
+            if (!isEntityName(icon.name) && !deviceIcons.has(icon.name)) {
                 // A legacy name is only writable when the deck already has that
                 // file (the firmware's overwrite exception). A new one would be
                 // rejected, so leave it out instead of aborting the whole sync.
@@ -590,7 +591,7 @@ export class SyncService {
                     // A reconcile plan only keeps a legacy name when the deck
                     // already has that file, so this is the firmware's overwrite
                     // exception rather than a new name.
-                    allowLegacyName: !isValidEntityName(icon.name),
+                    allowLegacyName: !isEntityName(icon.name),
                 });
                 result.uploadedIcons.push(icon);
                 tick("icon", icon.name);
