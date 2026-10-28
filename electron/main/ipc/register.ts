@@ -308,20 +308,9 @@ export function registerIpcHandlers(services: IpcServices): void {
     });
     register(channels.usb.uploadPage, async ({ profile, id }) =>
         withDeckWrite(async () => {
-            const page = storage.loadPage(profile, id);
-            const validation = validatePageConfig(page);
-            if (!validation.ok) {
-                throw new Error(
-                    `Page config is invalid: ${validation.errors.join("; ") || "unknown validation error"}`,
-                );
-            }
-            // Canonicalize exactly like SyncService so the device CRC matches
-            // the locally computed hash (same bytes on both upload paths).
-            await device.uploadPage(
-                profile,
-                id,
-                JSON.stringify(serializePageConfig(validation.page)),
-            );
+            // The storage boundary owns validation, canonicalisation and the
+            // CRC, so the device receives exactly the bytes the library lists.
+            await device.uploadPage(storage.loadPageArtifact(profile, id));
             return { ok: true, data: undefined };
         }),
     );

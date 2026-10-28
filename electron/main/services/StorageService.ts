@@ -4,7 +4,8 @@ import path from "node:path";
 import log from "electron-log/main";
 import type { Crc32, PageConfig, PageMeta, ProfileMeta } from "@shared/types";
 import { PAGE_FILENAME_PATTERN, isValidPageId, pageIdFromFilename } from "@shared/protocol";
-import { emptyPageConfig, serializePageConfig, validatePageConfig } from "@shared/schema";
+import { emptyPageConfig, serializePageConfig } from "@shared/schema";
+import { createPageArtifact, type PageArtifact } from "@shared/artifact";
 import { iconBaseName } from "@shared/icons";
 import { isPathSafeName, resolveEntityName } from "@shared/names";
 import { mergeAppSettings, sanitizeAppSettings } from "@shared/settings";
@@ -35,8 +36,6 @@ export interface StorageSettings {
 export const PAGE_FILE_PATTERN = PAGE_FILENAME_PATTERN;
 
 export type PlatformName = string;
-
-const encoder = new TextEncoder();
 
 export interface ResolveDataDirOptions {
     platform?: PlatformName;
@@ -427,7 +426,9 @@ export class StorageService {
             .map((item) => ({
                 id: item.id!,
                 mtimeMs: safeMtimeMs(path.join(dir, item.entry.name)),
-                hash: this.pageHash(profile, item.id!) ?? undefined,
+                // An invalid or unreadable page still lists, just without a
+                // hash, so the sync does not mistake it for a device-only page.
+                hash: this.pageArtifactOrNull(profile, item.id!)?.crc32,
             }))
             .sort((a, b) => Number(a.id) - Number(b.id));
     }
@@ -525,21 +526,37 @@ export class StorageService {
     }
 
     /**
-     * CRC-32 of the canonical upload bytes for a page (the same bytes
-     * `SyncService` hashes), or `null` when the page is missing/invalid.
+     * The page's upload artifact: identity, canonical bytes and CRC-32. This is
+     * the one place a stored page becomes upload bytes; the page listing derives
+     * its hash from the same artifact.
+     *
+     * Throws `StorageError` when the page cannot be read, its config is invalid,
+     * or its identity cannot be carried by a file transfer.
      */
-    pageHash(profile: string, id: string): Crc32 | null {
+    loadPageArtifact(profile: string, id: string): PageArtifact {
         let page: PageConfig;
         try {
             page = this.loadPage(profile, id);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new StorageError(`Page ${profile}/${id}.json could not be read: ${message}`);
+        }
+        const result = createPageArtifact(profile, id, page);
+        if (!result.ok) {
+            const verb = result.reason === "identity" ? "cannot be uploaded" : "is invalid";
+            throw new StorageError(
+                `Page ${profile}/${id}.json ${verb}: ${result.errors.join("; ")}`,
+            );
+        }
+        return result.artifact;
+    }
+
+    private pageArtifactOrNull(profile: string, id: string): PageArtifact | null {
+        try {
+            return this.loadPageArtifact(profile, id);
         } catch {
             return null;
         }
-        const validation = validatePageConfig(page);
-        if (!validation.ok) {
-            return null;
-        }
-        return crc32Upload(encoder.encode(JSON.stringify(serializePageConfig(validation.page))));
     }
 
     // --- Export / import ------------------------------------------------

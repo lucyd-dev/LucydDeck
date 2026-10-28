@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { channels } from "@shared/ipc";
+import { crc32Upload } from "@shared/crc32";
+import type { PageArtifact } from "@shared/artifact";
 import { emptyDiffPlan } from "@shared/sync";
 import { DeleteService } from "../services/DeleteService";
 import { DeviceLock, deviceBusyMessage } from "../services/DeviceLock";
@@ -346,6 +348,29 @@ describe("IPC deck ownership guards", () => {
 
         expect(writingDuringCall).toBe(true);
         expect(lock.busy).toBe(false);
+    });
+
+    it("uploads the stored page as one page artifact", async () => {
+        storage.savePage("main", "0", { buttons: { "0": { label: "Hi", click: [] } } });
+
+        const result = await invoke(channels.usb.uploadPage, { profile: "main", id: "0" });
+
+        expect(result).toEqual({ ok: true, data: undefined });
+        const artifact = device.uploadPage.mock.calls[0][0] as PageArtifact;
+        expect(artifact.identity.identity).toBe("main/0");
+        expect(new TextDecoder().decode(artifact.bytes)).toBe(
+            '{"buttons":{"0":{"click":[],"label":"Hi"}}}',
+        );
+        expect(artifact.crc32).toBe(crc32Upload(artifact.bytes));
+    });
+
+    it("refuses an invalid page before it reaches the deck", async () => {
+        fs.writeFileSync(path.join(dataDir, "profiles", "main", "0.json"), '{"buttons":{"99":{}}}');
+
+        const result = await invoke(channels.usb.uploadPage, { profile: "main", id: "0" });
+
+        expect(result).toMatchObject({ ok: false });
+        expect(device.uploadPage).not.toHaveBeenCalled();
     });
 
     it("releases the write lock after a failed write so the next write works", async () => {
