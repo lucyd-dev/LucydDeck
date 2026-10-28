@@ -15,8 +15,8 @@ const local: LocalInventory = {
         { name: "work", pages: [] },
     ],
     icons: [
-        { name: "github", hash: "444" },
-        { name: "local-only", hash: "555" },
+        { name: "github", hash: 444 },
+        { name: "local-only", hash: 555 },
     ],
 };
 
@@ -80,6 +80,19 @@ describe("device inventory", () => {
             deviceOnly: 4,
             outOfSync: 1,
             total: 11,
+        });
+    });
+
+    it("treats an unreadable device hash as absent", () => {
+        const rows = buildInventory(local, {
+            ...device,
+            profiles: [],
+            icons: [{ filename: "github.png", hash: null }],
+        });
+        expect(rows.find((row) => row.key === "icon:github")).toMatchObject({
+            localHash: "444",
+            deviceHash: null,
+            state: "local-only",
         });
     });
 });

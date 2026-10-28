@@ -14,6 +14,7 @@ import type {
 } from "@shared/ipc";
 import { serializePageConfig, validatePageConfig } from "@shared/schema";
 import { iconBaseName } from "@shared/icons";
+import type { Crc32 } from "@shared/types";
 import type { StorageService } from "../services/StorageService";
 import type { UsbService } from "../services/UsbService";
 import type { DeviceService } from "../services/DeviceService";
@@ -402,7 +403,7 @@ export function registerIpcHandlers(services: IpcServices): void {
         const imported: IconMeta[] = [];
         for (const src of sources) {
             const icon = await imagePipeline.importImage(src);
-            imported.push({ name: icon.name, hash: String(icon.crc32) });
+            imported.push({ name: icon.name, hash: icon.crc32 });
         }
         return { ok: true, data: imported };
     });
@@ -413,7 +414,7 @@ export function registerIpcHandlers(services: IpcServices): void {
         try {
             fs.writeFileSync(temp, bytes);
             const icon = await imagePipeline.importImage(temp, name);
-            return { ok: true, data: { name: icon.name, hash: String(icon.crc32) } };
+            return { ok: true, data: { name: icon.name, hash: icon.crc32 } };
         } finally {
             fs.rmSync(tempDir, { recursive: true, force: true });
         }
@@ -613,9 +614,9 @@ function decodeImageDataUrl(dataUrl: unknown): Buffer {
 }
 
 /** Cache of `<path> -> {mtimeMs, size, crc32}` so `icons:list` avoids re-hashing. */
-const iconHashCache = new Map<string, { mtimeMs: number; size: number; crc32: number }>();
+const iconHashCache = new Map<string, { mtimeMs: number; size: number; crc32: Crc32 }>();
 
-/** List `icons/*.png` as `{name (base), hash (decimal CRC32)}`. */
+/** List `icons/*.png` as `{name (base), hash (CRC32)}`. */
 function listLocalIcons(storage: StorageService): IconMeta[] {
     const dir = storage.iconsDir();
     if (!fs.existsSync(dir)) {
@@ -627,13 +628,13 @@ function listLocalIcons(storage: StorageService): IconMeta[] {
         .map((entry) => {
             const base = iconBaseName(entry.name);
             const file = path.join(dir, entry.name);
-            return { name: base, hash: String(cachedIconHash(storage, base, file)) };
+            return { name: base, hash: cachedIconHash(storage, base, file) };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** CRC-32 of an icon file (via the shared `StorageService.iconHash`), memoized by mtime + size. */
-function cachedIconHash(storage: StorageService, base: string, file: string): number {
+function cachedIconHash(storage: StorageService, base: string, file: string): Crc32 {
     const stats = fs.statSync(file);
     const cached = iconHashCache.get(file);
     if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {

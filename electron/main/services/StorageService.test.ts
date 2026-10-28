@@ -11,7 +11,7 @@ import {
     resolveDataDir,
     validateName,
 } from "./StorageService";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
 
 vi.mock("electron-log/main", () => ({
     default: {

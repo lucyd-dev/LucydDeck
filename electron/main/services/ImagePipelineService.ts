@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import log from "electron-log/main";
 import { isValidEntityName, sanitizeEntityName } from "@shared/names";
-import { crc32Upload } from "./usb/Crc32";
+import { crc32Upload } from "@shared/crc32";
+import type { Crc32 } from "@shared/types";
 import type { StorageService } from "./StorageService";
 
 /** Device button geometry (px); icons are stored square at this size. */
@@ -36,7 +37,7 @@ export interface ImportedIcon {
     /** Stored PNG size in bytes. */
     bytes: number;
     /** CRC-32 of the stored PNG (matches the device's list hash). */
-    crc32: number;
+    crc32: Crc32;
 }
 
 export interface ImagePipelineServiceOptions {

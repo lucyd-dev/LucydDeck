@@ -4,7 +4,8 @@
 // this matches byte-for-byte — required for `CMD_FILE_END` and the list hashes.
 // ---------------------------------------------------------------------------
 
-import { padToPayload } from "@shared/protocol";
+import { padToPayload } from "./protocol";
+import type { Crc32 } from "./types";
 
 const TABLE: Uint32Array = (() => {
     const table = new Uint32Array(256);
@@ -19,7 +20,7 @@ const TABLE: Uint32Array = (() => {
 })();
 
 /** CRC-32 of `bytes` as an unsigned 32-bit number. */
-export function crc32(bytes: Uint8Array): number {
+export function crc32(bytes: Uint8Array): Crc32 {
     let crc = 0xffffffff;
     for (let i = 0; i < bytes.length; i++) {
         crc = (TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8)) >>> 0;
@@ -28,7 +29,7 @@ export function crc32(bytes: Uint8Array): number {
 }
 
 /** Big-endian 4-byte rendering of a CRC-32 value (wire format). */
-export function crc32ToBigEndian(value: number): Uint8Array {
+export function crc32ToBigEndian(value: Crc32): Uint8Array {
     return Uint8Array.from([
         (value >>> 24) & 0xff,
         (value >>> 16) & 0xff,
@@ -42,7 +43,7 @@ export function crc32ToBigEndian(value: number): Uint8Array {
  * whole 60-byte HID payloads. This is both the `CMD_FILE_END` check value and
  * the list hash of the file the firmware stores.
  */
-export function crc32Upload(bytes: Uint8Array): number {
+export function crc32Upload(bytes: Uint8Array): Crc32 {
     return crc32(padToPayload(bytes));
 }
 
@@ -52,7 +53,7 @@ export function crc32BigEndian(bytes: Uint8Array): Uint8Array {
 }
 
 /** Decode a big-endian 4-byte CRC from a wire payload. */
-export function readCrc32BigEndian(bytes: Uint8Array): number | null {
+export function readCrc32BigEndian(bytes: Uint8Array): Crc32 | null {
     if (bytes.length < 4) {
         return null;
     }
@@ -63,4 +64,21 @@ export function readCrc32BigEndian(bytes: Uint8Array): number | null {
             (bytes[3] >>> 0)) >>>
         0
     );
+}
+
+/**
+ * Read one hash from the firmware's list JSON, the one unchecked boundary.
+ * The deck may send a number or a numeric string; anything unreadable is
+ * `null`, which the planner treats as "not on the deck" rather than as a
+ * matching zero.
+ */
+export function crc32FromWire(value: unknown): Crc32 | null {
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value >>> 0 : null;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed >>> 0 : null;
+    }
+    return null;
 }

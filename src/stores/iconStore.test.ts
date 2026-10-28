@@ -17,7 +17,7 @@ vi.mock("@/ipc/client", () => ({
 import { useIconStore } from "./iconStore";
 
 function icon(name: string): IconMeta {
-    return { name, hash: name };
+    return { name, hash: 0 };
 }
 
 describe("iconStore delete aftermath", () => {

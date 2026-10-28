@@ -13,6 +13,7 @@ import {
 import type { DeviceInfo } from "@shared/ipc";
 import type { DeckDeleteStatus } from "@shared/delete";
 import { iconBaseName } from "@shared/icons";
+import { crc32FromWire } from "@shared/crc32";
 import { isValidEntityName } from "@shared/names";
 import { validateName } from "./StorageService";
 import type { FileTransfer, UsbCommandClient } from "./FileTransfer";
@@ -68,6 +69,26 @@ function parseJson<T>(payload: Uint8Array, what: string): T {
 }
 
 /**
+ * The list payloads are the one unchecked boundary: the deck may render a hash
+ * as a number or a numeric string, and an entry may carry none at all.
+ */
+interface WireImageEntry {
+    filename: string;
+    hash: unknown;
+}
+
+interface WirePageEntry {
+    id: number | string;
+    filename: string;
+    hash: unknown;
+}
+
+interface WireProfileEntry {
+    name: string;
+    pages?: WirePageEntry[];
+}
+
+/**
  * Typed device operations over `UsbService.command`. Owns the wire encodings
  * for profile, page and icon commands and delegates byte transfer to
  * `FileTransfer`. Icon names are exposed/stored without the `.png` extension;
@@ -109,7 +130,11 @@ export class DeviceService {
             new Uint8Array(),
             DeviceResponse.ImagesList,
         );
-        return parseJson<DeviceImageEntry[]>(payload, "images list");
+        const entries = parseJson<WireImageEntry[]>(payload, "images list");
+        return entries.map((entry) => ({
+            filename: entry.filename,
+            hash: crc32FromWire(entry.hash),
+        }));
     }
 
     async listProfiles(): Promise<DeviceProfileEntry[]> {
@@ -118,7 +143,15 @@ export class DeviceService {
             new Uint8Array(),
             DeviceResponse.ProfilesList,
         );
-        return parseJson<DeviceProfileEntry[]>(payload, "profiles list");
+        const profiles = parseJson<WireProfileEntry[]>(payload, "profiles list");
+        return profiles.map((profile) => ({
+            name: profile.name,
+            pages: (profile.pages ?? []).map((page) => ({
+                id: page.id,
+                filename: page.filename,
+                hash: crc32FromWire(page.hash),
+            })),
+        }));
     }
 
     async createProfile(name: string): Promise<void> {

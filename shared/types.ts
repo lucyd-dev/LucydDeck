@@ -1,3 +1,6 @@
+/** IEEE/zlib CRC-32 of a file's canonical upload bytes, as a uint32 number. */
+export type Crc32 = number;
+
 export interface ProfileMeta {
     name: string;
     /** True when this profile is the persistent boot default. */
@@ -9,7 +12,7 @@ export interface PageMeta {
     /** File mtime (ms) for external-edit detection; optional on the wire. */
     mtimeMs?: number;
     /** CRC-32 of the canonical upload bytes; absent when the page is invalid. */
-    hash?: number;
+    hash?: Crc32;
 }
 
 export interface ButtonConfig {

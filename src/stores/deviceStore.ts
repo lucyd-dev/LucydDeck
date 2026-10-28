@@ -176,12 +176,12 @@ export const useDeviceStore = defineStore("device", () => {
                     name: entry.name,
                     pages: (entry.pages ?? []).map((page) => ({
                         id: String(page.id || page.filename.replace(/\.json$/i, "")),
-                        hash: Number(page.hash),
+                        hash: page.hash,
                     })),
                 })),
                 icons: imagesResult.data.map((image) => ({
                     filename: image.filename,
-                    hash: Number(image.hash),
+                    hash: image.hash,
                 })),
             };
             inventory.value = buildInventory(local, device);
