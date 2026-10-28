@@ -38,6 +38,8 @@ node "$MAIN/scripts/cdp.mjs" 'return document.body.innerText.slice(0, 600)'
 
 The expression runs inside an async function. Use `await window.lucyd.invoke(...)` for IPC.
 
+Payload shapes are each channel's schema in `electron/main/ipc/register.ts`, and they are not uniform: `storage:listPages` takes `{ name }`, `delete:profile` takes `{ name }`, while `storage:savePage` takes `{ profile, id, page }`. Read the schema before writing a `cdp.mjs` call; a wrong key comes back as a validation error that names a different field, not as a hint about the one you meant.
+
 Connect the deck by clicking the chip in the app, or with:
 
 ```bash
